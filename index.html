@@ -5250,8 +5250,9 @@
             if (exEl) exEl.textContent = COMP_EXCLUDED.size > 0 ? COMP_EXCLUDED.size + ' items excluidos' : '';
 
             // === INGRESOS BY CLIENT (using 'en' field, fallback to 'i') ===
+            // EXCLUDE capital injections — aportes/mutuos are NOT client income
             const ingByClient = {};
-            active.filter(m => m.v > 0).forEach(m => {
+            active.filter(m => m.v > 0 && !isCapitalInjection(m)).forEach(m => {
                 // Use entidad for cobranza, item for others
                 let key = m.en || m.i || '(sin nombre)';
                 if (key.length > 60) key = key.slice(0, 57) + '...';
