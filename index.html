@@ -1822,6 +1822,16 @@
         };
 
         // === DATA NORMALIZATION ===
+
+        // Fix DATA.bd: columns cap/int were loaded swapped from the original file
+        // Original file 'SOLO CAPITAL' = what was loaded as 'int', and vice versa
+        (DATA.bd || []).forEach(m => {
+            const realCap = m.int || 0;  // int field actually has capital
+            const realInt = m.cap || 0;  // cap field actually has intereses
+            m.cap = realCap;
+            m.int = realInt;
+        });
+
         // Recategorize Santander refinanciación (tipo Proveedores → Préstamos Bancarios)
         // Fix USD-denominated movements loaded as raw USD values (should be ARS equivalent)
         // Add 'monOrig' field: 'USD' or 'ARS' to track original currency
@@ -4552,10 +4562,29 @@
             const totalIntPend = pendIntTQN + pendIntLMS;
             const totalCuotas = pendTQN.length + pendLMS.length;
 
-            // Próxima cuota combinada del mes
-            const mesCuotaTQN = proxTQN ? (proxTQN.cap||0) + (proxTQN.int||0) : 0;
-            const mesCuotaLMS = proxLMS ? (proxLMS.total||0) : 0;
-            const proxMes = proxTQN ? fmtMonthAR(proxTQN.mes) : (proxLMS ? fmtMonthAR(proxLMS.mes) : '');
+            // Próximo mes = mes siguiente al actual
+            const proxDate = new Date();
+            proxDate.setMonth(proxDate.getMonth() + 1);
+            const proxMesStr = proxDate.toISOString().slice(0, 7);
+            const mNamesB = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+            const proxMesLabel = mNamesB[proxDate.getMonth()] + ' ' + proxDate.getFullYear();
+
+            // Cuota mayo (próximo mes) — toda la deuda: bancaria + GC
+            const proxBancTQN = bdTQN.filter(m => m.mes === proxMesStr);
+            const proxBancLMS = bdLMS.filter(m => m.mes === proxMesStr);
+            const proxCapTQN = proxBancTQN.reduce((s, m) => s + (m.cap || 0), 0);
+            const proxIntTQN = proxBancTQN.reduce((s, m) => s + (m.int || 0), 0);
+            const proxTotalLMS = proxBancLMS.reduce((s, m) => s + (m.total || 0), 0);
+
+            // GC del próximo mes
+            const gcTerm2 = DATA.gc_term || {};
+            const schedule2 = gcTerm2.schedule || [];
+            const tc2 = parseFloat(document.getElementById('tcUSD')?.value) || MEP.rate;
+            const proxGCCuotas = schedule2.filter(c => !c.pagada && (c.fecha || '').slice(0,7) === proxMesStr);
+            const proxGCUSD = proxGCCuotas.reduce((s, c) => s + (c.usd || 0), 0);
+            const proxGCARS = proxGCUSD * tc2;
+
+            const proxTotalDeuda = proxCapTQN + proxIntTQN + proxTotalLMS + proxGCARS;
 
             document.getElementById('deudaBancariaKPIs').innerHTML = `
                 <div class="kpi">
@@ -4569,9 +4598,9 @@
                     <div class="kpi-sub">TQN: ${formatARS(pendIntTQN)}${pendIntLMS > 0 ? ' · LMS: ' + formatARS(pendIntLMS) : ''}</div>
                 </div>
                 <div class="kpi" style="border-left:3px solid #f0883e">
-                    <div class="kpi-label">Próx. Cuota Bancaria (${proxMes})</div>
-                    <div class="kpi-value negative">${formatARS(mesCuotaTQN + mesCuotaLMS)}</div>
-                    <div class="kpi-sub">TQN: ${formatARS(mesCuotaTQN)} · LMS: ${formatARS(mesCuotaLMS)}</div>
+                    <div class="kpi-label">Deuda ${proxMesLabel} (Toda)</div>
+                    <div class="kpi-value negative">${formatARS(proxTotalDeuda)}</div>
+                    <div class="kpi-sub">Banc: ${formatARS(proxCapTQN + proxIntTQN + proxTotalLMS)}${proxGCARS > 0 ? ' · GC: ' + formatARS(proxGCARS) : ''}</div>
                 </div>
             `;
 
