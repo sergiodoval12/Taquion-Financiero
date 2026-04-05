@@ -625,6 +625,7 @@
 
             <div class="nav-section">
                 <div class="nav-section-title">Operaciones</div>
+                <div class="nav-item" onclick="showPage('auditoria')">Auditoría SOT</div>
                 <div class="nav-item" onclick="showPage('carga')">Carga de Datos</div>
                 <div class="nav-item" onclick="showPage('movimientos')">Movimientos</div>
             </div>
@@ -1407,6 +1408,55 @@
                 </div>
             </div>
 
+            <!-- AUDITORÍA SOT PAGE -->
+            <div id="auditoria" class="page">
+                <h1>Auditoría SOT</h1>
+                <div class="reference-banner">Validación tipo por tipo de cada movimiento · Marcar como validado, flaggear discrepancias · Progreso global</div>
+
+                <!-- Progress bar global -->
+                <div id="auditProgress" style="margin-bottom:20px"></div>
+
+                <!-- Filters -->
+                <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
+                    <select id="auditTipo" onchange="renderAuditoria()" style="background:#161b22;border:1px solid #30363d;color:#e6edf3;padding:6px 10px;border-radius:4px;font-size:11px">
+                        <option value="all">Todos los tipos</option>
+                    </select>
+                    <select id="auditMes" onchange="renderAuditoria()" style="background:#161b22;border:1px solid #30363d;color:#e6edf3;padding:6px 10px;border-radius:4px;font-size:11px">
+                        <option value="all">Todos los meses</option>
+                    </select>
+                    <select id="auditEmpresa" onchange="renderAuditoria()" style="background:#161b22;border:1px solid #30363d;color:#e6edf3;padding:6px 10px;border-radius:4px;font-size:11px">
+                        <option value="all">Todas las empresas</option>
+                        <option value="TQN">TQN</option>
+                        <option value="LMS">LMS</option>
+                    </select>
+                    <select id="auditEstado" onchange="renderAuditoria()" style="background:#161b22;border:1px solid #30363d;color:#e6edf3;padding:6px 10px;border-radius:4px;font-size:11px">
+                        <option value="all">Todos</option>
+                        <option value="pendiente">Pendientes</option>
+                        <option value="ok">Validados ✓</option>
+                        <option value="flag">Flaggeados ⚠</option>
+                        <option value="corregido">Corregidos ✎</option>
+                    </select>
+                    <span style="border-left:1px solid #30363d;height:20px;margin:0 4px"></span>
+                    <button onclick="auditValidateAllVisible()" style="background:#23863620;border:1px solid #238636;color:#3fb950;padding:6px 12px;border-radius:5px;cursor:pointer;font-size:10px;font-weight:600">✓ Validar todos visibles</button>
+                    <button onclick="auditResetAll()" style="background:none;border:1px solid #30363d;color:#8b949e;padding:6px 10px;border-radius:5px;cursor:pointer;font-size:10px">↻ Reset auditoría</button>
+                    <button onclick="exportAuditCSV()" class="secondary" style="font-size:10px;padding:6px 10px">Exportar CSV</button>
+                </div>
+
+                <!-- KPIs -->
+                <div id="auditKPIs" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:16px"></div>
+
+                <!-- Tipo summary cards -->
+                <div id="auditTipoSummary" style="margin-bottom:16px"></div>
+
+                <!-- Movement table -->
+                <div class="card">
+                    <div class="card-title">Movimientos <span id="auditCount" style="font-size:10px;color:#8b949e;font-weight:400"></span></div>
+                    <div style="overflow-x:auto">
+                        <table id="auditTable" style="min-width:1200px"></table>
+                    </div>
+                </div>
+            </div>
+
         </div>
     </div>
 
@@ -1865,6 +1915,7 @@
             else if (page === 'composicion') renderComposicion();
             else if (page === 'semanal') renderSemanal();
             else if (page === 'nomina') renderNomina();
+            else if (page === 'auditoria') renderAuditoria();
         }
 
         // Today string for forward-only conversion rule
@@ -1972,7 +2023,7 @@
 
             // Mobile: close sidebar and update title
             document.querySelector('.sidebar')?.classList.remove('open');
-            const titles = { dashboard:'Dashboard', operacion:'Operación BAU', deuda:'Deuda', composicion:'Composición', bancarizado:'B/N Splits', semanal:'Semanal 45d', whatif:'Sandbox', carga:'Carga', movimientos:'Movimientos', nomina:'Nómina' };
+            const titles = { dashboard:'Dashboard', operacion:'Operación BAU', deuda:'Deuda', composicion:'Composición', bancarizado:'B/N Splits', semanal:'Semanal 45d', whatif:'Sandbox', carga:'Carga', movimientos:'Movimientos', nomina:'Nómina', auditoria:'Auditoría SOT' };
             const mpt = document.getElementById('mobilePageTitle');
             if (mpt) mpt.textContent = titles[pageId] || pageId;
 
@@ -1987,6 +2038,7 @@
                 else if (pageId === 'whatif') renderWhatIf();
                 else if (pageId === 'movimientos') renderMovimientos();
                 else if (pageId === 'nomina') renderNomina();
+                else if (pageId === 'auditoria') renderAuditoria();
             }, 100);
         }
 
@@ -2716,6 +2768,286 @@
             } else {
                 document.getElementById('reconcNameMatches').innerHTML = '<div style="font-size:10px;color:#8b949e;padding:8px">No se encontraron coincidencias de nombre en movimientos individuales para este mes.</div>';
             }
+        }
+
+        // === AUDITORÍA SOT ===
+        // Audit state: { movKey: { status: 'pendiente'|'ok'|'flag'|'corregido', nota: '', ts: '' } }
+        let AUDIT_STATE = JSON.parse(localStorage.getItem('tqn_audit_state') || '{}');
+
+        function saveAuditState() {
+            localStorage.setItem('tqn_audit_state', JSON.stringify(AUDIT_STATE));
+        }
+
+        function getAuditKey(m, idx) {
+            // Unique key per movement: fecha + empresa + tipo + item + entidad + value
+            return (m.f||'') + '|' + (m.e||'') + '|' + (m.t||'') + '|' + (m.i||'') + '|' + (m.en||'').substring(0,30) + '|' + (m.v||0) + '|' + idx;
+        }
+
+        function setAuditStatus(key, status, nota) {
+            if (!AUDIT_STATE[key]) AUDIT_STATE[key] = {};
+            AUDIT_STATE[key].status = status;
+            if (nota !== undefined) AUDIT_STATE[key].nota = nota;
+            AUDIT_STATE[key].ts = new Date().toISOString();
+            saveAuditState();
+        }
+
+        function auditValidateAllVisible() {
+            if (!confirm('¿Marcar todos los movimientos visibles como validados?')) return;
+            const rows = document.querySelectorAll('#auditTable tbody tr[data-audit-key]');
+            rows.forEach(row => {
+                const key = row.getAttribute('data-audit-key');
+                if (key) setAuditStatus(key, 'ok');
+            });
+            renderAuditoria();
+            showNotification('Todos los movimientos visibles marcados como validados ✓');
+        }
+
+        function auditResetAll() {
+            if (!confirm('¿Resetear toda la auditoría? Se perderán todas las validaciones y flags.')) return;
+            AUDIT_STATE = {};
+            saveAuditState();
+            renderAuditoria();
+            showNotification('Auditoría reseteada');
+        }
+
+        function auditToggleStatus(key) {
+            const current = (AUDIT_STATE[key] || {}).status || 'pendiente';
+            const cycle = ['pendiente', 'ok', 'flag', 'corregido'];
+            const nextIdx = (cycle.indexOf(current) + 1) % cycle.length;
+            setAuditStatus(key, cycle[nextIdx]);
+            renderAuditoria();
+        }
+
+        function auditAddNota(key) {
+            const current = (AUDIT_STATE[key] || {}).nota || '';
+            const nota = prompt('Nota de auditoría:', current);
+            if (nota !== null) {
+                if (!AUDIT_STATE[key]) AUDIT_STATE[key] = { status: 'flag' };
+                AUDIT_STATE[key].nota = nota;
+                AUDIT_STATE[key].ts = new Date().toISOString();
+                saveAuditState();
+                renderAuditoria();
+            }
+        }
+
+        function exportAuditCSV() {
+            const movs = DATA.mov || [];
+            let csv = 'Fecha,Estado Mov,Empresa,Categoría,Tipo,Item,Entidad,Monto,Audit Status,Audit Nota\n';
+            movs.forEach((m, idx) => {
+                if (m._deleted) return;
+                const key = getAuditKey(m, idx);
+                const audit = AUDIT_STATE[key] || {};
+                const row = [
+                    m.f || '', m.eo || '', m.e || '', m.bn || '', m.t || '', m.i || '',
+                    '"' + (m.en || '').replace(/"/g, '""') + '"',
+                    m.v || 0,
+                    audit.status || 'pendiente',
+                    '"' + (audit.nota || '').replace(/"/g, '""') + '"'
+                ];
+                csv += row.join(',') + '\n';
+            });
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = 'auditoria_sot_' + new Date().toISOString().slice(0,10) + '.csv';
+            a.click();
+        }
+
+        function renderAuditoria() {
+            const movs = DATA.mov || [];
+            if (movs.length === 0) return;
+
+            // Populate tipo dropdown
+            const tipoSelect = document.getElementById('auditTipo');
+            const tipos = [...new Set(movs.filter(m => !m._deleted).map(m => m.t).filter(Boolean))].sort();
+            const currentTipo = tipoSelect.value;
+            if (tipoSelect.options.length <= 1) {
+                tipoSelect.innerHTML = '<option value="all">Todos los tipos</option>';
+                tipos.forEach(t => {
+                    const opt = document.createElement('option');
+                    opt.value = t; opt.textContent = t;
+                    tipoSelect.appendChild(opt);
+                });
+            }
+            tipoSelect.value = currentTipo || 'all';
+
+            // Populate month dropdown
+            const mesSelect = document.getElementById('auditMes');
+            const meses = [...new Set(movs.filter(m => !m._deleted && m.f).map(m => m.f.slice(0,7)))].sort().reverse();
+            const currentMes = mesSelect.value;
+            if (mesSelect.options.length <= 1) {
+                mesSelect.innerHTML = '<option value="all">Todos los meses</option>';
+                const mNames = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+                meses.forEach(m => {
+                    const opt = document.createElement('option');
+                    opt.value = m;
+                    const [y, mo] = m.split('-');
+                    opt.textContent = mNames[parseInt(mo)-1] + ' ' + y;
+                    mesSelect.appendChild(opt);
+                });
+            }
+            mesSelect.value = currentMes || 'all';
+
+            const fTipo = tipoSelect.value;
+            const fMes = mesSelect.value;
+            const fEmpresa = document.getElementById('auditEmpresa').value;
+            const fEstado = document.getElementById('auditEstado').value;
+
+            // Filter movements
+            const filtered = [];
+            movs.forEach((m, idx) => {
+                if (m._deleted) return;
+                if (fTipo !== 'all' && m.t !== fTipo) return;
+                if (fMes !== 'all' && (!m.f || m.f.slice(0,7) !== fMes)) return;
+                if (fEmpresa !== 'all' && m.e !== fEmpresa) return;
+                const key = getAuditKey(m, idx);
+                const auditStatus = (AUDIT_STATE[key] || {}).status || 'pendiente';
+                if (fEstado !== 'all' && auditStatus !== fEstado) return;
+                filtered.push({ m, idx, key, auditStatus });
+            });
+
+            // Global audit stats
+            let totalMov = 0, okCount = 0, flagCount = 0, corregidoCount = 0, pendienteCount = 0;
+            movs.forEach((m, idx) => {
+                if (m._deleted) return;
+                totalMov++;
+                const key = getAuditKey(m, idx);
+                const st = (AUDIT_STATE[key] || {}).status || 'pendiente';
+                if (st === 'ok') okCount++;
+                else if (st === 'flag') flagCount++;
+                else if (st === 'corregido') corregidoCount++;
+                else pendienteCount++;
+            });
+            const pctDone = totalMov > 0 ? (((okCount + corregidoCount) / totalMov) * 100).toFixed(1) : 0;
+
+            // Progress bar
+            const progressDiv = document.getElementById('auditProgress');
+            const barW = totalMov > 0 ? ((okCount + corregidoCount) / totalMov * 100) : 0;
+            const flagW = totalMov > 0 ? (flagCount / totalMov * 100) : 0;
+            progressDiv.innerHTML = `
+                <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">
+                    <span style="font-size:24px;font-weight:700;color:${parseFloat(pctDone) >= 100 ? '#3fb950' : '#e6edf3'}">${pctDone}%</span>
+                    <span style="font-size:12px;color:#8b949e">validado (${okCount + corregidoCount} de ${totalMov} movimientos)</span>
+                </div>
+                <div style="height:8px;background:#21262d;border-radius:4px;overflow:hidden;display:flex">
+                    <div style="width:${barW}%;background:#238636;transition:width 0.3s"></div>
+                    <div style="width:${flagW}%;background:#f0883e;transition:width 0.3s"></div>
+                </div>
+            `;
+
+            // KPIs
+            document.getElementById('auditKPIs').innerHTML = `
+                <div class="kpi-card"><div class="kpi-label">Total Movimientos</div><div class="kpi-value">${totalMov.toLocaleString()}</div></div>
+                <div class="kpi-card"><div class="kpi-label">Validados ✓</div><div class="kpi-value" style="color:#3fb950">${okCount}</div></div>
+                <div class="kpi-card"><div class="kpi-label">Flaggeados ⚠</div><div class="kpi-value" style="color:#f0883e">${flagCount}</div></div>
+                <div class="kpi-card"><div class="kpi-label">Corregidos ✎</div><div class="kpi-value" style="color:#58a6ff">${corregidoCount}</div></div>
+                <div class="kpi-card"><div class="kpi-label">Pendientes</div><div class="kpi-value" style="color:#8b949e">${pendienteCount}</div></div>
+            `;
+
+            // Tipo summary cards
+            const tipoStats = {};
+            movs.forEach((m, idx) => {
+                if (m._deleted) return;
+                const tipo = m.t || 'Sin tipo';
+                if (!tipoStats[tipo]) tipoStats[tipo] = { total: 0, ok: 0, flag: 0, corregido: 0, pendiente: 0, monto: 0 };
+                tipoStats[tipo].total++;
+                tipoStats[tipo].monto += Math.abs(m.v || 0);
+                const key = getAuditKey(m, idx);
+                const st = (AUDIT_STATE[key] || {}).status || 'pendiente';
+                tipoStats[tipo][st] = (tipoStats[tipo][st] || 0) + 1;
+            });
+
+            const sortedTipos = Object.entries(tipoStats).sort((a, b) => b[1].total - a[1].total);
+            let tipoHtml = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px">';
+            sortedTipos.forEach(([tipo, st]) => {
+                const pct = st.total > 0 ? (((st.ok + (st.corregido||0)) / st.total) * 100).toFixed(0) : 0;
+                const barColor = parseInt(pct) >= 100 ? '#238636' : (st.flag > 0 ? '#f0883e' : '#30363d');
+                const isSelected = fTipo === tipo;
+                tipoHtml += `
+                    <div onclick="document.getElementById('auditTipo').value='${tipo}';renderAuditoria()" style="background:${isSelected ? '#161b2280' : '#0d1117'};border:1px solid ${isSelected ? '#58a6ff' : '#30363d'};border-radius:8px;padding:10px;cursor:pointer;transition:all 0.2s">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+                            <span style="font-size:12px;font-weight:600;color:#e6edf3">${tipo}</span>
+                            <span style="font-size:10px;color:#8b949e">${st.total} mov</span>
+                        </div>
+                        <div style="height:4px;background:#21262d;border-radius:2px;overflow:hidden;margin-bottom:6px">
+                            <div style="width:${pct}%;background:${barColor};height:100%"></div>
+                        </div>
+                        <div style="display:flex;gap:8px;font-size:10px">
+                            <span style="color:#3fb950">✓${st.ok}</span>
+                            <span style="color:#f0883e">⚠${st.flag || 0}</span>
+                            <span style="color:#58a6ff">✎${st.corregido || 0}</span>
+                            <span style="color:#8b949e">◯${st.pendiente || 0}</span>
+                            <span style="margin-left:auto;color:#8b949e">${formatMoney(st.monto)}</span>
+                        </div>
+                    </div>`;
+            });
+            tipoHtml += '</div>';
+            document.getElementById('auditTipoSummary').innerHTML = tipoHtml;
+
+            // Count display
+            const countSpan = document.getElementById('auditCount');
+            if (countSpan) countSpan.textContent = `(${filtered.length} de ${totalMov})`;
+
+            // Movement table
+            const table = document.getElementById('auditTable');
+            const statusIcons = { ok: '✓', flag: '⚠', corregido: '✎', pendiente: '◯' };
+            const statusColors = { ok: '#3fb950', flag: '#f0883e', corregido: '#58a6ff', pendiente: '#484f58' };
+            const statusBgs = { ok: '#23863615', flag: '#f0883e15', corregido: '#58a6ff15', pendiente: 'transparent' };
+
+            let html = '<thead><tr style="font-size:10px;color:#8b949e;text-transform:uppercase;letter-spacing:0.5px">';
+            html += '<th style="width:30px">ST</th><th>Fecha</th><th>E/P</th><th>Emp</th><th>Tipo</th><th>Item</th><th>Entidad</th><th style="text-align:right">Monto</th><th>UN</th><th>Nota Audit</th><th style="text-align:center">Acc.</th>';
+            html += '</tr></thead><tbody>';
+
+            // Limit to 200 rows for performance
+            const displayLimit = 200;
+            const display = filtered.slice(0, displayLimit);
+
+            display.forEach(({ m, idx, key, auditStatus }) => {
+                const icon = statusIcons[auditStatus] || '◯';
+                const color = statusColors[auditStatus] || '#484f58';
+                const bg = statusBgs[auditStatus] || 'transparent';
+                const nota = (AUDIT_STATE[key] || {}).nota || '';
+                const un = getMovUnit(m);
+                const areaColor = AREA_COLORS[un] || '#4b5563';
+                const isEgreso = (m.v || 0) < 0;
+
+                html += `<tr data-audit-key="${key}" style="background:${bg}">`;
+                // Status toggle
+                html += `<td style="text-align:center;cursor:pointer;font-size:14px;color:${color}" onclick="auditToggleStatus('${key.replace(/'/g, "\\'")}')" title="Click para cambiar estado">${icon}</td>`;
+                // Fecha
+                html += `<td style="font-size:11px;white-space:nowrap">${m.f || '-'}</td>`;
+                // E/P
+                html += `<td style="font-size:10px;text-align:center"><span style="background:${m.eo === 'E' ? '#23863620' : '#f0883e20'};color:${m.eo === 'E' ? '#3fb950' : '#f0883e'};padding:1px 5px;border-radius:8px;font-size:9px">${m.eo || '?'}</span></td>`;
+                // Empresa
+                html += `<td style="font-size:11px">${m.e || '-'}</td>`;
+                // Tipo
+                html += `<td style="font-size:10px;color:#8b949e">${m.t || '-'}</td>`;
+                // Item
+                html += `<td style="font-size:10px">${m.i || '-'}</td>`;
+                // Entidad
+                html += `<td style="font-size:10px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(m.en||'').replace(/"/g,'&quot;')}">${m.en || '-'}</td>`;
+                // Monto
+                html += `<td style="text-align:right;font-weight:600;color:${isEgreso ? '#f85149' : '#3fb950'};font-size:11px">${formatMoney(m.v || 0)}</td>`;
+                // UN/Area
+                html += `<td style="font-size:10px"><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${areaColor};margin-right:3px"></span>${un}</td>`;
+                // Nota
+                html += `<td style="font-size:10px;color:#8b949e;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer" onclick="auditAddNota('${key.replace(/'/g, "\\'")}')" title="${nota || 'Click para agregar nota'}">${nota || '<span style=color:#30363d>+ nota</span>'}</td>`;
+                // Actions
+                html += '<td style="text-align:center;white-space:nowrap">';
+                html += `<button onclick="setAuditStatus('${key.replace(/'/g, "\\'")}','ok');renderAuditoria()" style="background:none;border:none;color:#3fb950;cursor:pointer;font-size:12px;padding:2px 4px" title="Validar">✓</button>`;
+                html += `<button onclick="setAuditStatus('${key.replace(/'/g, "\\'")}','flag');renderAuditoria()" style="background:none;border:none;color:#f0883e;cursor:pointer;font-size:12px;padding:2px 4px" title="Flaggear">⚠</button>`;
+                html += `<button onclick="auditAddNota('${key.replace(/'/g, "\\'")}')" style="background:none;border:none;color:#58a6ff;cursor:pointer;font-size:11px;padding:2px 4px" title="Agregar nota">✎</button>`;
+                html += '</td></tr>';
+            });
+
+            if (filtered.length === 0) {
+                html += '<tr><td colspan="11" style="text-align:center;padding:30px;color:#8b949e">No hay movimientos que coincidan con los filtros seleccionados.</td></tr>';
+            }
+            if (filtered.length > displayLimit) {
+                html += `<tr><td colspan="11" style="text-align:center;padding:12px;color:#f0883e;font-size:11px">Mostrando ${displayLimit} de ${filtered.length} movimientos. Usá los filtros para acotar la vista.</td></tr>`;
+            }
+            html += '</tbody>';
+            table.innerHTML = html;
         }
 
         function showAltaForm() {
