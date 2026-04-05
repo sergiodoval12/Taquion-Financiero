@@ -715,7 +715,7 @@
             <!-- DEUDA BANCARIA PAGE -->
             <div id="deuda" class="page">
                 <h1>Deuda Consolidada</h1>
-                <p style="color:var(--tx2);margin-bottom:6px">Vista unificada de toda la deuda financiera: bancaria (TQN + LMS) y ex-socio GC. Simulá cambios de tasas, cancelaciones y nuevos créditos.</p>
+                <p style="color:var(--tx2);margin-bottom:6px">Saldos pendientes desde hoy: bancaria (TQN + LMS) y ex-socio GC. Cuánto queda, cuánto sale este mes, y simulación de escenarios.</p>
 
                 <!-- KPIs consolidados -->
                 <div class="kpi-grid" id="deudaConsolidadaKPIs"></div>
@@ -4106,49 +4106,70 @@
         function renderDeudaConsolidadaKPIs() {
             const bdTQN = DATA.bd || [];
             const bdLMS = DATA.bdl || [];
-            const hoy = '2026-04';
-            const pendTQN = bdTQN.filter(m => m.mes >= hoy);
-            const pendLMS = bdLMS.filter(m => m.mes >= hoy);
+            const hoyStr = new Date().toISOString().slice(0, 7); // 'YYYY-MM'
+            const pendTQN = bdTQN.filter(m => m.mes >= hoyStr);
+            const pendLMS = bdLMS.filter(m => m.mes >= hoyStr);
             const pendCapTQN = pendTQN.reduce((s, m) => s + (m.cap || 0), 0);
             const pendIntTQN = pendTQN.reduce((s, m) => s + (m.int || 0), 0);
             const pendLMSTotal = pendLMS.reduce((s, m) => s + (m.total || 0), 0);
+            const pendLMSCap = pendLMS.reduce((s, m) => s + (m.cap || m.total || 0), 0);
 
+            // GC: recalculate from schedule dynamically
             const gcTerm = DATA.gc_term || {};
-            const resumen = gcTerm.resumen || {};
+            const schedule = gcTerm.schedule || [];
+            const gcPayments = (DATA.mov || []).filter(m =>
+                m.i && m.i.toLowerCase().includes('devolucion a gc') && m.eo === 'R'
+            );
+            const gcPendientes = schedule.filter(cuota => {
+                const cuotaMes = (cuota.fecha || '').slice(0, 7);
+                return !gcPayments.some(p => p.f && p.f.startsWith(cuotaMes));
+            });
             const tc = parseFloat(document.getElementById('tcUSD')?.value) || MEP.rate;
-            const gcPendARS = (resumen.pendiente_usd || 0) * tc;
+            const gcPendUSD = gcPendientes.reduce((s, c) => s + (c.usd || 0), 0);
+            const gcPendARS = gcPendUSD * tc;
 
-            const totalDeuda = pendCapTQN + pendIntTQN + pendLMSTotal + gcPendARS;
-            const totalCapital = pendCapTQN + gcPendARS;
-            const totalIntereses = pendIntTQN;
+            // Cuota mes en curso: todo lo que vence ESTE mes entre las 3 deudas
+            const cuotaMesTQN = bdTQN.filter(m => m.mes === hoyStr);
+            const cuotaMesLMS = bdLMS.filter(m => m.mes === hoyStr);
+            const cuotaMesGC = gcPendientes.filter(c => (c.fecha || '').slice(0,7) === hoyStr);
+            const mesCapTQN = cuotaMesTQN.reduce((s, m) => s + (m.cap || 0), 0);
+            const mesIntTQN = cuotaMesTQN.reduce((s, m) => s + (m.int || 0), 0);
+            const mesTotalTQN = mesCapTQN + mesIntTQN;
+            const mesTotalLMS = cuotaMesLMS.reduce((s, m) => s + (m.total || 0), 0);
+            const mesTotalGC = cuotaMesGC.reduce((s, c) => s + ((c.usd || 0) * tc), 0);
+            const mesTotalDeuda = mesTotalTQN + mesTotalLMS + mesTotalGC;
+
+            const mNames = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+            const [hoyY, hoyM] = hoyStr.split('-');
+            const mesLabel = mNames[parseInt(hoyM)-1] + ' ' + hoyY;
 
             document.getElementById('deudaConsolidadaKPIs').innerHTML = `
-                <div class="kpi" style="border-left:3px solid var(--rd)">
-                    <div class="kpi-label">Deuda Total Pendiente</div>
-                    <div class="kpi-value negative">${formatARS(totalDeuda)}</div>
-                    <div class="kpi-sub">Bancaria + GC</div>
+                <div class="kpi" style="border-left:3px solid #f0883e">
+                    <div class="kpi-label">Egreso Deuda ${mesLabel}</div>
+                    <div class="kpi-value negative">${formatARS(mesTotalDeuda)}</div>
+                    <div class="kpi-sub">TQN: ${formatARS(mesTotalTQN)} · LMS: ${formatARS(mesTotalLMS)} · GC: ${formatARS(mesTotalGC)}</div>
                 </div>
                 <div class="kpi">
-                    <div class="kpi-label">Bancaria TQN (Cap + Int)</div>
+                    <div class="kpi-label">Saldo Bancaria TQN</div>
                     <div class="kpi-value negative">${formatARS(pendCapTQN + pendIntTQN)}</div>
-                    <div class="kpi-sub">${pendTQN.length} cuotas</div>
+                    <div class="kpi-sub">Cap: ${formatARS(pendCapTQN)} · Int: ${formatARS(pendIntTQN)} · ${pendTQN.length} cuotas</div>
                 </div>
                 <div class="kpi">
-                    <div class="kpi-label">Bancaria LMS</div>
+                    <div class="kpi-label">Saldo Bancaria LMS</div>
                     <div class="kpi-value negative">${formatARS(pendLMSTotal)}</div>
-                    <div class="kpi-sub">${pendLMS.length} cuotas</div>
+                    <div class="kpi-sub">${pendLMS.length} cuotas restantes</div>
                 </div>
                 <div class="kpi">
-                    <div class="kpi-label">Deuda GC (USD → ARS)</div>
-                    <div class="kpi-value negative">${formatARS(gcPendARS)}</div>
-                    <div class="kpi-sub">${formatUSD(resumen.pendiente_usd || 0)} | TC ${tc}</div>
+                    <div class="kpi-label">Saldo Deuda GC</div>
+                    <div class="kpi-value negative">${formatUSD(gcPendUSD)}</div>
+                    <div class="kpi-sub">≈ ${formatARS(gcPendARS)} · TC ${tc.toLocaleString('es-AR')} · ${gcPendientes.length} cuotas</div>
                 </div>
             `;
         }
 
         // Build list of active credits grouped by bank from movements
         function deudaGetCreditosActivos() {
-            const hoy = '2026-04';
+            const hoy = new Date().toISOString().slice(0, 7);
             const prestamos = (DATA.mov || []).filter(m => m.t === 'Préstamos Bancarios' && m.f >= hoy + '-01');
             const byBank = {};
             prestamos.forEach(m => {
@@ -4390,7 +4411,7 @@
             if (APP.charts.deudaSim) APP.charts.deudaSim.destroy();
 
             // Build monthly debt schedule: existing (adjusted) + new credits
-            const hoy = '2026-04';
+            const hoy = new Date().toISOString().slice(0, 7);
             const months = [];
             for (let i = 0; i < 24; i++) {
                 const d = new Date(hoy + '-01');
@@ -4505,7 +4526,7 @@
         function renderDeudaBancaria() {
             const bdTQN = DATA.bd || [];
             const bdLMS = DATA.bdl || [];
-            const hoy = '2026-04';
+            const hoy = new Date().toISOString().slice(0, 7);
 
             // Split paid vs pending
             const paidTQN = bdTQN.filter(m => m.mes < hoy);
@@ -4830,7 +4851,7 @@
         // ========= AUDITORÍA / RECONCILIACIÓN =========
         function renderAuditoria() {
             const mov = DATA.mov || [];
-            const hoy = '2026-04';
+            const hoy = new Date().toISOString().slice(0, 7);
             const tc = APP.tcUSD || MEP.rate;
             let alertas = [];
             let matchCount = 0;
