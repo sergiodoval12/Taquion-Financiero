@@ -637,6 +637,13 @@
         </div>
 
         <div class="main">
+            <!-- CURRENCY BAR -->
+            <div style="display:flex;align-items:center;justify-content:flex-end;gap:10px;padding:6px 16px;background:#0d1117;border-bottom:1px solid #21262d;position:sticky;top:0;z-index:50">
+                <span id="mepDisplay" style="font-size:10px;color:#8b949e"></span>
+                <button id="currToggle" onclick="toggleCurrency()" style="font-size:10px;padding:3px 10px;background:#58a6ff30;color:#58a6ff;border:1px solid #58a6ff44;border-radius:12px;cursor:pointer;font-weight:700">ARS</button>
+                <button onclick="fetchMEP()" style="font-size:9px;padding:2px 8px;background:#30363d;color:#8b949e;border:1px solid #484f58;border-radius:3px;cursor:pointer" title="Actualizar cotización MEP">↻ MEP</button>
+            </div>
+
             <!-- DASHBOARD PAGE -->
             <div id="dashboard" class="page active">
                 <h1>Dashboard</h1>
@@ -1442,19 +1449,128 @@
             semanaEnCurso: '2026-04-06'
         };
 
+        // === DATA NORMALIZATION ===
+        // Recategorize Santander refinanciación (tipo Proveedores → Préstamos Bancarios)
+        (DATA.mov || []).forEach(m => {
+            const it = (m.i || '').toLowerCase();
+            const en = (m.en || '').toLowerCase();
+            if (it === 'santander' && en.includes('refinanc')) {
+                m.t = 'Préstamos Bancarios';
+            }
+        });
+
+        // === DÓLAR MEP ===
+        const MEP = {
+            rate: 1250,           // Fallback fijo
+            rateDate: null,       // Fecha de la cotización
+            loading: false,
+            source: 'fallback'
+        };
+
+        async function fetchMEP() {
+            MEP.loading = true;
+            try {
+                const resp = await fetch('https://dolarapi.com/v1/dolares/bolsa');
+                const data = await resp.json();
+                if (data && data.venta) {
+                    MEP.rate = data.venta;
+                    MEP.rateDate = data.fechaActualizacion || new Date().toISOString();
+                    MEP.source = 'dolarapi.com';
+                }
+            } catch (err) {
+                console.log('MEP fetch failed, using fallback $' + MEP.rate);
+                MEP.source = 'fallback';
+            }
+            MEP.loading = false;
+            updateMEPDisplay();
+        }
+
+        function updateMEPDisplay() {
+            const el = document.getElementById('mepDisplay');
+            if (el) {
+                el.innerHTML = 'MEP: $' + MEP.rate.toLocaleString('es-AR') + ' <span style="font-size:8px;color:#8b949e">(' + MEP.source + ')</span>';
+            }
+            // Sync TC USD input in deuda section with MEP rate
+            const tcInput = document.getElementById('tcUSD');
+            if (tcInput && MEP.source !== 'fallback') {
+                tcInput.value = Math.round(MEP.rate);
+            }
+        }
+
+        // Currency display mode: 'ARS' or 'USD'
+        let DISPLAY_CURRENCY = 'ARS';
+
+        function toggleCurrency() {
+            DISPLAY_CURRENCY = DISPLAY_CURRENCY === 'ARS' ? 'USD' : 'ARS';
+            document.getElementById('currToggle').textContent = DISPLAY_CURRENCY;
+            document.getElementById('currToggle').style.background = DISPLAY_CURRENCY === 'USD' ? '#34d39930' : '#58a6ff30';
+            document.getElementById('currToggle').style.color = DISPLAY_CURRENCY === 'USD' ? '#34d399' : '#58a6ff';
+            // Re-render current page
+            const page = APP.currentPage || 'dashboard';
+            if (page === 'dashboard') renderDashboard();
+            else if (page === 'operacion') renderOperacion();
+            else if (page === 'composicion') renderComposicion();
+            else if (page === 'semanal') renderSemanal();
+        }
+
+        // Today string for forward-only conversion rule
+        const TODAY_STR = new Date().toISOString().slice(0, 10); // 'YYYY-MM-DD'
+
+        // Convert ARS value to USD at MEP rate
+        function arsToUSD(value) {
+            return value / MEP.rate;
+        }
+
+        // Format value in current display currency (for aggregates / totals)
+        function formatMoney(value, movDate) {
+            if (typeof value !== 'number') value = 0;
+            if (DISPLAY_CURRENCY === 'USD') {
+                const usd = arsToUSD(value);
+                const sign = usd < 0 ? '-' : '';
+                return sign + 'US$ ' + Math.abs(usd).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+            }
+            const sign = value < 0 ? '-' : '';
+            return sign + '$ ' + Math.abs(value).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+        }
+
+        // Format individual movement value respecting forward-only rule:
+        // Past movements (before today) → always show original ARS
+        // Future movements (today or later) → convert at MEP if USD mode
+        function formatMovValue(value, movDate) {
+            if (typeof value !== 'number') value = 0;
+            if (DISPLAY_CURRENCY === 'USD' && movDate && movDate >= TODAY_STR) {
+                const usd = arsToUSD(value);
+                const sign = usd < 0 ? '-' : '';
+                return sign + 'US$ ' + Math.abs(usd).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+            }
+            // ARS (or past date in USD mode)
+            const sign = value < 0 ? '-' : '';
+            return sign + '$ ' + Math.abs(value).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+        }
+
+        // Currency-aware compact format for chart Y-axis ticks
+        function formatTickShort(v) {
+            if (DISPLAY_CURRENCY === 'USD') {
+                const usd = arsToUSD(v);
+                return 'US$ ' + (usd / 1e3).toFixed(0) + 'K';
+            }
+            return '$ ' + (v / 1e6).toFixed(0) + 'M';
+        }
+
+        // Fetch MEP on load
+        fetchMEP();
+
         // Utility functions
         function formatARS(value) {
-            if (typeof value !== 'number') value = 0;
-            const sign = value < 0 ? '-' : '';
-            const abs = Math.abs(value);
-            return sign + '$' + abs.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+            // Use formatMoney for currency-aware display
+            return formatMoney(value);
         }
 
         function formatUSD(value) {
             if (typeof value !== 'number') value = 0;
             const sign = value < 0 ? '-' : '';
             const abs = Math.abs(value);
-            return sign + 'US$' + abs.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            return sign + 'US$ ' + abs.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
         }
 
         function getValueClass(value) {
@@ -1563,23 +1679,17 @@
                 return 'operativo';
             }
 
-            // Detect ALL debt/financing payments (bancaria + GC + refinanciaciones ocultas)
-            // Includes: Préstamos Bancarios, Cobr. Deuda Salta23, Devolucion a GC,
-            //           Refinanciación Santander 100M, Línea de Crédito DUAL
-            // NOT: intereses de descubiertos en cuenta corriente, NOT: mantenimiento CC
+            // Detect ALL debt payments (bancaria + GC)
+            // Bancaria: tipo 'Préstamos Bancarios' (includes Santander refi, recategorized at load)
+            // GC: Devolucion a GC items
+            // NOT: descubierto interest, NOT: operational providers
             function isDebtPayment(m) {
                 if (m.v >= 0) return false;
                 const t = m.t || '';
                 const it = (m.i || '').toLowerCase();
-                const en = (m.en || '').toLowerCase();
-                // Tipo explícito de préstamos
                 if (t === 'Préstamos Bancarios') return true;
                 if (t === 'Cobr. Deuda Salta23') return true;
-                // Devolución a GC (bajo Proveedores)
                 if (it.includes('devolucion a gc') || it.includes('devolución a gc') || it.includes('cuota gc')) return true;
-                // Refinanciación Santander 100M (bajo Proveedores, item=Santander, detalle=Financiamiento)
-                if (it === 'santander' && en.includes('refinanc')) return true;
-                // Galicia Mills
                 if (it.includes('galicia - mills')) return true;
                 return false;
             }
@@ -1824,7 +1934,7 @@
                         }
                     },
                     scales: {
-                        y: { ticks: { color: '#8b949e', callback: v => (v/1e6).toFixed(0) + 'M' }, grid: { color: '#30363d' } },
+                        y: { ticks: { color: '#8b949e', callback: v => formatTickShort(v) }, grid: { color: '#30363d' } },
                         x: { ticks: { color: '#8b949e', font: { size: 7 }, maxRotation: 45, maxTicksLimit: 15 }, grid: { color: '#30363d' } }
                     }
                 }
@@ -1835,7 +1945,7 @@
             const pendBDCap = (DATA.bd||[]).filter(m=>m.mes>=hoyDash).reduce((s,m)=>s+(m.cap||0),0);
             const pendBDInt = (DATA.bd||[]).filter(m=>m.mes>=hoyDash).reduce((s,m)=>s+(m.int||0),0);
             const pendGC = (DATA.gc_term&&DATA.gc_term.resumen) ? DATA.gc_term.resumen.pendiente_usd : 0;
-            const tcDash = 1250;
+            const tcDash = MEP.rate;
 
             document.getElementById('dashboardKPIs').innerHTML = `
                 <div class="kpi" style="border-left:3px solid ${saldoOp >= 0 ? 'var(--gn)' : 'var(--rd)'}">
@@ -2283,49 +2393,53 @@
             // Helper to build editable table for a side (ing/egr)
             function buildDesgloseTable(items, side, color) {
                 const sorted = side === 'ing' ? items.slice().sort((a,b) => b.v - a.v) : items.slice().sort((a,b) => a.v - b.v);
-                let h = '<tr><th style="text-align:left;font-size:10px">Fecha</th><th style="text-align:left;font-size:10px">Emp</th><th style="text-align:left;font-size:10px">Tipo</th><th style="text-align:left;font-size:10px">Item</th><th style="text-align:left;font-size:10px">Entidad/Cliente</th><th style="text-align:right;font-size:10px">Monto</th><th style="font-size:10px;width:50px"></th></tr>';
+                let h = '<div style="overflow-x:auto"><table style="width:100%;min-width:700px;border-collapse:collapse">';
+                h += '<thead><tr style="background:#161b22;position:sticky;top:0">' +
+                    '<th style="text-align:left;font-size:10px;padding:6px 4px;white-space:nowrap">Fecha</th>' +
+                    '<th style="text-align:left;font-size:10px;padding:6px 4px;width:40px">Emp</th>' +
+                    '<th style="text-align:left;font-size:10px;padding:6px 4px;min-width:80px">Tipo</th>' +
+                    '<th style="text-align:left;font-size:10px;padding:6px 4px;min-width:160px">Item</th>' +
+                    '<th style="text-align:left;font-size:10px;padding:6px 4px;min-width:160px">Entidad/Cliente</th>' +
+                    '<th style="text-align:right;font-size:10px;padding:6px 4px;min-width:90px">Monto</th>' +
+                    '<th style="text-align:center;font-size:10px;padding:6px 4px;width:60px">Acc.</th>' +
+                    '</tr></thead><tbody>';
                 sorted.forEach((r, idx) => {
                     const edited = BAU_EDITS.some(e => e.movIdx === r.movIdx);
-                    const bg = edited ? (side === 'ing' ? 'background:#34d39915;' : 'background:#f8717115;') : '';
-                    const eoBadge = r.eo === 'R' ? '<span style="font-size:7px;background:#34d39930;color:#34d399;padding:0 3px;border-radius:2px;margin-left:2px">R</span>' : '<span style="font-size:7px;background:#fbbf2430;color:#fbbf24;padding:0 3px;border-radius:2px;margin-left:2px">P</span>';
-                    h += '<tr style="' + bg + '" id="bau_row_' + side + '_' + idx + '">' +
-                        '<td id="bau_f_' + side + '_' + idx + '" onclick="bauEditDate(\'' + mes + '\',\'' + side + '\',' + idx + ')" style="font-size:10px;cursor:pointer;color:#58a6ff;white-space:nowrap" title="Click para cambiar fecha">' + fmtDateAR(r.f) + eoBadge + '</td>' +
-                        '<td style="font-size:9px;color:var(--tx2)">' + escH(r.emp || '') + '</td>' +
-                        '<td style="font-size:10px;color:var(--tx2)">' + escH(r.t) + '</td>' +
-                        '<td style="font-size:10px">' + smartItemDisplay(r) + '</td>' +
-                        '<td style="font-size:9px;color:#8b949e;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escH(r.en || '') + '">' + (r.en || '-') + '</td>' +
-                        '<td id="bau_v_' + side + '_' + idx + '" onclick="bauEditValue(\'' + mes + '\',\'' + side + '\',' + idx + ')" style="text-align:right;font-size:10px;color:' + color + ';cursor:pointer;font-weight:600" title="Click para editar monto">' + formatARS(r.v) + (edited ? ' ✎' : '') + '</td>' +
-                        '<td style="white-space:nowrap"><button onclick="bauEditRow(\'' + mes + '\',\'' + side + '\',' + idx + ')" style="background:none;border:none;color:#58a6ff88;cursor:pointer;font-size:11px;padding:0 2px" title="Editar fila completa">✎</button><button onclick="bauDeleteItem(\'' + mes + '\',\'' + side + '\',' + idx + ')" style="background:none;border:none;color:#f8717188;cursor:pointer;font-size:12px;padding:0 2px" title="Eliminar">✕</button></td>' +
-                        '</tr>';
+                    const bg = edited ? (side === 'ing' ? 'background:#34d39910;' : 'background:#f8717110;') : '';
+                    const eoBadge = r.eo === 'R' ? '<span style="font-size:7px;background:#34d39930;color:#34d399;padding:1px 4px;border-radius:2px;margin-left:3px">R</span>' : '<span style="font-size:7px;background:#fbbf2430;color:#fbbf24;padding:1px 4px;border-radius:2px;margin-left:3px">P</span>';
+                    h += '<tr style="' + bg + 'border-bottom:1px solid #21262d" id="bau_row_' + side + '_' + idx + '">' +
+                        '<td id="bau_f_' + side + '_' + idx + '" onclick="bauEditDate(\'' + mes + '\',\'' + side + '\',' + idx + ')" style="font-size:11px;padding:5px 4px;cursor:pointer;color:#58a6ff;white-space:nowrap" title="Click para cambiar fecha">' + fmtDateAR(r.f) + eoBadge + '</td>' +
+                        '<td style="font-size:10px;padding:5px 4px;color:var(--tx2)">' + escH(r.emp || '') + '</td>' +
+                        '<td style="font-size:10px;padding:5px 4px;color:var(--tx2)">' + escH(r.t) + '</td>' +
+                        '<td style="font-size:11px;padding:5px 4px" title="' + escH(r.i) + '">' + smartItemDisplay(r) + '</td>' +
+                        '<td style="font-size:10px;padding:5px 4px;color:#8b949e" title="' + escH(r.en || '') + '">' + escH(r.en || '-') + '</td>' +
+                        '<td id="bau_v_' + side + '_' + idx + '" onclick="bauEditValue(\'' + mes + '\',\'' + side + '\',' + idx + ')" style="text-align:right;font-size:11px;padding:5px 4px;color:' + color + ';cursor:pointer;font-weight:600;white-space:nowrap" title="Click para editar monto">' + formatMovValue(r.v, r.f) + (edited ? ' ✎' : '') + '</td>' +
+                        '<td style="text-align:center;padding:5px 4px;white-space:nowrap">' +
+                            '<button onclick="bauEditRow(\'' + mes + '\',\'' + side + '\',' + idx + ')" style="background:#1f2937;border:1px solid #374151;color:#58a6ff;cursor:pointer;font-size:11px;padding:2px 6px;border-radius:3px;margin-right:3px" title="Editar fila completa">✎</button>' +
+                            '<button onclick="bauDeleteItem(\'' + mes + '\',\'' + side + '\',' + idx + ')" style="background:#1f2937;border:1px solid #374151;color:#f87171;cursor:pointer;font-size:11px;padding:2px 6px;border-radius:3px" title="Eliminar">✕</button>' +
+                        '</td></tr>';
                 });
                 const total = items.reduce((s, r) => s + r.v, 0);
-                h += '<tr style="border-top:1px solid #30363d;font-weight:700"><td colspan="5" style="font-size:10px">TOTAL (' + items.length + ' items)</td><td style="text-align:right;font-size:10px;color:' + color + '">' + formatARS(total) + '</td><td></td></tr>';
+                h += '<tr style="border-top:2px solid #30363d;font-weight:700"><td colspan="5" style="font-size:11px;padding:6px 4px">TOTAL (' + items.length + ' items)</td><td style="text-align:right;font-size:11px;padding:6px 4px;color:' + color + '">' + formatARS(total) + '</td><td></td></tr>';
+                h += '</tbody></table></div>';
                 return h;
             }
             const hIng = buildDesgloseTable(detail.ingresos, 'ing', '#34d399');
             const hEgr = buildDesgloseTable(detail.egresos, 'egr', '#f87171');
 
-            // Restore two-column layout
-            document.getElementById('bauDesgloseContent').innerHTML = '';
+            // Full-width stacked layout (not side-by-side) for better readability
+            const content = document.getElementById('bauDesgloseContent');
+            content.style.flexDirection = 'column';
+            content.innerHTML = '';
+
             const colIng = document.createElement('div');
-            colIng.style.cssText = 'flex:1;min-width:300px';
-            colIng.innerHTML = '<h4 style="color:#34d399;margin:0 0 8px">Ingresos</h4>';
-            const tIng = document.createElement('table');
-            tIng.id = 'bauDesgloseIng';
-            tIng.style.width = '100%';
-            tIng.innerHTML = hIng;
-            colIng.appendChild(tIng);
+            colIng.style.cssText = 'width:100%;margin-bottom:20px';
+            colIng.innerHTML = '<h4 style="color:#34d399;margin:0 0 8px;font-size:14px">Ingresos (' + detail.ingresos.length + ')</h4>' + hIng;
 
             const colEgr = document.createElement('div');
-            colEgr.style.cssText = 'flex:1;min-width:300px';
-            colEgr.innerHTML = '<h4 style="color:#f87171;margin:0 0 8px">Egresos</h4>';
-            const tEgr = document.createElement('table');
-            tEgr.id = 'bauDesgloseEgr';
-            tEgr.style.width = '100%';
-            tEgr.innerHTML = hEgr;
-            colEgr.appendChild(tEgr);
+            colEgr.style.cssText = 'width:100%';
+            colEgr.innerHTML = '<h4 style="color:#f87171;margin:0 0 8px;font-size:14px">Egresos (' + detail.egresos.length + ')</h4>' + hEgr;
 
-            const content = document.getElementById('bauDesgloseContent');
             content.appendChild(colIng);
             content.appendChild(colEgr);
 
@@ -2503,7 +2617,7 @@
 
             const gcTerm = DATA.gc_term || {};
             const resumen = gcTerm.resumen || {};
-            const tc = parseFloat(document.getElementById('tcUSD')?.value) || 1250;
+            const tc = parseFloat(document.getElementById('tcUSD')?.value) || MEP.rate;
             const gcPendARS = (resumen.pendiente_usd || 0) * tc;
 
             const totalDeuda = pendCapTQN + pendIntTQN + pendLMSTotal + gcPendARS;
@@ -3018,7 +3132,7 @@
             const schedule = (gcTerm.schedule || []).map(c => ({...c})); // clone to not mutate
             const orig = gcTerm.orig || {};
 
-            APP.tcUSD = parseFloat(document.getElementById('tcUSD').value) || 1250;
+            APP.tcUSD = parseFloat(document.getElementById('tcUSD').value) || MEP.rate;
             const tc = APP.tcUSD;
 
             // === CRUCE DINÁMICO CON DATA.mov ===
@@ -3219,7 +3333,7 @@
         function renderAuditoria() {
             const mov = DATA.mov || [];
             const hoy = '2026-04';
-            const tc = APP.tcUSD || 1250;
+            const tc = APP.tcUSD || MEP.rate;
             let alertas = [];
             let matchCount = 0;
             let mismatchCount = 0;
@@ -5207,7 +5321,7 @@
                             tooltip: { callbacks: { label: ctx => formatARS(-ctx.raw) + ' (' + ((ctx.raw / Math.abs(totalEgr)) * 100).toFixed(1) + '%)' } }
                         },
                         scales: {
-                            x: { ticks: { color: '#8b949e', callback: v => (v / 1e6).toFixed(0) + 'M' }, grid: { color: '#30363d' } },
+                            x: { ticks: { color: '#8b949e', callback: v => formatTickShort(v) }, grid: { color: '#30363d' } },
                             y: { ticks: { color: '#c9d1d9', font: { size: 9 } }, grid: { display: false } }
                         }
                     }
@@ -5222,7 +5336,7 @@
                 const barW = totalIng ? Math.min((d.total / totalIng) * 100, 100) : 0;
                 const key = compItemKeyFromGroup(d.items);
                 const isExcl = COMP_EXCLUDED.has(key);
-                hIng += '<tr style="cursor:pointer;' + (isExcl ? 'opacity:0.3;text-decoration:line-through;' : '') + '" onclick="compToggleItem(\'' + escHtml(key) + '\')">' +
+                hIng += '<tr>' +
                     '<td style="font-size:10px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escHtml(client) + '">' + escHtml(client) + '</td>' +
                     '<td style="font-size:9px;color:var(--tx2)">' + d.tipo + '</td>' +
                     '<td style="text-align:right;font-size:10px;color:#34d399;font-weight:600">' + formatARS(d.total) + '</td>' +
@@ -5240,7 +5354,7 @@
                 const barW = totalEgr ? Math.min(Math.abs(d.total / totalEgr) * 100, 100) : 0;
                 const key = compItemKeyFromGroup(d.items);
                 const isExcl = COMP_EXCLUDED.has(key);
-                hEgr += '<tr style="cursor:pointer;' + (isExcl ? 'opacity:0.3;text-decoration:line-through;' : '') + '" onclick="compToggleItem(\'' + escHtml(key) + '\')">' +
+                hEgr += '<tr>' +
                     '<td style="font-size:10px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escHtml(cat) + '">' + escHtml(cat) + '</td>' +
                     '<td style="text-align:right;font-size:9px;color:var(--tx2)">' + d.count + '</td>' +
                     '<td style="text-align:right;font-size:10px;color:#f87171;font-weight:600">' + formatARS(d.total) + '</td>' +
@@ -5671,7 +5785,7 @@
                 html += `<tr>
                     <td>${fmtDateAR(m.f)}</td><td>${m.emp}</td><td>${m.bn}</td><td>${m.t}</td>
                     <td>${m.m}</td><td>${m.d}</td><td>${m.i}</td><td>${m.en}</td>
-                    <td class="text-right ${cls}">${formatARS(m.v)}</td>
+                    <td class="text-right ${cls}">${formatMovValue(m.v, m.f)}</td>
                     <td><span style="cursor:pointer;color:var(--rd);" onclick="removeMovement(${m.id})">✕</span></td>
                 </tr>`;
             });
