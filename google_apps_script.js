@@ -9,6 +9,7 @@
 const SHEET_MOV = 'BD Movimientos';
 const SHEET_GC = 'Deuda GC';
 const SHEET_BD = 'Deuda Bancaria';
+const SHEET_NOM = 'Nómina';
 
 // ---- GET (Read) ----
 function doGet(e) {
@@ -23,11 +24,14 @@ function doGet(e) {
       result = getDeudaGC(ss);
     } else if (action === 'deuda_bancaria') {
       result = getDeudaBancaria(ss);
+    } else if (action === 'nomina') {
+      result = getNomina(ss);
     } else if (action === 'all') {
       result = {
         mov: getMovimientos(ss),
         gc: getDeudaGC(ss),
         bd: getDeudaBancaria(ss),
+        nom: getNomina(ss),
         meta: { lastSync: new Date().toISOString(), source: 'Google Sheets' }
       };
     } else if (action === 'ping') {
@@ -79,6 +83,12 @@ function doPost(e) {
       result = { ok: true, seed: results };
     } else if (action === 'update_gc_estado') {
       result = updateGCEstado(ss, body.cuotaNum, body.estado);
+    } else if (action === 'add_nomina') {
+      result = addNomina(ss, body.rows);
+    } else if (action === 'update_nomina') {
+      result = updateNominaRow(ss, body.id, body.fields);
+    } else if (action === 'seed_nomina') {
+      result = seedNomina(ss, body.rows);
     } else {
       result = { error: 'Unknown action: ' + action };
     }
@@ -121,6 +131,10 @@ function getMovimientos(ss) {
     else if (h.includes('monto') && h.includes('orig') || h === 'movimiento_orig') colMap.v = i;
     else if (h === 'monto (k)' || h === 'movimiento') colMap.v_div = i;
     else if (h.startsWith('forma')) colMap.fp = i;
+    else if (h === 'moneda') colMap.moneda = i;
+    else if (h === 'monto_usd' || h === 'monto usd') colMap.vUSD = i;
+    else if (h === 'tc' || h === 'tipo_cambio' || h === 'tipo cambio') colMap.tc = i;
+    else if (h === 'centro_costo' || h === 'centro de costo' || h === 'proyecto') colMap.cc = i;
   });
 
   const rows = [];
@@ -164,7 +178,11 @@ function getMovimientos(ss) {
       i: String(row[colMap.i] || '').trim(),
       en: String(row[colMap.en] || '').trim(),
       v: valor,
-      fp: colMap.fp !== undefined ? String(row[colMap.fp] || '').trim() : ''
+      fp: colMap.fp !== undefined ? String(row[colMap.fp] || '').trim() : '',
+      monOrig: colMap.moneda !== undefined ? (String(row[colMap.moneda] || '').trim().toUpperCase() || 'ARS') : 'ARS',
+      vUSD: colMap.vUSD !== undefined ? (Number(row[colMap.vUSD]) || undefined) : undefined,
+      tcUsado: colMap.tc !== undefined ? (Number(row[colMap.tc]) || undefined) : undefined,
+      cc: colMap.cc !== undefined ? String(row[colMap.cc] || '').trim() : ''
     });
   }
   return rows;
@@ -314,6 +332,10 @@ function getMovHeaders(ws) {
     else if ((hl.includes('monto') && hl.includes('orig')) || hl === 'movimiento_orig') map.v = i;
     else if (hl === 'monto (k)' || hl === 'movimiento') map.v_div = i;
     else if (hl.startsWith('forma')) map.fp = i;
+    else if (hl === 'moneda') map.moneda = i;
+    else if (hl === 'monto_usd' || hl === 'monto usd') map.vUSD = i;
+    else if (hl === 'tc' || hl === 'tipo_cambio' || hl === 'tipo cambio') map.tc = i;
+    else if (hl === 'centro_costo' || hl === 'centro de costo' || hl === 'proyecto') map.cc = i;
   });
   return { headers, map, count: headers.length };
 }
@@ -344,7 +366,7 @@ function updateMovimiento(ss, rowIndex, field, value) {
   }
 
   // Support all other movement fields
-  const directFields = { emp: 'emp', t: 't', i: 'i', en: 'en', d: 'd', cat: 'cat', m: 'm', bn: 'bn', fp: 'fp' };
+  const directFields = { emp: 'emp', t: 't', i: 'i', en: 'en', d: 'd', cat: 'cat', m: 'm', bn: 'bn', fp: 'fp', moneda: 'moneda', vUSD: 'vUSD', tc: 'tc', cc: 'cc' };
   if (directFields[field] !== undefined) {
     const colKey = directFields[field];
     if (map[colKey] !== undefined) {
@@ -383,6 +405,10 @@ function addMovimientos(ss, rows) {
     if (map.v !== undefined) rowArr[map.v] = Number(mov.v) || 0;
     if (map.v_div !== undefined) rowArr[map.v_div] = (Number(mov.v) || 0) / 1000;
     if (map.fp !== undefined) rowArr[map.fp] = mov.fp || '';
+    if (map.moneda !== undefined) rowArr[map.moneda] = mov.monOrig || 'ARS';
+    if (map.vUSD !== undefined) rowArr[map.vUSD] = mov.vUSD || '';
+    if (map.tc !== undefined) rowArr[map.tc] = mov.tcUsado || '';
+    if (map.cc !== undefined) rowArr[map.cc] = mov.cc || '';
 
     newData.push(rowArr);
     added++;
@@ -484,4 +510,220 @@ function seedMovimientos(ss, rows) {
   for (let c = 1; c <= headers.length; c++) ws.autoResizeColumn(c);
 
   return { ok: true, rows: data.length - 1, sheet: SHEET_MOV };
+}
+
+// ============================================================
+// NÓMINA FUNCTIONS
+// ============================================================
+
+const NOM_HEADERS = ['ID','Nombre','Apellido','CUIT','Líder','Equipo','UN (Área)','Clasificación','Tipo','Modalidad','Empresa','Cargo','Seniority','Sueldo Bruto','Factura Monotributo','Benef Tarjeta','Benef Conect','Benef Mono','Benef OS','Sueldo Neto Total','Fecha Ingreso','Estado','Fecha Baja','Notas'];
+
+function getNomHeaders(ws) {
+  const headers = ws.getRange(1, 1, 1, ws.getLastColumn()).getValues()[0];
+  const map = {};
+  headers.forEach((h, i) => {
+    const hl = String(h).trim().toLowerCase();
+    if (hl === 'id') map.id = i;
+    else if (hl === 'nombre') map.nombre = i;
+    else if (hl === 'apellido') map.apellido = i;
+    else if (hl === 'cuit') map.cuit = i;
+    else if (hl.includes('der') || hl === 'líder' || hl === 'lider') map.lider = i;
+    else if (hl === 'equipo') map.equipo = i;
+    else if (hl.includes('un') || hl.includes('rea') || hl === 'un (área)') map.area = i;
+    else if (hl.includes('clasif')) map.clasif = i;
+    else if (hl === 'tipo') map.tipo = i;
+    else if (hl.includes('modal')) map.modalidad = i;
+    else if (hl === 'empresa') map.empresa = i;
+    else if (hl === 'cargo') map.cargo = i;
+    else if (hl.includes('senior')) map.seniority = i;
+    else if (hl.includes('sueldo bruto') || hl === 'sueldo bruto') map.sueldoBruto = i;
+    else if (hl.includes('factura') || hl.includes('monotributo factura')) map.facturaMono = i;
+    else if (hl.includes('tarjeta')) map.benTarjeta = i;
+    else if (hl.includes('conect')) map.benConect = i;
+    else if (hl === 'benef mono' || hl.includes('beneficio monotributo') || hl.includes('benef mono')) map.benMono = i;
+    else if (hl.includes('benef os') || hl.includes('beneficio os') || hl === 'benef os') map.benOS = i;
+    else if (hl.includes('neto')) map.sueldoNeto = i;
+    else if (hl.includes('ingreso')) map.fechaIngreso = i;
+    else if (hl === 'estado') map.estado = i;
+    else if (hl.includes('baja')) map.fechaBaja = i;
+    else if (hl.includes('nota')) map.notas = i;
+  });
+  return { headers, map, count: headers.length };
+}
+
+function getNomina(ss) {
+  const ws = ss.getSheetByName(SHEET_NOM);
+  if (!ws) return [];
+  const lastRow = ws.getLastRow();
+  if (lastRow < 2) return [];
+
+  const data = ws.getRange(1, 1, lastRow, ws.getLastColumn()).getValues();
+  const { map } = getNomHeaders(ws);
+
+  const rows = [];
+  for (let r = 1; r < data.length; r++) {
+    const row = data[r];
+    const id = map.id !== undefined ? (Number(row[map.id]) || r) : r;
+    const nombre = map.nombre !== undefined ? String(row[map.nombre] || '').trim() : '';
+    if (!nombre) continue;
+
+    let fechaIng = '';
+    if (map.fechaIngreso !== undefined && row[map.fechaIngreso]) {
+      if (row[map.fechaIngreso] instanceof Date) {
+        fechaIng = Utilities.formatDate(row[map.fechaIngreso], Session.getScriptTimeZone(), 'yyyy-MM-dd');
+      } else {
+        fechaIng = String(row[map.fechaIngreso]).slice(0, 10);
+      }
+    }
+    let fechaBaja = '';
+    if (map.fechaBaja !== undefined && row[map.fechaBaja]) {
+      if (row[map.fechaBaja] instanceof Date) {
+        fechaBaja = Utilities.formatDate(row[map.fechaBaja], Session.getScriptTimeZone(), 'yyyy-MM-dd');
+      } else {
+        fechaBaja = String(row[map.fechaBaja]).slice(0, 10);
+      }
+    }
+
+    rows.push({
+      _row: r + 1,
+      id: id,
+      nombre: nombre,
+      apellido: map.apellido !== undefined ? String(row[map.apellido] || '').trim() : '',
+      cuit: map.cuit !== undefined ? String(row[map.cuit] || '').trim() : '',
+      lider: map.lider !== undefined ? String(row[map.lider] || '').trim() : '',
+      equipo: map.equipo !== undefined ? String(row[map.equipo] || '').trim() : '',
+      area: map.area !== undefined ? String(row[map.area] || '').trim() : '',
+      clasif: map.clasif !== undefined ? String(row[map.clasif] || '').trim() : '',
+      tipo: map.tipo !== undefined ? String(row[map.tipo] || '').trim() : '',
+      modalidad: map.modalidad !== undefined ? String(row[map.modalidad] || '').trim() : '',
+      empresa: map.empresa !== undefined ? String(row[map.empresa] || '').trim() : '',
+      cargo: map.cargo !== undefined ? String(row[map.cargo] || '').trim() : '',
+      seniority: map.seniority !== undefined ? String(row[map.seniority] || '').trim() : '',
+      sueldoBruto: map.sueldoBruto !== undefined ? (Number(row[map.sueldoBruto]) || 0) : 0,
+      facturaMono: map.facturaMono !== undefined ? (Number(row[map.facturaMono]) || 0) : 0,
+      benTarjeta: map.benTarjeta !== undefined ? (Number(row[map.benTarjeta]) || 0) : 0,
+      benConect: map.benConect !== undefined ? (Number(row[map.benConect]) || 0) : 0,
+      benMono: map.benMono !== undefined ? (Number(row[map.benMono]) || 0) : 0,
+      benOS: map.benOS !== undefined ? (Number(row[map.benOS]) || 0) : 0,
+      sueldoNeto: map.sueldoNeto !== undefined ? (Number(row[map.sueldoNeto]) || 0) : 0,
+      fechaIngreso: fechaIng,
+      estado: map.estado !== undefined ? String(row[map.estado] || 'Activo').trim() : 'Activo',
+      fechaBaja: fechaBaja,
+      notas: map.notas !== undefined ? String(row[map.notas] || '').trim() : ''
+    });
+  }
+  return rows;
+}
+
+function addNomina(ss, rows) {
+  let ws = ss.getSheetByName(SHEET_NOM);
+  if (!ws) {
+    ws = ss.insertSheet(SHEET_NOM);
+    ws.getRange(1, 1, 1, NOM_HEADERS.length).setValues([NOM_HEADERS]);
+    ws.getRange(1, 1, 1, NOM_HEADERS.length).setFontWeight('bold').setBackground('#1f2937').setFontColor('#ffffff');
+    ws.setFrozenRows(1);
+  }
+
+  const count = NOM_HEADERS.length;
+  let lastRow = ws.getLastRow();
+  const newData = [];
+
+  rows.forEach(e => {
+    const arr = new Array(count).fill('');
+    arr[0] = e.id || Date.now();
+    arr[1] = e.nombre || '';
+    arr[2] = e.apellido || '';
+    arr[3] = e.cuit || '';
+    arr[4] = e.lider || '';
+    arr[5] = e.equipo || '';
+    arr[6] = e.area || '';
+    arr[7] = e.clasif || '';
+    arr[8] = e.tipo || '';
+    arr[9] = e.modalidad || '';
+    arr[10] = e.empresa || '';
+    arr[11] = e.cargo || '';
+    arr[12] = e.seniority || '';
+    arr[13] = Number(e.sueldoBruto) || 0;
+    arr[14] = Number(e.facturaMono) || 0;
+    arr[15] = Number(e.benTarjeta) || 0;
+    arr[16] = Number(e.benConect) || 0;
+    arr[17] = Number(e.benMono) || 0;
+    arr[18] = Number(e.benOS) || 0;
+    arr[19] = Number(e.sueldoNeto) || 0;
+    arr[20] = e.fechaIngreso || '';
+    arr[21] = e.estado || 'Activo';
+    arr[22] = e.fechaBaja || '';
+    arr[23] = e.notas || '';
+    newData.push(arr);
+  });
+
+  if (newData.length > 0) {
+    ws.getRange(lastRow + 1, 1, newData.length, count).setValues(newData);
+  }
+  return { ok: true, added: newData.length };
+}
+
+function updateNominaRow(ss, id, fields) {
+  const ws = ss.getSheetByName(SHEET_NOM);
+  if (!ws) return { error: 'Sheet Nómina not found' };
+
+  const lastRow = ws.getLastRow();
+  const { map } = getNomHeaders(ws);
+  if (map.id === undefined) return { error: 'ID column not found' };
+
+  const ids = ws.getRange(2, map.id + 1, lastRow - 1, 1).getValues();
+  let targetRow = -1;
+  for (let r = 0; r < ids.length; r++) {
+    if (Number(ids[r][0]) === Number(id)) { targetRow = r + 2; break; }
+  }
+  if (targetRow === -1) return { error: 'Employee ID not found: ' + id };
+
+  const fieldToCol = {
+    nombre: 'nombre', apellido: 'apellido', cuit: 'cuit', lider: 'lider',
+    equipo: 'equipo', area: 'area', clasif: 'clasif', tipo: 'tipo',
+    modalidad: 'modalidad', empresa: 'empresa', cargo: 'cargo', seniority: 'seniority',
+    sueldoBruto: 'sueldoBruto', facturaMono: 'facturaMono', benTarjeta: 'benTarjeta',
+    benConect: 'benConect', benMono: 'benMono', benOS: 'benOS', sueldoNeto: 'sueldoNeto',
+    fechaIngreso: 'fechaIngreso', estado: 'estado', fechaBaja: 'fechaBaja', notas: 'notas'
+  };
+
+  let updated = 0;
+  for (const [key, val] of Object.entries(fields)) {
+    const colKey = fieldToCol[key];
+    if (colKey && map[colKey] !== undefined) {
+      ws.getRange(targetRow, map[colKey] + 1).setValue(val);
+      updated++;
+    }
+  }
+  return { ok: true, id, updated, row: targetRow };
+}
+
+function seedNomina(ss, rows) {
+  let ws = ss.getSheetByName(SHEET_NOM);
+  if (!ws) {
+    ws = ss.insertSheet(SHEET_NOM);
+  } else {
+    ws.clear();
+  }
+
+  const data = [NOM_HEADERS];
+  rows.forEach(e => {
+    data.push([
+      e.id || Date.now(), e.nombre||'', e.apellido||'', e.cuit||'', e.lider||'',
+      e.equipo||'', e.area||'', e.clasif||'', e.tipo||'', e.modalidad||'',
+      e.empresa||'', e.cargo||'', e.seniority||'',
+      Number(e.sueldoBruto)||0, Number(e.facturaMono)||0, Number(e.benTarjeta)||0,
+      Number(e.benConect)||0, Number(e.benMono)||0, Number(e.benOS)||0,
+      Number(e.sueldoNeto)||0, e.fechaIngreso||'', e.estado||'Activo',
+      e.fechaBaja||'', e.notas||''
+    ]);
+  });
+
+  ws.getRange(1, 1, data.length, NOM_HEADERS.length).setValues(data);
+  const headerRange = ws.getRange(1, 1, 1, NOM_HEADERS.length);
+  headerRange.setFontWeight('bold').setBackground('#1f2937').setFontColor('#ffffff');
+  ws.setFrozenRows(1);
+  for (let c = 1; c <= NOM_HEADERS.length; c++) ws.autoResizeColumn(c);
+
+  return { ok: true, rows: data.length - 1, sheet: SHEET_NOM };
 }

@@ -619,6 +619,11 @@
             </div>
 
             <div class="nav-section">
+                <div class="nav-section-title">Equipo</div>
+                <div class="nav-item" onclick="showPage('nomina')">Nómina</div>
+            </div>
+
+            <div class="nav-section">
                 <div class="nav-section-title">Operaciones</div>
                 <div class="nav-item" onclick="showPage('carga')">Carga de Datos</div>
                 <div class="nav-item" onclick="showPage('movimientos')">Movimientos</div>
@@ -1176,6 +1181,37 @@
                             </div>
                         </div>
 
+                        <div class="form-group">
+                            <label>Forma de Pago</label>
+                            <select id="movFP">
+                                <option value="">Sin especificar</option>
+                                <option value="Transferencia">Transferencia</option>
+                                <option value="Cheque">Cheque</option>
+                                <option value="Efectivo">Efectivo</option>
+                                <option value="Tarjeta">Tarjeta</option>
+                                <option value="Débito Automático">Débito Automático</option>
+                                <option value="Compensación">Compensación</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label>Centro de Costo / Proyecto</label>
+                            <div class="combo-wrapper">
+                                <select id="movCC">
+                                    <option value="">Sin asignar</option>
+                                    <option value="Operaciones">Operaciones</option>
+                                    <option value="Comercial">Comercial</option>
+                                    <option value="Tecnología">Tecnología</option>
+                                    <option value="Administración">Administración</option>
+                                    <option value="RRHH">RRHH</option>
+                                    <option value="Marketing">Marketing</option>
+                                    <option value="Infraestructura">Infraestructura</option>
+                                    <option value="Financiero">Financiero</option>
+                                </select>
+                                <button type="button" class="combo-add" onclick="addNewOption('movCC','Centro de Costo')">+</button>
+                            </div>
+                        </div>
+
                     </div>
 
                     <div class="form-group">
@@ -1203,8 +1239,25 @@
                     </div>
 
                     <div class="form-group">
-                        <label>Monto ARS (positivo para ingresos, negativo para egresos)</label>
-                        <input type="number" id="movMonto" step="1" required placeholder="Ej: 1500000 o -350000">
+                        <label>Moneda</label>
+                        <div style="display:flex;gap:8px;align-items:center">
+                            <select id="movMoneda" onchange="onMovMonedaChange()" style="flex:0 0 auto;min-width:90px">
+                                <option value="ARS">ARS $</option>
+                                <option value="USD">USD US$</option>
+                            </select>
+                            <div style="flex:1">
+                                <input type="number" id="movMonto" step="0.01" required placeholder="Monto (+ ingreso, - egreso)">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-group" id="movTCGroup" style="display:none">
+                        <label>Tipo de Cambio MEP <span style="font-size:9px;color:#8b949e">(ARS por 1 USD)</span></label>
+                        <div style="display:flex;gap:8px;align-items:center">
+                            <input type="number" id="movTC" step="0.01" placeholder="Ej: 1250">
+                            <button type="button" onclick="movSetMEP()" style="font-size:10px;padding:4px 10px;background:#30363d;color:#58a6ff;border:1px solid #484f58;border-radius:4px;cursor:pointer;white-space:nowrap" title="Usar cotización MEP actual">MEP Actual</button>
+                        </div>
+                        <div id="movConversionPreview" style="font-size:10px;color:#8b949e;margin-top:4px"></div>
                     </div>
 
                     <div style="display:flex;gap:10px;margin-top:16px;">
@@ -1229,6 +1282,109 @@
 
                 <table id="movimientosTable"></table>
             </div>
+
+            <!-- NÓMINA PAGE -->
+            <div id="nomina" class="page">
+                <h1>Nómina de Empleados</h1>
+                <div class="reference-banner">Roster completo de la compañía · Altas y bajas · Costo por área</div>
+
+                <!-- KPIs -->
+                <div id="nominaKPIs" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:20px"></div>
+
+                <!-- Filtros -->
+                <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
+                    <select id="nomFilterArea" onchange="renderNomina()" style="background:#161b22;border:1px solid #30363d;color:#e6edf3;padding:6px 10px;border-radius:4px;font-size:11px">
+                        <option value="all">Todas las áreas</option>
+                    </select>
+                    <select id="nomFilterEstado" onchange="renderNomina()" style="background:#161b22;border:1px solid #30363d;color:#e6edf3;padding:6px 10px;border-radius:4px;font-size:11px">
+                        <option value="all">Todos</option>
+                        <option value="Activo" selected>Activos</option>
+                        <option value="Baja">Bajas</option>
+                    </select>
+                    <select id="nomFilterEmp" onchange="renderNomina()" style="background:#161b22;border:1px solid #30363d;color:#e6edf3;padding:6px 10px;border-radius:4px;font-size:11px">
+                        <option value="all">Todas las empresas</option>
+                        <option value="TQN">TQN</option>
+                        <option value="LMS">LMS</option>
+                    </select>
+                    <button onclick="showAltaForm()" style="background:#238636;color:#fff;border:none;padding:6px 14px;border-radius:5px;cursor:pointer;font-size:11px;font-weight:600">+ Alta</button>
+                    <button onclick="exportNominaCSV()" class="secondary" style="font-size:11px;padding:6px 10px">Exportar CSV</button>
+                    <span style="border-left:1px solid #30363d;height:20px;margin:0 4px"></span>
+                    <button onclick="nominaSeedSheet()" style="background:#7c3aed20;border:1px solid #7c3aed;color:#a78bfa;padding:6px 10px;border-radius:5px;cursor:pointer;font-size:10px;font-weight:600" title="Subir nómina completa al Google Sheet">⬆ Subir al SOT</button>
+                    <button onclick="nominaPullFromSheet()" style="background:#58a6ff15;border:1px solid #30363d;color:#58a6ff;padding:6px 10px;border-radius:5px;cursor:pointer;font-size:10px" title="Descargar nómina del Sheet">⬇ Bajar del SOT</button>
+                    <button onclick="resetNominaToSeed()" style="background:none;border:1px solid #30363d;color:#8b949e;padding:6px 10px;border-radius:5px;cursor:pointer;font-size:10px" title="Volver a datos originales Abril 2026">↻ Reset</button>
+                </div>
+
+                <!-- Alta form (hidden) -->
+                <div id="altaForm" style="display:none;margin-bottom:20px;padding:16px;background:#161b22;border:1px solid #30363d;border-radius:10px">
+                    <h3 style="margin:0 0 12px;color:#e6edf3">Nueva Alta</h3>
+                    <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px">
+                        <div class="form-group"><label>Nombre</label><input type="text" id="nomNombre" placeholder="Nombre"></div>
+                        <div class="form-group"><label>Apellido</label><input type="text" id="nomApellido" placeholder="Apellido"></div>
+                        <div class="form-group"><label>CUIT</label><input type="text" id="nomCuit" placeholder="20-12345678-9"></div>
+                        <div class="form-group"><label>Líder</label><input type="text" id="nomLider" placeholder="Ej: Sergio, Alejo..."></div>
+                        <div class="form-group"><label>Equipo</label>
+                            <select id="nomEquipo"><option value="">Seleccionar...</option>
+                                <option>CEO</option><option>BEHAVIORAL SCIENCE</option><option>LUMOS</option><option>NEGOCIO</option><option>AM</option><option>MKT</option><option>TECNOLOGIA</option><option>ADMINISTRACION</option><option>CH</option><option>DISEÑO</option><option>DIGITAL</option><option>MAESTRANZA</option><option>LEGALES</option><option>COMUNICACIONES</option><option>SERVICIOS</option><option>ESPAÑA</option>
+                            </select>
+                        </div>
+                        <div class="form-group"><label>UN (Unidad de Negocio)</label>
+                            <select id="nomArea"><option value="">Seleccionar...</option></select>
+                        </div>
+                        <div class="form-group"><label>Clasificación</label>
+                            <select id="nomClasif"><option value="VENDIBLE">Vendible</option><option value="NO VENDIBLE">No Vendible</option></select>
+                        </div>
+                        <div class="form-group"><label>Tipo</label>
+                            <select id="nomTipo"><option value="BAU">BAU</option><option value="INVERSION">Inversión</option></select>
+                        </div>
+                        <div class="form-group"><label>Modalidad</label>
+                            <select id="nomModalidad"><option value="RRDD">RRDD</option><option value="Monotributo">Monotributo</option><option value="Mixta">Mixta (RRDD + Factura)</option><option value="Factura">Factura / Freelance</option></select>
+                        </div>
+                        <div class="form-group"><label>Empresa</label>
+                            <select id="nomEmpresa"><option value="TQN">TQN</option><option value="LMS">LMS</option></select>
+                        </div>
+                        <div class="form-group"><label>Seniority</label>
+                            <select id="nomSeniority"><option value="">-</option><option value="Jr">Jr</option><option value="Semi-Sr">Semi-Sr</option><option value="Sr">Sr</option><option value="Lead">Lead</option><option value="Manager">Manager</option><option value="Director">Director</option><option value="C-Level">C-Level</option></select>
+                        </div>
+                        <div class="form-group"><label>Cargo</label><input type="text" id="nomCargo" placeholder="Ej: Analyst, Manager..."></div>
+                    </div>
+                    <h4 style="margin:14px 0 8px;color:#8b949e;font-size:11px;text-transform:uppercase;letter-spacing:0.5px">Compensación mensual (ARS)</h4>
+                    <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px">
+                        <div class="form-group"><label>Sueldo Bruto Recibo</label><input type="number" id="nomSueldo" step="1" placeholder="Bruto recibo"></div>
+                        <div class="form-group"><label>Factura Monotributo</label><input type="number" id="nomFacturaMono" step="1" placeholder="0 si no aplica"></div>
+                        <div class="form-group"><label>Beneficio Tarjeta Prepaga</label><input type="number" id="nomBenTarjeta" step="1" placeholder="Tarjeta prepaga"></div>
+                        <div class="form-group"><label>Beneficio Conect</label><input type="number" id="nomBenConect" step="1" placeholder="Conectividad"></div>
+                        <div class="form-group"><label>Beneficio Monotributo</label><input type="number" id="nomBenMono" step="1" placeholder="0 si no aplica"></div>
+                        <div class="form-group"><label>Beneficio OS</label><input type="number" id="nomBenOS" step="1" placeholder="Obra social"></div>
+                        <div class="form-group"><label>Sueldo Neto Total</label><input type="number" id="nomSueldoNeto" step="1" placeholder="Neto total (auto)" readonly style="opacity:0.6"></div>
+                        <div class="form-group"><label>Fecha Ingreso</label><input type="date" id="nomFechaIngreso"></div>
+                    </div>
+                    <div style="margin-top:12px;display:flex;gap:8px">
+                        <button onclick="submitAlta()" style="background:#238636;color:#fff;border:none;padding:6px 16px;border-radius:5px;cursor:pointer;font-size:12px">Registrar Alta</button>
+                        <button onclick="document.getElementById('altaForm').style.display='none'" style="background:#30363d;color:#c9d1d9;border:1px solid #484f58;padding:6px 16px;border-radius:5px;cursor:pointer;font-size:12px">Cancelar</button>
+                    </div>
+                </div>
+
+                <!-- Costo por Área chart + table -->
+                <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:20px">
+                    <div class="card" style="flex:1;min-width:300px">
+                        <div class="card-title">Costo Mensual por Área</div>
+                        <div style="height:280px"><canvas id="nominaAreaChart"></canvas></div>
+                    </div>
+                    <div class="card" style="flex:1;min-width:300px">
+                        <div class="card-title">Resumen por Área</div>
+                        <div id="nominaAreaSummary"></div>
+                    </div>
+                </div>
+
+                <!-- Employee table -->
+                <div class="card">
+                    <div class="card-title">Roster <span id="nominaCount" style="font-size:10px;color:#8b949e;font-weight:400"></span></div>
+                    <div style="overflow-x:auto">
+                        <table id="nominaTable" style="min-width:1000px"></table>
+                    </div>
+                </div>
+            </div>
+
         </div>
     </div>
 
@@ -1268,7 +1424,7 @@
 
         // ========= GOOGLE SHEETS SYNC =========
         const SHEETS_CONFIG = {
-            apiUrl: 'https://script.google.com/macros/s/AKfycbwM5DE08SKEzzdw6LXOA7o0tXKwr0tHNycDBtXwS7vnSwFP4Jbmfff6DgTCzuPGo8gqkA/exec',
+            apiUrl: 'https://script.google.com/macros/s/AKfycbyjOqLidTlFJ3mRI_YDTdttvl_AgNNYaEVHCe-_ss73Aw405WtOsZT94TLNZMyv4mEx_g/exec',
             enabled: true,
             lastSync: null,
             syncing: false
@@ -1396,10 +1552,18 @@
                         if (allData.gc && allData.gc.schedule && allData.gc.schedule.length > 0) {
                             DATA.gc_term = allData.gc;
                         }
+                        // Sync Nómina from Sheet if available
+                        if (allData.nom && allData.nom.length > 0) {
+                            NOMINA = allData.nom;
+                            saveNomina();
+                            SHEETS_CONFIG.nominaSynced = true;
+                        }
                         SHEETS_CONFIG.lastSync = new Date().toISOString();
-                        sheetsSyncStatus('✅ Auto-sync: ' + allData.mov.length + ' mov del Sheet', '#34d399');
-                        // Refresh dashboard
+                        const nomLabel = allData.nom ? ' · ' + allData.nom.length + ' empleados' : '';
+                        sheetsSyncStatus('✅ Auto-sync: ' + allData.mov.length + ' mov' + nomLabel, '#34d399');
+                        // Refresh current page
                         if (APP.currentPage === 'dashboard') renderDashboard();
+                        if (APP.currentPage === 'nomina') renderNomina();
                     } else {
                         sheetsSyncStatus('✅ Conectado. Sheet vacío — usá Carga Inicial', '#fbbf24');
                     }
@@ -1426,6 +1590,75 @@
             } catch (err) {
                 sheetsSyncStatus('❌ Error al guardar: ' + err.message, '#f87171');
                 return { ok: false, error: err.message };
+            }
+        }
+
+        // --- Nómina ↔ Sheet sync ---
+        async function nominaPushToSheet(emp) {
+            if (!SHEETS_CONFIG.enabled || !SHEETS_CONFIG.apiUrl) return;
+            try {
+                await fetch(SHEETS_CONFIG.apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'add_nomina', rows: [emp] })
+                });
+            } catch (e) { console.log('Nomina push failed:', e.message); }
+        }
+
+        async function nominaUpdateSheet(id, fields) {
+            if (!SHEETS_CONFIG.enabled || !SHEETS_CONFIG.apiUrl) return;
+            try {
+                await fetch(SHEETS_CONFIG.apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'update_nomina', id, fields })
+                });
+            } catch (e) { console.log('Nomina update failed:', e.message); }
+        }
+
+        async function nominaSeedSheet() {
+            if (!SHEETS_CONFIG.enabled || !SHEETS_CONFIG.apiUrl) {
+                alert('Primero configurá la URL del Google Sheet');
+                return;
+            }
+            if (!confirm('¿Subir toda la nómina actual (' + NOMINA.length + ' empleados) al Sheet?\nEsto reemplaza la pestaña Nómina completa.')) return;
+            sheetsSyncStatus('⬆ Subiendo nómina al Sheet...', '#7c3aed');
+            try {
+                const resp = await fetch(SHEETS_CONFIG.apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'seed_nomina', rows: NOMINA })
+                });
+                const result = await resp.json();
+                if (result.error) throw new Error(result.error);
+                SHEETS_CONFIG.nominaSynced = true;
+                sheetsSyncStatus('✅ Nómina subida: ' + (result.rows || NOMINA.length) + ' empleados en el SOT', '#34d399');
+            } catch (err) {
+                sheetsSyncStatus('❌ Error subiendo nómina: ' + err.message, '#f87171');
+            }
+        }
+
+        async function nominaPullFromSheet() {
+            if (!SHEETS_CONFIG.enabled || !SHEETS_CONFIG.apiUrl) {
+                alert('Primero configurá la URL del Google Sheet');
+                return;
+            }
+            sheetsSyncStatus('🔄 Descargando nómina del Sheet...', '#fbbf24');
+            try {
+                const resp = await fetch(SHEETS_CONFIG.apiUrl + '?action=nomina');
+                const data = await resp.json();
+                if (data.error) throw new Error(data.error);
+                if (Array.isArray(data) && data.length > 0) {
+                    NOMINA = data;
+                    saveNomina();
+                    SHEETS_CONFIG.nominaSynced = true;
+                    sheetsSyncStatus('✅ Nómina sincronizada: ' + data.length + ' empleados del SOT', '#34d399');
+                    if (APP.currentPage === 'nomina') renderNomina();
+                } else {
+                    sheetsSyncStatus('⚠ Sheet sin datos de nómina. Usá "Subir al SOT" primero.', '#fbbf24');
+                }
+            } catch (err) {
+                sheetsSyncStatus('❌ Error descargando nómina: ' + err.message, '#f87171');
             }
         }
 
@@ -1542,6 +1775,7 @@
             else if (page === 'operacion') renderOperacion();
             else if (page === 'composicion') renderComposicion();
             else if (page === 'semanal') renderSemanal();
+            else if (page === 'nomina') renderNomina();
         }
 
         // Today string for forward-only conversion rule
@@ -1649,7 +1883,7 @@
 
             // Mobile: close sidebar and update title
             document.querySelector('.sidebar')?.classList.remove('open');
-            const titles = { dashboard:'Dashboard', operacion:'Operación BAU', deuda:'Deuda', composicion:'Composición', bancarizado:'B/N Splits', semanal:'Semanal 45d', whatif:'Sandbox', carga:'Carga', movimientos:'Movimientos' };
+            const titles = { dashboard:'Dashboard', operacion:'Operación BAU', deuda:'Deuda', composicion:'Composición', bancarizado:'B/N Splits', semanal:'Semanal 45d', whatif:'Sandbox', carga:'Carga', movimientos:'Movimientos', nomina:'Nómina' };
             const mpt = document.getElementById('mobilePageTitle');
             if (mpt) mpt.textContent = titles[pageId] || pageId;
 
@@ -1663,6 +1897,7 @@
                 else if (pageId === 'semanal') renderSemanal();
                 else if (pageId === 'whatif') renderWhatIf();
                 else if (pageId === 'movimientos') renderMovimientos();
+                else if (pageId === 'nomina') renderNomina();
             }, 100);
         }
 
@@ -1675,6 +1910,435 @@
             if (en.includes('aporte mutuo') || en.includes('aporte muto') || en.includes('mutuo safe')) return true;
             if (it.includes('mutuo') && it.includes('aporte')) return true;
             return false;
+        }
+
+        // === BUSINESS UNIT CLASSIFICATION ===
+        const AREAS = ['Top Management','Insights','Inspire','Ignite','Tecnología','Cuentas','Administración','Capital Humano','Comercial','Estructura Operativa','Financiero'];
+        const AREA_COLORS = {
+            'Top Management': '#a78bfa', 'Insights': '#60a5fa', 'Inspire': '#f472b6',
+            'Ignite': '#fb923c', 'Tecnología': '#34d399', 'Cuentas': '#fbbf24',
+            'Administración': '#94a3b8', 'Capital Humano': '#c084fc', 'Comercial': '#f87171',
+            'Estructura Operativa': '#78716c', 'Financiero': '#38bdf8', 'Sin asignar': '#4b5563'
+        };
+
+        // Provider → Area mapping (entidad-based, lowercase match)
+        const PROV_AREA_MAP = {
+            // Insights
+            'digimind': 'Insights', 'onclusive': 'Insights', 'manuel maffe': 'Insights', 'victoria lupo': 'Insights',
+            // Inspire
+            'cristian savloff': 'Inspire', 'savloff': 'Inspire',
+            // Ignite
+            'dual': 'Ignite', 'solana cuevas': 'Ignite', 'solana cueva': 'Ignite',
+            // Tecnología
+            'golaware': 'Tecnología', 'google': 'Tecnología', 'wit': 'Tecnología', 'notion': 'Tecnología',
+            'amazon web': 'Tecnología', 'aws': 'Tecnología', 'cloudflare': 'Tecnología',
+            // Cuentas
+            'josefina maharbiz': 'Cuentas', 'maharbiz': 'Cuentas',
+            // Comercial
+            'gisela bongiorni': 'Comercial', 'bongiorni': 'Comercial',
+            // Capital Humano
+            'swiss medical': 'Capital Humano', 'osde': 'Capital Humano', 'pagos digitales': 'Capital Humano',
+            // Administración
+            'estudio ema': 'Administración', 'dla piper': 'Administración', 'visa': 'Administración',
+            'yanina ferrari': 'Administración',
+            // Estructura Operativa
+            'alquiler': 'Estructura Operativa', 'bavio': 'Estructura Operativa', 'sucre': 'Estructura Operativa',
+            'edenor': 'Estructura Operativa', 'metrogas': 'Estructura Operativa', 'telecom': 'Estructura Operativa',
+            'andreani': 'Estructura Operativa',
+            // Financiero
+            'galicia': 'Financiero', 'macro': 'Financiero', 'santander': 'Financiero', 'bbva': 'Financiero',
+            'ciudad': 'Financiero', 'bind': 'Financiero', 'mills': 'Financiero'
+        };
+
+        // Classify a movement to a business unit/area
+        function getMovUnit(m) {
+            // If movement already has cc (centro de costo) set, use it
+            if (m.cc) return m.cc;
+
+            const t = m.t || '';
+            const it = (m.i || '').toLowerCase();
+            const en = (m.en || '').toLowerCase();
+
+            // Sueldos classification by item
+            if (t === 'Sueldos y Jornales') {
+                if (it === 'socios' || it === 'dirección') return 'Top Management';
+                if (it === 'cargas sociales') return 'Capital Humano';
+                if (it === 'beneficios') return 'Capital Humano';
+                if (it === 'liquidaciones finales') return 'Capital Humano';
+                if (it === 'maestranza') return 'Estructura Operativa';
+                if (it === 'afip') return 'Administración';
+                if (it === 'staff') {
+                    // Try to match by entidad
+                    if (en.includes('lms')) return 'Top Management';
+                    return 'Sin asignar';
+                }
+                // Bulk sueldos — check for keywords
+                if (en.includes('socios') || en.includes('doval') || en.includes('ureta') || en.includes('estrada')) return 'Top Management';
+                if (en.includes('direccion') || en.includes('dirección')) return 'Top Management';
+                return 'Sin asignar'; // Bulk sueldos can't be classified further
+            }
+
+            // Impuestos bancarios → Financiero
+            if (t === 'Impuestos bancarios') return 'Financiero';
+
+            // Préstamos → Financiero
+            if (t === 'Préstamos Bancarios' || t === 'Cobr. Deuda Salta23') return 'Financiero';
+
+            // Try provider mapping
+            for (const [key, area] of Object.entries(PROV_AREA_MAP)) {
+                if (en.includes(key) || it.includes(key)) return area;
+            }
+
+            // Item-based fallback
+            if (it.includes('alquiler')) return 'Estructura Operativa';
+            if (it.includes('fee')) return 'Comercial';
+            if (it.includes('iva') || it.includes('iibb') || it.includes('ganancias')) return 'Administración';
+
+            return 'Sin asignar';
+        }
+
+        // === NÓMINA (Employee Roster) ===
+        // Equipo → UN mapping (from Excel structure)
+        const EQUIPO_UN_MAP = {
+            'BEHAVIORAL SCIENCE': 'Insights', 'LUMOS': 'Inspire', 'AM': 'Cuentas',
+            'NEGOCIO': 'Cuentas', 'MKT': 'Comercial', 'DISEÑO': 'Inspire',
+            'DIGITAL': 'Inspire', 'TECNOLOGIA': 'Tecnología', 'ADMINISTRACION': 'Administración',
+            'CH': 'Capital Humano', 'LEGALES': 'Administración', 'COMUNICACIONES': 'Comercial',
+            'MAESTRANZA': 'Estructura Operativa', 'SERVICIOS': 'Ignite', 'ESPAÑA': 'Comercial',
+            'CEO': 'Top Management'
+        };
+
+        // Default seed data from Abril 2026 Excel
+        const NOMINA_SEED = [
+            {id:1,nombre:'Agustina',apellido:'Correderas Nuñez',cuit:'23-41395167-4',lider:'Joaco',equipo:'BEHAVIORAL SCIENCE',area:'Insights',clasif:'VENDIBLE',tipo:'BAU',modalidad:'RRDD',empresa:'TQN',cargo:'',seniority:'',sueldoBruto:2427084,facturaMono:0,benTarjeta:511030,benConect:17550,benMono:0,benOS:0,sueldoNeto:2543060,fechaIngreso:'',estado:'Activo'},
+            {id:2,nombre:'Francisco Manuel',apellido:'Diez',cuit:'20-35360425-3',lider:'Alejo',equipo:'LUMOS',area:'Inspire',clasif:'VENDIBLE',tipo:'BAU',modalidad:'Monotributo',empresa:'LMS',cargo:'',seniority:'',sueldoBruto:0,facturaMono:854647,benTarjeta:177667,benConect:17550,benMono:35458,benOS:154149,sueldoNeto:1239471,fechaIngreso:'',estado:'Activo'},
+            {id:3,nombre:'Isabel',apellido:'Ortega',cuit:'27-94232569-5',lider:'Santiago',equipo:'MAESTRANZA',area:'Estructura Operativa',clasif:'NO VENDIBLE',tipo:'BAU',modalidad:'RRDD',empresa:'TQN',cargo:'Maestranza',seniority:'',sueldoBruto:707041,facturaMono:0,benTarjeta:0,benConect:0,benMono:0,benOS:0,sueldoNeto:586844,fechaIngreso:'',estado:'Activo'},
+            {id:4,nombre:'Joaquin',apellido:'Molina',cuit:'20-38402079-9',lider:'Joaco',equipo:'BEHAVIORAL SCIENCE',area:'Insights',clasif:'VENDIBLE',tipo:'BAU',modalidad:'RRDD',empresa:'TQN',cargo:'',seniority:'',sueldoBruto:0,facturaMono:0,benTarjeta:0,benConect:0,benMono:0,benOS:0,sueldoNeto:0,fechaIngreso:'',estado:'Baja',fechaBaja:'2026-04-01',notas:'RENUNCIA'},
+            {id:5,nombre:'Lorena',apellido:'Rinaldini',cuit:'27-25696949-7',lider:'Diego',equipo:'MKT',area:'Ignite',clasif:'NO VENDIBLE',tipo:'BAU',modalidad:'RRDD',empresa:'TQN',cargo:'',seniority:'',sueldoBruto:3104628,facturaMono:0,benTarjeta:905659,benConect:17550,benMono:0,benOS:0,sueldoNeto:3500050,fechaIngreso:'',estado:'Activo'},
+            {id:6,nombre:'Maria Azul',apellido:'Alvarez',cuit:'23-28508688-4',lider:'Santiago',equipo:'NEGOCIO',area:'Cuentas',clasif:'NO VENDIBLE',tipo:'BAU',modalidad:'RRDD',empresa:'TQN',cargo:'',seniority:'',sueldoBruto:1919981,facturaMono:0,benTarjeta:637433,benConect:17550,benMono:0,benOS:0,sueldoNeto:2248567,fechaIngreso:'',estado:'Activo'},
+            {id:7,nombre:'Nicolas',apellido:'Aicardi',cuit:'20-43700002-7',lider:'Joaco',equipo:'BEHAVIORAL SCIENCE',area:'Insights',clasif:'VENDIBLE',tipo:'BAU',modalidad:'RRDD',empresa:'TQN',cargo:'',seniority:'',sueldoBruto:1676191,facturaMono:0,benTarjeta:208599,benConect:17550,benMono:0,benOS:0,sueldoNeto:1617388,fechaIngreso:'',estado:'Activo'},
+            {id:8,nombre:'Santiago',apellido:'Estrada',cuit:'20-31293263-7',lider:'Sergio',equipo:'ADMINISTRACION',area:'Administración',clasif:'NO VENDIBLE',tipo:'BAU',modalidad:'Mixta',empresa:'TQN',cargo:'CFO',seniority:'C-Level',sueldoBruto:2304760,facturaMono:2543711,benTarjeta:600000,benConect:17550,benMono:0,benOS:0,sueldoNeto:5074212,fechaIngreso:'',estado:'Activo'},
+            {id:9,nombre:'Sergio',apellido:'Doval',cuit:'20-27768102-2',lider:'Sergio',equipo:'CEO',area:'Top Management',clasif:'NO VENDIBLE',tipo:'BAU',modalidad:'Mixta',empresa:'TQN',cargo:'CEO',seniority:'C-Level',sueldoBruto:9832505,facturaMono:3700000,benTarjeta:3232505,benConect:0,benMono:0,benOS:0,sueldoNeto:9832505,fechaIngreso:'',estado:'Activo'},
+            {id:10,nombre:'Sol',apellido:'Brinatti',cuit:'27-38028749-3',lider:'Sergio',equipo:'NEGOCIO',area:'Cuentas',clasif:'VENDIBLE',tipo:'BAU',modalidad:'Mixta',empresa:'TQN',cargo:'',seniority:'',sueldoBruto:3375000,facturaMono:1882827,benTarjeta:1400000,benConect:17550,benMono:0,benOS:0,sueldoNeto:6101627,fechaIngreso:'',estado:'Activo'},
+            {id:11,nombre:'Tiago',apellido:'Couce',cuit:'27-34002805-3',lider:'Alejo',equipo:'LUMOS',area:'Inspire',clasif:'VENDIBLE',tipo:'BAU',modalidad:'RRDD',empresa:'LMS',cargo:'',seniority:'',sueldoBruto:2689759,facturaMono:0,benTarjeta:600000,benConect:17550,benMono:0,benOS:0,sueldoNeto:2850050,fechaIngreso:'',estado:'Activo'},
+            {id:12,nombre:'Camila',apellido:'Lopez',cuit:'',lider:'Sergio',equipo:'CH',area:'Capital Humano',clasif:'NO VENDIBLE',tipo:'BAU',modalidad:'RRDD',empresa:'TQN',cargo:'',seniority:'',sueldoBruto:2346045,facturaMono:0,benTarjeta:487256,benConect:17550,benMono:0,benOS:0,sueldoNeto:2452023,fechaIngreso:'',estado:'Activo'},
+            {id:13,nombre:'Candela',apellido:'Kissner',cuit:'27-41923705-7',lider:'Santiago',equipo:'ADMINISTRACION',area:'Administración',clasif:'NO VENDIBLE',tipo:'BAU',modalidad:'RRDD',empresa:'TQN',cargo:'',seniority:'',sueldoBruto:1890910,facturaMono:0,benTarjeta:321455,benConect:17550,benMono:0,benOS:0,sueldoNeto:1908460,fechaIngreso:'',estado:'Activo'},
+            {id:14,nombre:'Diego',apellido:'Kupferberg',cuit:'',lider:'Diego',equipo:'COMERCIAL',area:'Comercial',clasif:'NO VENDIBLE',tipo:'BAU',modalidad:'Mixta',empresa:'TQN',cargo:'CCO',seniority:'C-Level',sueldoBruto:1800000,facturaMono:1400000,benTarjeta:600000,benConect:17550,benMono:0,benOS:0,sueldoNeto:3511550,fechaIngreso:'',estado:'Activo'},
+            {id:15,nombre:'Felipe',apellido:'Pampin',cuit:'',lider:'Sergio',equipo:'TECNOLOGIA',area:'Tecnología',clasif:'NO VENDIBLE',tipo:'BAU',modalidad:'RRDD',empresa:'TQN',cargo:'',seniority:'',sueldoBruto:1439200,facturaMono:0,benTarjeta:0,benConect:17550,benMono:0,benOS:0,sueldoNeto:1212086,fechaIngreso:'',estado:'Activo'},
+            {id:16,nombre:'Santiago',apellido:'Pegito',cuit:'',lider:'Alejo',equipo:'LUMOS',area:'Inspire',clasif:'NO VENDIBLE',tipo:'BAU',modalidad:'RRDD',empresa:'TQN',cargo:'',seniority:'',sueldoBruto:1548390,facturaMono:0,benTarjeta:492669,benConect:17550,benMono:0,benOS:0,sueldoNeto:1795383,fechaIngreso:'',estado:'Activo'},
+            {id:17,nombre:'Maria Belen',apellido:'Altieri',cuit:'',lider:'Joaco',equipo:'BEHAVIORAL SCIENCE',area:'Insights',clasif:'VENDIBLE',tipo:'BAU',modalidad:'RRDD',empresa:'TQN',cargo:'',seniority:'',sueldoBruto:2025975,facturaMono:0,benTarjeta:464783,benConect:17550,benMono:0,benOS:0,sueldoNeto:2163892,fechaIngreso:'',estado:'Activo'},
+            {id:18,nombre:'Julia',apellido:'Distefano',cuit:'27-39186021-7',lider:'Alejo',equipo:'DISEÑO',area:'Inspire',clasif:'VENDIBLE',tipo:'BAU',modalidad:'RRDD',empresa:'LMS',cargo:'',seniority:'',sueldoBruto:1914458,facturaMono:0,benTarjeta:340500,benConect:17550,benMono:0,benOS:0,sueldoNeto:1947050,fechaIngreso:'',estado:'Activo'},
+            {id:19,nombre:'Julian',apellido:'Cordoba Pivotto',cuit:'20-41624139-3',lider:'Sol',equipo:'AM',area:'Cuentas',clasif:'VENDIBLE',tipo:'BAU',modalidad:'RRDD',empresa:'TQN',cargo:'',seniority:'',sueldoBruto:2650602,facturaMono:0,benTarjeta:330000,benConect:17550,benMono:0,benOS:0,sueldoNeto:2547550,fechaIngreso:'',estado:'Activo',notas:'10% aumento 6 meses'},
+            {id:20,nombre:'Nicolas',apellido:'Medina',cuit:'20-42956744-1',lider:'Joaco',equipo:'BEHAVIORAL SCIENCE',area:'Insights',clasif:'VENDIBLE',tipo:'BAU',modalidad:'RRDD',empresa:'TQN',cargo:'',seniority:'',sueldoBruto:1325301,facturaMono:0,benTarjeta:220000,benConect:17550,benMono:0,benOS:0,sueldoNeto:1337550,fechaIngreso:'',estado:'Activo',notas:'10% aumento 6 meses'},
+            {id:21,nombre:'Martin',apellido:'Villanueva',cuit:'23-36684329-9',lider:'Sol',equipo:'AM',area:'Cuentas',clasif:'VENDIBLE',tipo:'BAU',modalidad:'RRDD',empresa:'TQN',cargo:'',seniority:'',sueldoBruto:2409639,facturaMono:0,benTarjeta:500000,benConect:17550,benMono:0,benOS:0,sueldoNeto:2517550,fechaIngreso:'',estado:'Activo'},
+            {id:22,nombre:'Agustina',apellido:'Ferreyra',cuit:'27-42663067-8',lider:'Sol',equipo:'AM',area:'Cuentas',clasif:'VENDIBLE',tipo:'BAU',modalidad:'RRDD',empresa:'TQN',cargo:'',seniority:'',sueldoBruto:1807228,facturaMono:0,benTarjeta:400000,benConect:17550,benMono:0,benOS:0,sueldoNeto:1917549,fechaIngreso:'',estado:'Activo'},
+            {id:23,nombre:'Matias',apellido:'Nogueira',cuit:'',lider:'Sergio',equipo:'LUMOS',area:'Inspire',clasif:'NO VENDIBLE',tipo:'BAU',modalidad:'Mixta',empresa:'TQN',cargo:'',seniority:'',sueldoBruto:1184000,facturaMono:2600000,benTarjeta:600000,benConect:17550,benMono:0,benOS:0,sueldoNeto:4200270,fechaIngreso:'',estado:'Activo'}
+        ];
+
+        // Initialize NOMINA: use localStorage if available and non-empty, otherwise seed
+        let NOMINA = JSON.parse(localStorage.getItem('tqn_nomina') || '[]');
+        if (NOMINA.length === 0) {
+            NOMINA = JSON.parse(JSON.stringify(NOMINA_SEED));
+            localStorage.setItem('tqn_nomina', JSON.stringify(NOMINA));
+        }
+
+        function saveNomina() {
+            localStorage.setItem('tqn_nomina', JSON.stringify(NOMINA));
+        }
+
+        function resetNominaToSeed() {
+            if (!confirm('¿Resetear la nómina a los datos originales de Abril 2026?\nSe perderán todos los cambios manuales.')) return;
+            NOMINA = JSON.parse(JSON.stringify(NOMINA_SEED));
+            saveNomina();
+            renderNomina();
+            showNotification('Nómina reseteada a datos de Abril 2026');
+        }
+
+        function addEmpleado(emp) {
+            emp.id = Date.now();
+            emp.estado = 'Activo';
+            if (!emp.area && emp.equipo && EQUIPO_UN_MAP[emp.equipo]) {
+                emp.area = EQUIPO_UN_MAP[emp.equipo];
+            }
+            NOMINA.push(emp);
+            saveNomina();
+            nominaPushToSheet(emp); // → SOT
+            renderNomina();
+        }
+
+        function darBaja(id) {
+            const emp = NOMINA.find(e => e.id === id);
+            if (emp) {
+                const fecha = prompt('Fecha de baja (YYYY-MM-DD):');
+                if (fecha) {
+                    emp.estado = 'Baja';
+                    emp.fechaBaja = fecha;
+                    saveNomina();
+                    nominaUpdateSheet(id, { estado: 'Baja', fechaBaja: fecha }); // → SOT
+                    renderNomina();
+                }
+            }
+        }
+
+        function reactivarEmpleado(id) {
+            const emp = NOMINA.find(e => e.id === id);
+            if (emp) {
+                emp.estado = 'Activo';
+                emp.fechaBaja = '';
+                saveNomina();
+                nominaUpdateSheet(id, { estado: 'Activo', fechaBaja: '' }); // → SOT
+                renderNomina();
+            }
+        }
+
+        function deleteEmpleado(id) {
+            if (!confirm('¿Eliminar este empleado del roster?')) return;
+            NOMINA = NOMINA.filter(e => e.id !== id);
+            saveNomina();
+            nominaUpdateSheet(id, { estado: 'Eliminado' }); // Soft delete en SOT
+            renderNomina();
+        }
+
+        // === RENDER NÓMINA ===
+        let nominaAreaChartInstance = null;
+
+        // Helper: compute sueldo neto total from components
+        function getNeto(e) {
+            return (parseFloat(e.sueldoNeto) || 0) ||
+                ((parseFloat(e.sueldoBruto)||0) + (parseFloat(e.facturaMono)||0) +
+                 (parseFloat(e.benTarjeta)||0) + (parseFloat(e.benConect)||0) +
+                 (parseFloat(e.benMono)||0) + (parseFloat(e.benOS)||0));
+        }
+
+        function renderNomina() {
+            const fArea = document.getElementById('nomFilterArea').value;
+            const fEstado = document.getElementById('nomFilterEstado').value;
+            const fEmp = document.getElementById('nomFilterEmp').value;
+
+            // Populate area filter dropdown
+            const areaSelect = document.getElementById('nomFilterArea');
+            const currentAreas = new Set(NOMINA.map(e => e.area).filter(Boolean));
+            AREAS.forEach(a => currentAreas.add(a));
+            const existingOpts = new Set([...areaSelect.options].map(o => o.value));
+            currentAreas.forEach(a => {
+                if (!existingOpts.has(a)) {
+                    const opt = document.createElement('option');
+                    opt.value = a; opt.textContent = a;
+                    areaSelect.appendChild(opt);
+                }
+            });
+            areaSelect.value = fArea;
+
+            let filtered = NOMINA.filter(e => {
+                if (fArea !== 'all' && e.area !== fArea) return false;
+                if (fEstado !== 'all' && e.estado !== fEstado) return false;
+                if (fEmp !== 'all' && e.empresa !== fEmp) return false;
+                return true;
+            });
+
+            const activos = NOMINA.filter(e => e.estado === 'Activo');
+
+            // KPIs — use sueldo neto total as "costo" (matches Excel logic)
+            const headcount = activos.length;
+            const costoNeto = activos.reduce((s, e) => s + getNeto(e), 0);
+            const sueldoBrutoTotal = activos.reduce((s, e) => s + (parseFloat(e.sueldoBruto)||0) + (parseFloat(e.facturaMono)||0), 0);
+            const tqnCount = activos.filter(e => e.empresa === 'TQN').length;
+            const lmsCount = activos.filter(e => e.empresa === 'LMS').length;
+            const vendibles = activos.filter(e => e.clasif === 'VENDIBLE').length;
+            const noVendibles = activos.length - vendibles;
+
+            const kpiDiv = document.getElementById('nominaKPIs');
+            kpiDiv.innerHTML = `
+                <div class="kpi-card"><div class="kpi-label">Headcount Activo</div><div class="kpi-value">${headcount}</div><div class="kpi-sub">TQN: ${tqnCount} · LMS: ${lmsCount}</div></div>
+                <div class="kpi-card"><div class="kpi-label">Sueldo Neto Total</div><div class="kpi-value">${formatMoney(costoNeto)}</div><div class="kpi-sub">Bruto + Facturas + Beneficios</div></div>
+                <div class="kpi-card"><div class="kpi-label">Bruto + Facturas</div><div class="kpi-value">${formatMoney(sueldoBrutoTotal)}</div><div class="kpi-sub">Recibo + Monotributo</div></div>
+                <div class="kpi-card"><div class="kpi-label">Clasificación</div><div class="kpi-value" style="font-size:18px">${vendibles} V / ${noVendibles} NV</div><div class="kpi-sub">Vendible vs No Vendible</div></div>
+            `;
+
+            // Area breakdown
+            const areaData = {};
+            activos.forEach(e => {
+                const a = e.area || 'Sin asignar';
+                if (!areaData[a]) areaData[a] = { count: 0, costo: 0, vendibles: 0 };
+                areaData[a].count++;
+                areaData[a].costo += getNeto(e);
+                if (e.clasif === 'VENDIBLE') areaData[a].vendibles++;
+            });
+            const sortedAreas = Object.entries(areaData).sort((a, b) => b[1].costo - a[1].costo);
+
+            // Chart
+            if (nominaAreaChartInstance) { nominaAreaChartInstance.destroy(); nominaAreaChartInstance = null; }
+            const ctx = document.getElementById('nominaAreaChart');
+            if (ctx && sortedAreas.length > 0) {
+                nominaAreaChartInstance = new Chart(ctx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: sortedAreas.map(([a]) => a),
+                        datasets: [{
+                            data: sortedAreas.map(([, d]) => d.costo),
+                            backgroundColor: sortedAreas.map(([a]) => AREA_COLORS[a] || '#4b5563'),
+                            borderWidth: 0
+                        }]
+                    },
+                    options: {
+                        responsive: true, maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: true, position: 'right', labels: { color: '#8b949e', font: { size: 10 }, padding: 8, boxWidth: 12 } },
+                            tooltip: { callbacks: { label: function(c) {
+                                const pct = costoNeto > 0 ? ((c.raw / costoNeto) * 100).toFixed(1) : 0;
+                                return ' ' + c.label + ': ' + formatMoney(c.raw) + ' (' + pct + '%)';
+                            }}}
+                        }
+                    }
+                });
+            }
+
+            // Area summary
+            const summaryDiv = document.getElementById('nominaAreaSummary');
+            let sh = '<table style="width:100%;font-size:11px"><thead><tr style="color:#8b949e;text-align:left"><th>Área/UN</th><th style="text-align:center">HC</th><th style="text-align:center">V</th><th style="text-align:right">Costo Neto</th><th style="text-align:right">%</th></tr></thead><tbody>';
+            sortedAreas.forEach(([area, d]) => {
+                const pct = costoNeto > 0 ? ((d.costo / costoNeto) * 100).toFixed(1) : '0';
+                const color = AREA_COLORS[area] || '#4b5563';
+                sh += `<tr><td><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};margin-right:6px"></span>${area}</td><td style="text-align:center">${d.count}</td><td style="text-align:center;color:#3fb950">${d.vendibles}</td><td style="text-align:right">${formatMoney(d.costo)}</td><td style="text-align:right;color:#8b949e">${pct}%</td></tr>`;
+            });
+            sh += '</tbody></table>';
+            summaryDiv.innerHTML = sh;
+
+            // Employee count
+            const countSpan = document.getElementById('nominaCount');
+            if (countSpan) countSpan.textContent = `(${filtered.length})`;
+
+            // Roster table — enriched columns
+            const table = document.getElementById('nominaTable');
+            let html = '<thead><tr style="font-size:10px;color:#8b949e;text-transform:uppercase;letter-spacing:0.5px">';
+            html += '<th>Nombre</th><th>UN / Equipo</th><th>Líder</th><th>Clasif</th><th>Modalidad</th><th>Empresa</th>';
+            html += '<th style="text-align:right">Bruto Recibo</th><th style="text-align:right">Fact. Mono</th><th style="text-align:right">Benef. Tarjeta</th><th style="text-align:right">Neto Total</th>';
+            html += '<th>Estado</th><th style="text-align:center">Acc.</th></tr></thead><tbody>';
+
+            filtered.sort((a, b) => (a.area || '').localeCompare(b.area || '') || (a.nombre || '').localeCompare(b.nombre || ''));
+
+            filtered.forEach(e => {
+                const isBaja = e.estado === 'Baja';
+                const rowStyle = isBaja ? 'opacity:0.5' : '';
+                const areaColor = AREA_COLORS[e.area] || '#4b5563';
+                const fullName = (e.nombre || '') + (e.apellido ? ' ' + e.apellido : '');
+                const estadoBadge = isBaja
+                    ? `<span style="background:#da363430;color:#f85149;padding:2px 8px;border-radius:10px;font-size:10px">Baja${e.fechaBaja ? ' ' + new Date(e.fechaBaja).toLocaleDateString('es-AR') : ''}</span>`
+                    : '<span style="background:#23863630;color:#3fb950;padding:2px 8px;border-radius:10px;font-size:10px">Activo</span>';
+                const clasifBadge = e.clasif === 'VENDIBLE'
+                    ? '<span style="color:#3fb950;font-size:10px">V</span>'
+                    : '<span style="color:#8b949e;font-size:10px">NV</span>';
+                const equipoLabel = e.area ? `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${areaColor};margin-right:4px"></span>${e.area}` + (e.equipo ? `<br><span style="font-size:9px;color:#8b949e">${e.equipo}</span>` : '') : (e.equipo || '-');
+
+                html += `<tr style="${rowStyle}">`;
+                html += `<td style="font-weight:600;white-space:nowrap">${fullName || '-'}${e.notas ? '<br><span style=font-size:9px;color:#f0883e>' + e.notas + '</span>' : ''}</td>`;
+                html += `<td>${equipoLabel}</td>`;
+                html += `<td style="font-size:11px">${e.lider || '-'}</td>`;
+                html += `<td style="text-align:center">${clasifBadge}</td>`;
+                html += `<td style="font-size:11px">${e.modalidad || '-'}</td>`;
+                html += `<td>${e.empresa || '-'}</td>`;
+                html += `<td style="text-align:right;font-size:11px">${formatMoney(parseFloat(e.sueldoBruto)||0)}</td>`;
+                html += `<td style="text-align:right;font-size:11px">${(parseFloat(e.facturaMono)||0) > 0 ? formatMoney(e.facturaMono) : '-'}</td>`;
+                html += `<td style="text-align:right;font-size:11px">${(parseFloat(e.benTarjeta)||0) > 0 ? formatMoney(e.benTarjeta) : '-'}</td>`;
+                html += `<td style="text-align:right;font-weight:600">${formatMoney(getNeto(e))}</td>`;
+                html += `<td>${estadoBadge}</td>`;
+                html += '<td style="text-align:center;white-space:nowrap">';
+                if (isBaja) {
+                    html += `<button onclick="reactivarEmpleado(${e.id})" style="background:none;border:none;color:#58a6ff;cursor:pointer;font-size:11px;padding:2px 6px" title="Reactivar">↩</button>`;
+                } else {
+                    html += `<button onclick="darBaja(${e.id})" style="background:none;border:none;color:#f0883e;cursor:pointer;font-size:11px;padding:2px 6px" title="Dar de baja">⬇</button>`;
+                }
+                html += `<button onclick="deleteEmpleado(${e.id})" style="background:none;border:none;color:#f85149;cursor:pointer;font-size:11px;padding:2px 6px" title="Eliminar">✕</button>`;
+                html += '</td></tr>';
+            });
+
+            if (filtered.length === 0) {
+                html += '<tr><td colspan="12" style="text-align:center;padding:30px;color:#8b949e">No hay empleados registrados. Usá "+ Alta" para agregar.</td></tr>';
+            }
+            html += '</tbody>';
+            table.innerHTML = html;
+        }
+
+        function showAltaForm() {
+            const form = document.getElementById('altaForm');
+            form.style.display = form.style.display === 'none' ? 'block' : 'none';
+            const areaSelect = document.getElementById('nomArea');
+            areaSelect.innerHTML = '<option value="">Seleccionar...</option>';
+            AREAS.forEach(a => {
+                const opt = document.createElement('option');
+                opt.value = a; opt.textContent = a;
+                areaSelect.appendChild(opt);
+            });
+            // Auto-fill area when equipo changes
+            const equipoSel = document.getElementById('nomEquipo');
+            equipoSel.onchange = function() {
+                const mapped = EQUIPO_UN_MAP[this.value];
+                if (mapped) document.getElementById('nomArea').value = mapped;
+            };
+            if (!document.getElementById('nomFechaIngreso').value) {
+                document.getElementById('nomFechaIngreso').value = new Date().toISOString().slice(0, 10);
+            }
+        }
+
+        function submitAlta() {
+            const nombre = document.getElementById('nomNombre').value.trim();
+            const apellido = (document.getElementById('nomApellido') || {}).value || '';
+            if (!nombre) { alert('El nombre es obligatorio'); return; }
+
+            const emp = {
+                nombre: nombre,
+                apellido: apellido.trim(),
+                cuit: (document.getElementById('nomCuit') || {}).value || '',
+                lider: (document.getElementById('nomLider') || {}).value || '',
+                equipo: (document.getElementById('nomEquipo') || {}).value || '',
+                area: document.getElementById('nomArea').value || '',
+                clasif: (document.getElementById('nomClasif') || {}).value || 'NO VENDIBLE',
+                tipo: (document.getElementById('nomTipo') || {}).value || 'BAU',
+                modalidad: document.getElementById('nomModalidad').value,
+                empresa: document.getElementById('nomEmpresa').value,
+                cargo: document.getElementById('nomCargo').value.trim(),
+                seniority: document.getElementById('nomSeniority').value,
+                sueldoBruto: parseFloat(document.getElementById('nomSueldo').value) || 0,
+                facturaMono: parseFloat((document.getElementById('nomFacturaMono') || {}).value) || 0,
+                benTarjeta: parseFloat((document.getElementById('nomBenTarjeta') || {}).value) || 0,
+                benConect: parseFloat((document.getElementById('nomBenConect') || {}).value) || 0,
+                benMono: parseFloat((document.getElementById('nomBenMono') || {}).value) || 0,
+                benOS: parseFloat((document.getElementById('nomBenOS') || {}).value) || 0,
+                sueldoNeto: 0,
+                fechaIngreso: document.getElementById('nomFechaIngreso').value
+            };
+            // Auto-calc neto
+            emp.sueldoNeto = emp.sueldoBruto + emp.facturaMono + emp.benTarjeta + emp.benConect + emp.benMono + emp.benOS;
+
+            addEmpleado(emp);
+
+            // Reset
+            ['nomNombre','nomApellido','nomCuit','nomLider','nomCargo','nomSueldo','nomFacturaMono','nomBenTarjeta','nomBenConect','nomBenMono','nomBenOS'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.value = '';
+            });
+            document.getElementById('altaForm').style.display = 'none';
+            showNotification('Alta registrada: ' + nombre + ' ' + apellido);
+        }
+
+        function exportNominaCSV() {
+            if (NOMINA.length === 0) { alert('No hay datos para exportar'); return; }
+            const headers = ['Nombre','Apellido','CUIT','Líder','Equipo','UN (Área)','Clasificación','Tipo','Modalidad','Empresa','Cargo','Seniority','Sueldo Bruto','Factura Monotributo','Benef Tarjeta','Benef Conect','Benef Mono','Benef OS','Sueldo Neto Total','Fecha Ingreso','Estado','Fecha Baja','Notas'];
+            const rows = NOMINA.map(e => [
+                e.nombre, e.apellido||'', e.cuit||'', e.lider||'', e.equipo||'', e.area||'',
+                e.clasif||'', e.tipo||'', e.modalidad, e.empresa, e.cargo||'', e.seniority||'',
+                e.sueldoBruto||0, e.facturaMono||0, e.benTarjeta||0, e.benConect||0, e.benMono||0, e.benOS||0,
+                getNeto(e), e.fechaIngreso||'', e.estado, e.fechaBaja||'', e.notas||''
+            ]);
+            let csv = headers.join(',') + '\n';
+            rows.forEach(r => {
+                csv += r.map(v => '"' + String(v || '').replace(/"/g, '""') + '"').join(',') + '\n';
+            });
+            const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = 'nomina_taquion_' + new Date().toISOString().slice(0, 10) + '.csv';
+            a.click(); URL.revokeObjectURL(url);
         }
 
         function renderDashboard() {
@@ -5795,8 +6459,59 @@
 
 
         
+        // Currency form helpers
+        function onMovMonedaChange() {
+            const mon = document.getElementById('movMoneda').value;
+            const tcGroup = document.getElementById('movTCGroup');
+            const montoInput = document.getElementById('movMonto');
+            if (mon === 'USD') {
+                tcGroup.style.display = '';
+                // Auto-fill MEP rate
+                movSetMEP();
+                montoInput.placeholder = 'Monto en USD (+ ingreso, - egreso)';
+            } else {
+                tcGroup.style.display = 'none';
+                montoInput.placeholder = 'Monto (+ ingreso, - egreso)';
+                document.getElementById('movConversionPreview').textContent = '';
+            }
+        }
+
+        function movSetMEP() {
+            document.getElementById('movTC').value = MEP.rate;
+            movUpdatePreview();
+        }
+
+        function movUpdatePreview() {
+            const monto = parseFloat(document.getElementById('movMonto').value);
+            const tc = parseFloat(document.getElementById('movTC').value);
+            const preview = document.getElementById('movConversionPreview');
+            if (!isNaN(monto) && !isNaN(tc) && tc > 0) {
+                const ars = monto * tc;
+                const sign = ars < 0 ? '-' : '';
+                preview.textContent = 'Equivalente ARS: ' + sign + '$ ' + Math.abs(Math.round(ars)).toLocaleString('es-AR');
+            } else {
+                preview.textContent = '';
+            }
+        }
+
+        // Attach live preview to monto and TC inputs
+        document.getElementById('movMonto')?.addEventListener('input', function() {
+            if (document.getElementById('movMoneda').value === 'USD') movUpdatePreview();
+        });
+        document.getElementById('movTC')?.addEventListener('input', movUpdatePreview);
+
         function addMovement(event) {
             event.preventDefault();
+            const moneda = document.getElementById('movMoneda').value;
+            const montoRaw = parseFloat(document.getElementById('movMonto').value);
+            const tc = parseFloat(document.getElementById('movTC')?.value) || MEP.rate;
+
+            // Calculate ARS value
+            let valorARS = montoRaw;
+            if (moneda === 'USD') {
+                valorARS = Math.round(montoRaw * tc);
+            }
+
             const movement = {
                 f: document.getElementById('movFecha').value,
                 eo: document.getElementById('movEstado').value,
@@ -5808,32 +6523,76 @@
                 d: document.getElementById('movDetalle').value,
                 i: document.getElementById('movItem').value || document.getElementById('movItemSearch').value,
                 en: document.getElementById('movEntidad').value || document.getElementById('movEntidadSearch').value,
-                v: parseFloat(document.getElementById('movMonto').value),
+                v: valorARS,
+                monOrig: moneda,
+                vUSD: moneda === 'USD' ? montoRaw : undefined,
+                tcUsado: moneda === 'USD' ? tc : undefined,
+                fp: document.getElementById('movFP').value || '',
+                cc: document.getElementById('movCC').value || '',
                 id: Date.now()
             };
             APP.movements.push(movement);
-            showNotification('Movimiento registrado exitosamente');
+
+            // Sync to Google Sheets if connected
+            if (SHEETS_CONFIG.apiUrl) {
+                sheetsPushChanges({
+                    action: 'add_movimientos',
+                    rows: [{
+                        f: movement.f,
+                        eo: movement.eo,
+                        emp: movement.emp,
+                        bn: movement.bn,
+                        cat: movement.cat,
+                        t: movement.t,
+                        m: movement.m,
+                        d: movement.d,
+                        i: movement.i,
+                        en: movement.en,
+                        v: movement.v,
+                        monOrig: movement.monOrig,
+                        vUSD: movement.vUSD || '',
+                        tcUsado: movement.tcUsado || '',
+                        fp: movement.fp || '',
+                        cc: movement.cc || ''
+                    }]
+                });
+            }
+
+            const msg = moneda === 'USD'
+                ? 'Movimiento registrado: US$ ' + montoRaw.toLocaleString('es-AR') + ' → ' + formatARS(valorARS) + ' (TC ' + tc + ')'
+                : 'Movimiento registrado exitosamente';
+            showNotification(msg);
             renderCargaRecientes();
             event.target.reset();
             document.getElementById('movItemSearch').value = '';
             document.getElementById('movEntidadSearch').value = '';
+            document.getElementById('movTCGroup').style.display = 'none';
+            document.getElementById('movConversionPreview').textContent = '';
         }
 
         function renderCargaRecientes() {
             const div = document.getElementById('cargaRecientes');
             if (APP.movements.length === 0) { div.innerHTML = ''; return; }
             let html = '<h2 style="margin-bottom:10px;">Movimientos Cargados (' + APP.movements.length + ')</h2>';
-            html += '<table><tr><th>Fecha</th><th>Emp</th><th>B/N</th><th>Tipo</th><th>Marco</th><th>Detalle</th><th>Ítem</th><th>Entidad</th><th class="text-right">Monto</th><th></th></tr>';
+            html += '<div style="overflow-x:auto"><table style="min-width:900px"><tr><th>Fecha</th><th>Emp</th><th>Tipo</th><th>Item</th><th>Entidad</th><th class="text-right">Monto</th><th>Mon</th><th>F.Pago</th><th>CC</th><th></th></tr>';
             APP.movements.slice().reverse().forEach((m, idx) => {
                 const cls = m.v >= 0 ? 'positive' : 'negative';
+                const monBadge = m.monOrig === 'USD'
+                    ? '<span style="font-size:8px;background:#34d39930;color:#34d399;padding:1px 5px;border-radius:3px">USD</span>'
+                    : '<span style="font-size:8px;background:#58a6ff20;color:#8b949e;padding:1px 5px;border-radius:3px">ARS</span>';
+                const montoDisplay = m.monOrig === 'USD'
+                    ? 'US$ ' + Math.abs(m.vUSD).toLocaleString('es-AR') + ' <span style="font-size:9px;color:#8b949e">(TC ' + (m.tcUsado || MEP.rate) + ')</span>'
+                    : formatMovValue(m.v, m.f);
                 html += `<tr>
-                    <td>${fmtDateAR(m.f)}</td><td>${m.emp}</td><td>${m.bn}</td><td>${m.t}</td>
-                    <td>${m.m}</td><td>${m.d}</td><td>${m.i}</td><td>${m.en}</td>
-                    <td class="text-right ${cls}">${formatMovValue(m.v, m.f)}</td>
+                    <td>${fmtDateAR(m.f)}</td><td>${m.emp}</td><td>${m.t}</td><td>${m.i}</td><td>${m.en}</td>
+                    <td class="text-right ${cls}">${montoDisplay}</td>
+                    <td>${monBadge}</td>
+                    <td style="font-size:10px;color:#8b949e">${m.fp || '-'}</td>
+                    <td style="font-size:10px;color:#8b949e">${m.cc || '-'}</td>
                     <td><span style="cursor:pointer;color:var(--rd);" onclick="removeMovement(${m.id})">✕</span></td>
                 </tr>`;
             });
-            html += '</table>';
+            html += '</table></div>';
             div.innerHTML = html;
         }
 
@@ -5845,9 +6604,9 @@
 
         function exportMovementsCSV() {
             if (APP.movements.length === 0) { alert('No hay movimientos para exportar'); return; }
-            let csv = 'Fecha,Estado,Empresa,B/N,Categoría,Tipo,Marco,Detalle,Ítem,Entidad/Cliente,Monto\n';
+            let csv = 'Fecha,Estado,Empresa,B/N,Categoría,Tipo,Marco,Detalle,Ítem,Entidad/Cliente,Monto ARS,Moneda,Monto USD,TC,Forma Pago,Centro Costo\n';
             APP.movements.forEach(m => {
-                csv += `${m.f},${m.eo},${m.emp},${m.bn},${m.cat},${m.t},${m.m},${m.d},"${m.i}","${m.en}",${m.v}\n`;
+                csv += `${m.f},${m.eo},${m.emp},${m.bn},${m.cat},${m.t},${m.m},${m.d},"${m.i}","${m.en}",${m.v},${m.monOrig || 'ARS'},${m.vUSD || ''},${m.tcUsado || ''},${m.fp || ''},"${m.cc || ''}"\n`;
             });
             const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
             const url = URL.createObjectURL(blob);
