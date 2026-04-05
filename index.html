@@ -708,6 +708,7 @@
                     <button class="secondary" onclick="deudaShowSection('bancaria')" id="deudaTabBancaria" style="font-weight:700;border-color:#58a6ff;color:#58a6ff">Deuda Bancaria</button>
                     <button class="secondary" onclick="deudaShowSection('gc')" id="deudaTabGC">Deuda GC</button>
                     <button class="secondary" onclick="deudaShowSection('simulador')" id="deudaTabSimulador" style="border-color:#fbbf24;color:#fbbf24">Simulador de Deuda</button>
+                    <button class="secondary" onclick="deudaShowSection('auditoria')" id="deudaTabAuditoria" style="border-color:#f97316;color:#f97316">Auditoría</button>
                 </div>
 
                 <!-- SECTION: Deuda Bancaria -->
@@ -789,6 +790,35 @@
                             <div class="card-title">Proyección de Deuda Total</div>
                             <div style="height:320px"><canvas id="deudaSimChart"></canvas></div>
                         </div>
+                    </div>
+                </div>
+
+                <!-- SECTION: Auditoría / Reconciliación -->
+                <div id="deudaSecAuditoria" class="deuda-section" style="display:none">
+                    <div class="reference-banner" style="border-color:#f97316;color:#f97316">
+                        Reconciliación automática: cruce entre los cronogramas de deuda y los pagos reales registrados en la base de movimientos.
+                    </div>
+
+                    <!-- KPIs de auditoría -->
+                    <div class="kpi-grid" id="auditoriaKPIs"></div>
+
+                    <!-- Inconsistencias detectadas -->
+                    <div id="auditoriaAlertas" style="margin:16px 0"></div>
+
+                    <!-- Deuda Bancaria vs Movimientos -->
+                    <h2>Deuda Bancaria — Cruce con Movimientos</h2>
+                    <p style="font-size:11px;color:var(--tx2);margin-bottom:8px">Compara las cuotas programadas (hoja Deuda Bancaria) con los egresos reales en la BD de movimientos (tipo "Préstamos Bancarios"). Diferencias pueden indicar pagos parciales, cancelaciones anticipadas o cuotas no registradas.</p>
+                    <table id="auditoriaBancariaTable"></table>
+
+                    <!-- Deuda GC vs Movimientos -->
+                    <h2 style="margin-top:24px">Deuda GC — Cruce con Movimientos</h2>
+                    <p style="font-size:11px;color:var(--tx2);margin-bottom:8px">Compara el cronograma de cuotas GC (USD → ARS) con los egresos "Devolucion a GC" en la BD de movimientos.</p>
+                    <table id="auditoriaGCTable"></table>
+
+                    <!-- Timeline visual -->
+                    <h2 style="margin-top:24px">Proyección de Deuda Total</h2>
+                    <div class="chart-container">
+                        <canvas id="auditoriaChart"></canvas>
                     </div>
                 </div>
             </div>
@@ -2103,11 +2133,15 @@
             document.getElementById(secId).style.display = 'block';
             const tabId = 'deudaTab' + section.charAt(0).toUpperCase() + section.slice(1);
             const tab = document.getElementById(tabId);
-            if (tab) { tab.style.fontWeight = '700'; tab.style.borderColor = section === 'simulador' ? '#fbbf24' : '#58a6ff'; tab.style.color = section === 'simulador' ? '#fbbf24' : '#58a6ff'; }
+            const colorMap = { simulador: '#fbbf24', auditoria: '#f97316' };
+            const tabColor = colorMap[section] || '#58a6ff';
+            if (tab) { tab.style.fontWeight = '700'; tab.style.borderColor = tabColor; tab.style.color = tabColor; }
             if (section === 'simulador') {
                 renderDeudaCreditosActivos();
                 renderDeudaCreditosSim();
                 renderDeudaSimChart();
+            } else if (section === 'auditoria') {
+                renderAuditoria();
             }
         }
 
@@ -2833,6 +2867,251 @@
 
         function updateGCDisplay() {
             renderDeudaGC();
+        }
+
+        // ========= AUDITORÍA / RECONCILIACIÓN =========
+        function renderAuditoria() {
+            const mov = DATA.mov || [];
+            const hoy = '2026-04';
+            const tc = APP.tcUSD || 1250;
+            let alertas = [];
+            let matchCount = 0;
+            let mismatchCount = 0;
+            let missingCount = 0;
+
+            // === 1. DEUDA BANCARIA vs MOV ===
+            // Get bank loan payments from mov (tipo = Préstamos Bancarios, egresos)
+            const bankMov = mov.filter(m => m.t === 'Préstamos Bancarios');
+
+            // Group mov by month+empresa
+            const movByMonthEmp = {};
+            bankMov.forEach(m => {
+                const mes = (m.f || '').slice(0, 7);
+                const emp = m.emp || 'TQN';
+                const key = mes + '|' + emp;
+                if (!movByMonthEmp[key]) movByMonthEmp[key] = { total: 0, items: [] };
+                movByMonthEmp[key].total += m.v;
+                movByMonthEmp[key].items.push(m);
+            });
+
+            // Get Deuda Bancaria schedule from Sheet or embedded data
+            const bdSheet = DATA.bd_sheet || {};
+            const bdTQN = bdSheet.tqn || DATA.bd || [];
+            const bdLMS = bdSheet.lms || DATA.bdl || [];
+
+            // Build reconciliation table for Bancaria
+            let bancHtml = '<tr><th>Mes</th><th>Emp</th><th class="text-right">Cronograma</th><th class="text-right">Movimientos</th><th class="text-right">Diferencia</th><th>Estado</th></tr>';
+
+            const allBDEntries = [
+                ...bdTQN.map(b => ({ mes: b.mes, monto: b.monto || ((b.cap || 0) + (b.int || 0)), pagada: b.pagada, emp: 'TQN' })),
+                ...bdLMS.map(b => ({ mes: b.mes, monto: b.monto || b.total || 0, pagada: b.pagada, emp: 'LMS' }))
+            ].sort((a, b) => a.mes.localeCompare(b.mes));
+
+            allBDEntries.forEach(entry => {
+                const key = entry.mes + '|' + entry.emp;
+                const movData = movByMonthEmp[key];
+                const movTotal = movData ? Math.abs(movData.total) : 0;
+                const schedAbs = Math.abs(entry.monto);
+                const diff = movTotal - schedAbs;
+                const diffPct = schedAbs > 0 ? Math.abs(diff / schedAbs * 100) : 0;
+
+                let statusBadge, rowClass = '';
+                if (!movData || movTotal === 0) {
+                    if (entry.mes < hoy) {
+                        // Pasado sin movimientos - puede ser inconsistencia o no estaba separado
+                        statusBadge = '<span class="status-badge" style="background:#f97316;color:#000">Sin registro en mov</span>';
+                        missingCount++;
+                        alertas.push({ tipo: 'warning', msg: entry.emp + ' ' + fmtMonthAR(entry.mes) + ': cuota de ' + formatARS(schedAbs) + ' sin movimiento registrado' });
+                    } else {
+                        statusBadge = '<span class="status-badge pendiente">Futuro</span>';
+                    }
+                } else if (diffPct < 5) {
+                    statusBadge = '<span class="status-badge pagada">OK</span>';
+                    matchCount++;
+                } else if (diffPct < 20) {
+                    statusBadge = '<span class="status-badge" style="background:#fbbf24;color:#000">Diferencia ' + diffPct.toFixed(0) + '%</span>';
+                    mismatchCount++;
+                    rowClass = 'style="background:#2d1f00"';
+                } else {
+                    statusBadge = '<span class="status-badge" style="background:#f87171;color:#000">Discrepancia ' + diffPct.toFixed(0) + '%</span>';
+                    mismatchCount++;
+                    rowClass = 'style="background:#2d0f0f"';
+                    alertas.push({ tipo: 'error', msg: entry.emp + ' ' + fmtMonthAR(entry.mes) + ': cronograma ' + formatARS(schedAbs) + ' vs mov ' + formatARS(movTotal) + ' (dif ' + diffPct.toFixed(0) + '%)' });
+                }
+
+                bancHtml += '<tr ' + rowClass + '>' +
+                    '<td>' + fmtMonthAR(entry.mes) + '</td>' +
+                    '<td>' + entry.emp + '</td>' +
+                    '<td class="text-right amount">' + formatARS(schedAbs) + '</td>' +
+                    '<td class="text-right amount">' + formatARS(movTotal) + '</td>' +
+                    '<td class="text-right amount ' + (Math.abs(diff) > 100 ? 'negative' : '') + '">' + formatARS(diff) + '</td>' +
+                    '<td>' + statusBadge + '</td></tr>';
+            });
+
+            document.getElementById('auditoriaBancariaTable').innerHTML = bancHtml;
+
+            // === 2. DEUDA GC vs MOV ===
+            const gcTerm = DATA.gc_term || {};
+            const gcSchedule = (gcTerm.schedule || []).map(c => ({...c}));
+
+            // GC payments in mov
+            const gcMov = mov.filter(m => m.i && m.i.toLowerCase().includes('devolucion a gc'));
+            const gcMovByMonth = {};
+            gcMov.forEach(m => {
+                const mes = (m.f || '').slice(0, 7);
+                if (!gcMovByMonth[mes]) gcMovByMonth[mes] = { total: 0, estado: m.eo, items: [] };
+                gcMovByMonth[mes].total += Math.abs(m.v);
+                gcMovByMonth[mes].estado = m.eo;
+                gcMovByMonth[mes].items.push(m);
+            });
+
+            let gcHtml = '<tr><th>Cuota</th><th>Fecha</th><th>Destino</th><th class="text-right">USD</th><th class="text-right">ARS Cronograma</th><th class="text-right">ARS Movimiento</th><th class="text-right">Diferencia</th><th>Estado</th></tr>';
+
+            gcSchedule.forEach((cuota, idx) => {
+                const mes = (cuota.fecha || '').slice(0, 7);
+                const arsExpected = (cuota.usd || 0) * tc;
+                const movEntry = gcMovByMonth[mes];
+                const arsReal = movEntry ? movEntry.total : 0;
+                const diff = arsReal - arsExpected;
+                const diffPct = arsExpected > 0 ? Math.abs(diff / arsExpected * 100) : 0;
+
+                let statusBadge, rowClass = '';
+                if (cuota.pagada && movEntry && movEntry.estado === 'R') {
+                    statusBadge = '<span class="status-badge pagada">Pagada + Mov R</span>';
+                    matchCount++;
+                } else if (cuota.pagada && !movEntry) {
+                    statusBadge = '<span class="status-badge" style="background:#f97316;color:#000">Pagada sin Mov</span>';
+                    missingCount++;
+                    alertas.push({ tipo: 'warning', msg: 'GC cuota #' + (idx+1) + ' (' + fmtMonthAR(mes) + '): marcada pagada pero sin movimiento en BD' });
+                } else if (!cuota.pagada && movEntry) {
+                    statusBadge = '<span class="status-badge" style="background:#fbbf24;color:#000">Mov existe, no pagada</span>';
+                    mismatchCount++;
+                    alertas.push({ tipo: 'warning', msg: 'GC cuota #' + (idx+1) + ' (' + fmtMonthAR(mes) + '): hay movimiento por ' + formatARS(arsReal) + ' pero cuota no marcada como pagada' });
+                } else if (!cuota.pagada && mes >= hoy) {
+                    statusBadge = '<span class="status-badge pendiente">Pendiente</span>';
+                } else if (!cuota.pagada && mes < hoy) {
+                    statusBadge = '<span class="status-badge" style="background:#f87171;color:#000">Vencida</span>';
+                    alertas.push({ tipo: 'error', msg: 'GC cuota #' + (idx+1) + ' (' + fmtMonthAR(mes) + '): vencida y sin pago registrado — USD ' + formatUSD(cuota.usd) });
+                } else {
+                    statusBadge = '<span class="status-badge pagada">OK</span>';
+                    matchCount++;
+                }
+
+                gcHtml += '<tr ' + rowClass + '>' +
+                    '<td>#' + (idx+1) + '</td>' +
+                    '<td>' + fmtDateAR(cuota.fecha) + '</td>' +
+                    '<td>' + (cuota.dest || '') + '</td>' +
+                    '<td class="text-right amount">' + formatUSD(cuota.usd || 0) + '</td>' +
+                    '<td class="text-right amount">' + formatARS(arsExpected) + '</td>' +
+                    '<td class="text-right amount">' + (arsReal > 0 ? formatARS(arsReal) : '—') + '</td>' +
+                    '<td class="text-right amount ' + (Math.abs(diff) > 100 && arsReal > 0 ? 'negative' : '') + '">' + (arsReal > 0 ? formatARS(diff) : '—') + '</td>' +
+                    '<td>' + statusBadge + '</td></tr>';
+            });
+            document.getElementById('auditoriaGCTable').innerHTML = gcHtml;
+
+            // === 3. KPIs ===
+            const totalChecks = matchCount + mismatchCount + missingCount;
+            const healthPct = totalChecks > 0 ? Math.round(matchCount / totalChecks * 100) : 0;
+            const healthColor = healthPct >= 80 ? 'var(--gn)' : healthPct >= 50 ? '#fbbf24' : 'var(--rd)';
+
+            document.getElementById('auditoriaKPIs').innerHTML =
+                '<div class="kpi" style="border-left:3px solid ' + healthColor + '">' +
+                    '<div class="kpi-label">Salud de Datos</div>' +
+                    '<div class="kpi-value" style="color:' + healthColor + '">' + healthPct + '%</div>' +
+                    '<div class="kpi-sub">' + matchCount + ' OK / ' + totalChecks + ' verificados</div>' +
+                '</div>' +
+                '<div class="kpi" style="border-left:3px solid var(--gn)">' +
+                    '<div class="kpi-label">Coincidencias</div>' +
+                    '<div class="kpi-value positive">' + matchCount + '</div>' +
+                    '<div class="kpi-sub">Cuotas correctamente cruzadas</div>' +
+                '</div>' +
+                '<div class="kpi" style="border-left:3px solid #fbbf24">' +
+                    '<div class="kpi-label">Discrepancias</div>' +
+                    '<div class="kpi-value" style="color:#fbbf24">' + mismatchCount + '</div>' +
+                    '<div class="kpi-sub">Diferencias de monto o estado</div>' +
+                '</div>' +
+                '<div class="kpi" style="border-left:3px solid #f97316">' +
+                    '<div class="kpi-label">Sin Registro</div>' +
+                    '<div class="kpi-value" style="color:#f97316">' + missingCount + '</div>' +
+                    '<div class="kpi-sub">Pagos sin movimiento en BD</div>' +
+                '</div>';
+
+            // === 4. ALERTAS ===
+            let alertHtml = '';
+            if (alertas.length === 0) {
+                alertHtml = '<div style="padding:12px;background:#0d2818;border:1px solid #34d399;border-radius:8px;color:#34d399;font-size:12px">✅ No se detectaron inconsistencias críticas.</div>';
+            } else {
+                alertHtml = '<div style="padding:12px;background:#1c1007;border:1px solid #f97316;border-radius:8px">';
+                alertHtml += '<div style="font-weight:700;color:#f97316;margin-bottom:8px">⚠ Inconsistencias detectadas (' + alertas.length + ')</div>';
+                alertas.forEach(a => {
+                    const icon = a.tipo === 'error' ? '🔴' : '🟡';
+                    alertHtml += '<div style="font-size:11px;color:#e6edf3;margin:4px 0;padding:4px 8px;background:rgba(0,0,0,.3);border-radius:4px">' + icon + ' ' + a.msg + '</div>';
+                });
+                alertHtml += '</div>';
+            }
+            document.getElementById('auditoriaAlertas').innerHTML = alertHtml;
+
+            // === 5. CHART: Proyección deuda total ===
+            // Build monthly timeline with all debt
+            const months = [];
+            const now = new Date();
+            for (let i = 0; i < 30; i++) {
+                const d = new Date(2026, 3 + i, 1); // Start from 2026-04
+                if (d > new Date(2028, 1, 1)) break;
+                months.push(d.toISOString().slice(0, 7));
+            }
+
+            // Bank debt by month
+            const bankByMonth = {};
+            allBDEntries.forEach(e => { bankByMonth[e.mes] = (bankByMonth[e.mes] || 0) + Math.abs(e.monto); });
+
+            // GC by month (convert USD to ARS)
+            const gcByMonth = {};
+            gcSchedule.filter(c => !c.pagada).forEach(c => {
+                const mes = (c.fecha || '').slice(0, 7);
+                gcByMonth[mes] = (gcByMonth[mes] || 0) + (c.usd || 0) * tc;
+            });
+
+            // Running sums
+            let cumBank = allBDEntries.filter(e => e.mes >= hoy).reduce((s, e) => s + Math.abs(e.monto), 0);
+            let cumGC = gcSchedule.filter(c => !c.pagada).reduce((s, c) => s + (c.usd || 0) * tc, 0);
+            const bankLine = [], gcLine = [], totalLine = [];
+
+            months.forEach(m => {
+                const bankPay = bankByMonth[m] || 0;
+                const gcPay = gcByMonth[m] || 0;
+                bankLine.push(cumBank);
+                gcLine.push(cumGC);
+                totalLine.push(cumBank + cumGC);
+                cumBank -= bankPay;
+                cumGC -= gcPay;
+            });
+
+            const ctx = document.getElementById('auditoriaChart').getContext('2d');
+            if (APP.charts.auditoria) APP.charts.auditoria.destroy();
+            APP.charts.auditoria = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: months.map(m => fmtMonthAR(m)),
+                    datasets: [
+                        { label: 'Deuda Total', data: totalLine, borderColor: '#f87171', backgroundColor: 'rgba(248,113,113,.1)', fill: true, tension: 0.3 },
+                        { label: 'Bancaria', data: bankLine, borderColor: '#58a6ff', backgroundColor: 'transparent', tension: 0.3, borderDash: [5,3] },
+                        { label: 'GC (ARS)', data: gcLine, borderColor: '#fbbf24', backgroundColor: 'transparent', tension: 0.3, borderDash: [5,3] }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        title: { display: true, text: 'Saldo de Deuda Decreciente — Bancaria + GC', color: '#c9d1d9' },
+                        legend: { labels: { color: '#c9d1d9' } }
+                    },
+                    scales: {
+                        x: { ticks: { color: '#8b949e' }, grid: { color: '#30363d' } },
+                        y: { ticks: { color: '#8b949e', callback: v => formatARS(v) }, grid: { color: '#30363d' } }
+                    }
+                }
+            });
         }
 
         function renderBancarizado() {
