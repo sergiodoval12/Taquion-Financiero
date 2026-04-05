@@ -630,6 +630,7 @@
                     <button onclick="sheetsPullData()" style="flex:1;font-size:9px;padding:4px;background:#30363d;color:#58a6ff;border:1px solid #484f58;border-radius:3px;cursor:pointer" title="Descargar datos del Sheet">↓ Pull</button>
                     <button onclick="sheetsPing()" style="flex:1;font-size:9px;padding:4px;background:#30363d;color:#34d399;border:1px solid #484f58;border-radius:3px;cursor:pointer" title="Probar conexión">♻ Test</button>
                 </div>
+                <button onclick="sheetsSeedData()" style="width:100%;font-size:9px;padding:4px;margin-bottom:6px;background:#7c3aed;color:#fff;border:1px solid #6d28d9;border-radius:3px;cursor:pointer" title="Carga inicial masiva de datos al Sheet">⬆ Carga Inicial al Sheet</button>
                 <div id="syncStatus" style="font-size:9px;color:#8b949e;word-break:break-all">Sin conexión a Sheet</div>
             </div>
         </div>
@@ -1131,9 +1132,29 @@
             realUntil: new Date('2026-04-03')  // Everything from 2026-04-04 is proyectado
         };
 
+        // ========= CFO AUTHORIZATION =========
+        let CFO_AUTHORIZED = false;
+
+        function requireCFO(actionDesc) {
+            // If already authorized in this session, just do double-confirm
+            if (CFO_AUTHORIZED) {
+                return confirm('⚠️ CONFIRMACIÓN FINAL\n\n' + actionDesc + '\n\nEsto modifica datos reales. ¿Confirmar?');
+            }
+            // First: ask for CFO password
+            const pwd = prompt('🔒 ACCIÓN PROTEGIDA\n\n' + actionDesc + '\n\nIngresá la clave del CFO para autorizar:');
+            if (!pwd) return false;
+            if (pwd !== 'SantiRocks2026') {
+                alert('❌ Clave incorrecta. Solo el CFO puede aplicar cambios a la base de datos.');
+                return false;
+            }
+            CFO_AUTHORIZED = true;
+            // Double confirm after password
+            return confirm('✅ CFO autorizado.\n\n' + actionDesc + '\n\n¿Confirmar cambio?');
+        }
+
         // ========= GOOGLE SHEETS SYNC =========
         const SHEETS_CONFIG = {
-            apiUrl: 'https://script.google.com/macros/s/AKfycbw1netFB5kxCwuNPL3yJz8a8NttZcdx820pAThFndcNV2Gxta7hLk1Nj6iQNuTMi9JlxQ/exec',
+            apiUrl: 'https://script.google.com/macros/s/AKfycbxwlA0RHdZPe-k5NuadYdBXaKXHRHDd3t8ilVPVTqkywzGzlJ-8XP-bowO8rllvoVVGzA/exec',
             enabled: true,
             lastSync: null,
             syncing: false
@@ -1190,9 +1211,19 @@
                 if (sheetData.mov && sheetData.mov.length > 0) {
                     DATA.mov = sheetData.mov;
                     sheetsSyncStatus('✅ Datos sincronizados: ' + sheetData.mov.length + ' movimientos', '#34d399');
+                } else {
+                    sheetsSyncStatus('⚠ Sheet sin movimientos. ¿Necesitás hacer Carga Inicial?', '#fbbf24');
                 }
-                if (sheetData.bd) DATA.bd = sheetData.bd;
-                if (sheetData.bdl) DATA.bdl = sheetData.bdl;
+
+                // Update GC term sheet data if available
+                if (sheetData.gc && sheetData.gc.schedule && sheetData.gc.schedule.length > 0) {
+                    DATA.gc_term = sheetData.gc;
+                }
+
+                // Update deuda bancaria if available
+                if (sheetData.bd && (sheetData.bd.tqn || sheetData.bd.lms)) {
+                    DATA.bd_sheet = sheetData.bd;
+                }
 
                 SHEETS_CONFIG.lastSync = new Date().toISOString();
                 // Refresh current page
@@ -1204,6 +1235,64 @@
                 sheetsSyncStatus('❌ Error al sincronizar: ' + err.message, '#f87171');
             }
             SHEETS_CONFIG.syncing = false;
+        }
+
+        async function sheetsSeedData() {
+            if (!SHEETS_CONFIG.enabled || !SHEETS_CONFIG.apiUrl) {
+                alert('Primero configurá la URL del Google Sheet');
+                return;
+            }
+            if (!requireCFO('CARGA INICIAL: Esto reemplazará TODOS los datos de la hoja BD Movimientos con los ' + (DATA.mov||[]).length + ' movimientos actuales.')) return;
+
+            sheetsSyncStatus('⬆ Cargando ' + (DATA.mov||[]).length + ' movimientos al Sheet... (puede tomar 30-60 seg)', '#7c3aed');
+
+            try {
+                const resp = await fetch(SHEETS_CONFIG.apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/plain' },
+                    body: JSON.stringify({
+                        action: 'seed',
+                        mov: DATA.mov
+                    })
+                });
+                const result = await resp.json();
+                if (result.error) throw new Error(result.error);
+                const movCount = result.seed && result.seed.mov ? result.seed.mov.rows : 0;
+                sheetsSyncStatus('✅ Carga inicial completa: ' + movCount + ' movimientos subidos', '#34d399');
+                alert('Carga inicial exitosa: ' + movCount + ' movimientos cargados al Google Sheet.');
+            } catch (err) {
+                sheetsSyncStatus('❌ Error en carga: ' + err.message, '#f87171');
+                alert('Error en la carga inicial: ' + err.message);
+            }
+        }
+
+        // Auto-sync on app load
+        async function sheetsAutoSync() {
+            if (!SHEETS_CONFIG.enabled || !SHEETS_CONFIG.apiUrl) return;
+            try {
+                const resp = await fetch(SHEETS_CONFIG.apiUrl + '?action=ping');
+                const data = await resp.json();
+                if (data.ok) {
+                    sheetsSyncStatus('✅ Conectado. Auto-sync listo.', '#34d399');
+                    // Try pulling data - if Sheet has data, use it
+                    const allResp = await fetch(SHEETS_CONFIG.apiUrl + '?action=all');
+                    const allData = await allResp.json();
+                    if (allData.mov && allData.mov.length > 0) {
+                        DATA.mov = allData.mov;
+                        if (allData.gc && allData.gc.schedule && allData.gc.schedule.length > 0) {
+                            DATA.gc_term = allData.gc;
+                        }
+                        SHEETS_CONFIG.lastSync = new Date().toISOString();
+                        sheetsSyncStatus('✅ Auto-sync: ' + allData.mov.length + ' mov del Sheet', '#34d399');
+                        // Refresh dashboard
+                        if (APP.currentPage === 'dashboard') renderDashboard();
+                    } else {
+                        sheetsSyncStatus('✅ Conectado. Sheet vacío — usá Carga Inicial', '#fbbf24');
+                    }
+                }
+            } catch (err) {
+                sheetsSyncStatus('⚠ Sin conexión al Sheet (modo offline)', '#8b949e');
+            }
         }
 
         async function sheetsPushChanges(changes) {
@@ -1277,11 +1366,13 @@
             return dateStr;
         }
         function fmtMonthAR(mesStr) {
-            // "2026-04" => "Abr 2026"
+            // "2026-04" => "Abr 2026", "2024-Q1" => "Q1 2024"
             const meses = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
             if (!mesStr) return '';
             const parts = mesStr.split('-');
             if (parts.length >= 2) {
+                // Handle quarter format like "2024-Q1"
+                if (parts[1].startsWith('Q')) return parts[1] + ' ' + parts[0];
                 const mi = parseInt(parts[1], 10) - 1;
                 return meses[mi] + ' ' + parts[0];
             }
@@ -1679,7 +1770,7 @@
             function commit() {
                 const newVal = parseFloat(input.value) || 0;
                 if (newVal === oldVal) { showBAUDesglose(mes); return; }
-                if (!confirm('¿Cambiar monto de "' + item.i + '" de ' + formatARS(oldVal) + ' a ' + formatARS(newVal) + '?')) {
+                if (!requireCFO('Cambiar monto de "' + item.i + '"\nDe ' + formatARS(oldVal) + ' a ' + formatARS(newVal))) {
                     showBAUDesglose(mes); return;
                 }
                 item.v = newVal;
@@ -1716,7 +1807,7 @@
             function commit() {
                 const newDate = input.value;
                 if (!newDate || newDate === oldDate) { showBAUDesglose(mes); return; }
-                if (!confirm('¿Cambiar fecha de "' + item.i + '" de ' + fmtDateAR(oldDate) + ' a ' + fmtDateAR(newDate) + '?')) {
+                if (!requireCFO('Cambiar fecha de "' + item.i + '"\nDe ' + fmtDateAR(oldDate) + ' a ' + fmtDateAR(newDate))) {
                     showBAUDesglose(mes); return;
                 }
                 item.f = newDate;
@@ -1744,7 +1835,7 @@
             const list = side === 'ing' ? detail.ingresos : detail.egresos;
             const item = list[rowIdx];
             if (!item) return;
-            if (!confirm('¿Eliminar "' + item.i + '" (' + formatARS(item.v) + ') del mes ' + fmtMonthAR(mes) + '?')) return;
+            if (!requireCFO('Eliminar "' + item.i + '" (' + formatARS(item.v) + ') del mes ' + fmtMonthAR(mes))) return;
             // Remove from DATA.mov by setting value to 0 and marking deleted
             if (item.movIdx !== undefined) {
                 DATA.mov[item.movIdx].v = 0;
@@ -2544,14 +2635,40 @@
 
         function renderDeudaGC() {
             const gcTerm = DATA.gc_term || {};
-            const schedule = gcTerm.schedule || [];
+            const schedule = (gcTerm.schedule || []).map(c => ({...c})); // clone to not mutate
             const orig = gcTerm.orig || {};
-            const resumen = gcTerm.resumen || {};
 
             APP.tcUSD = parseFloat(document.getElementById('tcUSD').value) || 1250;
             const tc = APP.tcUSD;
 
-            const pending = schedule.filter(c => !c.pagada);
+            // === CRUCE DINÁMICO CON DATA.mov ===
+            // Buscar pagos reales de "Devolucion a GC" en DATA.mov con estado R
+            const gcPayments = (DATA.mov || []).filter(m =>
+                m.i && m.i.toLowerCase().includes('devolucion a gc') && m.eo === 'R'
+            );
+            // Marcar cuotas como pagadas si hay un movimiento REAL en el mismo mes
+            schedule.forEach(cuota => {
+                const cuotaMes = (cuota.fecha || '').slice(0, 7); // "2025-09"
+                const matchingPayment = gcPayments.find(p => p.f && p.f.startsWith(cuotaMes));
+                if (matchingPayment) {
+                    cuota.pagada = true;
+                    cuota._movMatch = matchingPayment.f; // track the match
+                }
+            });
+
+            // Recalcular resumen dinámicamente
+            const pagadas = schedule.filter(c => c.pagada);
+            const pendientes = schedule.filter(c => !c.pagada);
+            const resumen = {
+                total_usd: schedule.reduce((s, c) => s + (c.usd || 0), 0),
+                pagado_usd: pagadas.reduce((s, c) => s + (c.usd || 0), 0),
+                pendiente_usd: pendientes.reduce((s, c) => s + (c.usd || 0), 0),
+                cuotas_pagadas: pagadas.length,
+                cuotas_pendientes: pendientes.length,
+                cuotas_total: schedule.length
+            };
+
+            const pending = pendientes;
             const nextCuota = pending.length > 0 ? pending[0] : null;
 
             // KPIs - PENDIENTE first, context after
@@ -3331,15 +3448,14 @@
             const totalChanges = APP.sandbox.changes.length + SB_PERSONAL.length + SB_COSTOS.length + SB_INVERSIONES.length + SB_DESPIDOS.length;
             if (totalChanges === 0) { alert('No hay cambios para implementar.'); return; }
 
-            let summary = 'RESUMEN DE CAMBIOS A IMPLEMENTAR:\n';
+            let summary = 'Implementar ' + totalChanges + ' cambios en la SOT:\n';
             if (APP.sandbox.changes.length > 0) summary += '• ' + APP.sandbox.changes.length + ' modificaciones sobre ítems existentes\n';
             if (SB_PERSONAL.length > 0) summary += '• ' + SB_PERSONAL.length + ' incorporaciones de personal\n';
             if (SB_COSTOS.length > 0) summary += '• ' + SB_COSTOS.length + ' simulaciones de costos\n';
             if (SB_DESPIDOS.length > 0) summary += '• ' + SB_DESPIDOS.length + ' desvinculaciones\n';
             if (SB_INVERSIONES.length > 0) summary += '• ' + SB_INVERSIONES.length + ' inversiones/ingresos extraordinarios\n';
-            summary += '\nEsto modifica la base de datos (SOT) y recalcula todo el sistema.\nLos datos REALES no se tocan.\n\n¿Confirmar implementación?';
 
-            if (!confirm(summary)) return;
+            if (!requireCFO(summary)) return;
 
             let applied = 0;
 
@@ -4581,6 +4697,8 @@
         // Initialize app on load
         window.addEventListener('load', () => {
             renderDashboard();
+            // Auto-sync with Google Sheets after render
+            setTimeout(() => sheetsAutoSync(), 1500);
         });
     
         // === CARGA DROPDOWN DATA ===
