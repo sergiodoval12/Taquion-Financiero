@@ -964,17 +964,17 @@
             <!-- SEMANAL PAGE -->
             <div id="semanal" class="page">
                 <h1>Vista Semanal — Próximos 45 días</h1>
-                <div class="reference-banner">Semana a semana desde hoy (04/04/2026) hasta 19/05/2026 | Todos los montos son proyectados y modificables</div>
+                <div class="reference-banner">Semana a semana desde hoy (04/04/2026) hasta 19/05/2026 | Egresos desglosados: Operativos + Fee's + Deuda</div>
 
                 <div class="kpi-grid" id="semanalKPIs"></div>
 
                 <div class="card" style="margin-bottom:18px">
-                    <div class="card-title">Flujo Semanal</div>
-                    <div style="height:300px;"><canvas id="semanalChart"></canvas></div>
+                    <div class="card-title">Flujo Semanal <span style="font-size:10px;color:var(--tx2);font-weight:400">— Barras apiladas: Ingresos / Egresos Op / Fee's / Deuda</span></div>
+                    <div style="height:340px;"><canvas id="semanalChart"></canvas></div>
                 </div>
 
                 <div class="card">
-                    <div class="card-title">Detalle por Semana</div>
+                    <div class="card-title">Detalle por Semana <span style="font-size:10px;color:var(--tx2);font-weight:400">— Agrupado por tipo de movimiento</span></div>
                     <div id="semanalDetail"></div>
                 </div>
             </div>
@@ -4682,6 +4682,20 @@
             const hoyStr = '2026-04-04';
             const finStr = fin.toISOString().slice(0, 10);
 
+            // Helper: is this a fee/commission deduction on collections?
+            function isFeeDeduction(m) {
+                if (m.v >= 0) return false;
+                const item = (m.i || '').toLowerCase();
+                return m.t === 'Cobranza' || item.startsWith("fee'") || item.startsWith('fee´') || item.startsWith('fee ');
+            }
+
+            // Helper: is this a debt payment (GC or bank loan)?
+            function isDebtPayment(m) {
+                if (m.v >= 0) return false;
+                const item = (m.i || '').toLowerCase();
+                return m.t === 'Préstamos Bancarios' || item.includes('devolucion a gc') || item.includes('devolución a gc');
+            }
+
             // Get movements in range
             const mov45 = (DATA.mov || []).filter(m => m.f >= hoyStr && m.f <= finStr);
 
@@ -4698,19 +4712,54 @@
             const weeks = {};
             mov45.forEach(m => {
                 const wk = getWeekKey(m.f);
-                if (!weeks[wk]) weeks[wk] = { ing: 0, egr: 0, items: [], count: 0 };
+                if (!weeks[wk]) weeks[wk] = { ing: 0, egr: 0, fees: 0, deuda: 0, egrOp: 0, items: [], count: 0 };
                 const v = m.v || 0;
-                if (v >= 0) weeks[wk].ing += v;
-                else weeks[wk].egr += v;
+                if (v >= 0) {
+                    weeks[wk].ing += v;
+                } else if (isFeeDeduction(m)) {
+                    weeks[wk].fees += v;  // negative
+                    weeks[wk].egr += v;
+                } else if (isDebtPayment(m)) {
+                    weeks[wk].deuda += v; // negative
+                    weeks[wk].egr += v;
+                } else {
+                    weeks[wk].egrOp += v; // negative - operational egresos
+                    weeks[wk].egr += v;
+                }
                 weeks[wk].items.push(m);
                 weeks[wk].count++;
             });
 
+            // Also inject debt schedule items (GC + Bancaria) that may NOT be in mov
+            const gcSchedule = DATA.gc_term?.schedule || DATA.gc?.schedule || [];
+            const bdSchedule = DATA.bd_sheet || DATA.bd || [];
+            // GC cuotas not yet in mov
+            gcSchedule.forEach(cuota => {
+                if (!cuota.fecha || cuota.pagada) return;
+                const cuotaDate = cuota.fecha.length === 7 ? cuota.fecha + '-15' : cuota.fecha;
+                if (cuotaDate >= hoyStr && cuotaDate <= finStr) {
+                    const wk = getWeekKey(cuotaDate);
+                    // Check if already in mov
+                    const alreadyInMov = mov45.some(m => m.f && m.f.startsWith(cuota.fecha.slice(0,7)) && (m.i||'').toLowerCase().includes('devolucion a gc'));
+                    if (!alreadyInMov) {
+                        if (!weeks[wk]) weeks[wk] = { ing: 0, egr: 0, fees: 0, deuda: 0, egrOp: 0, items: [], count: 0 };
+                        const monto = -(cuota.usd || 0) * (cuota.tc || 1);
+                        weeks[wk].deuda += monto;
+                        weeks[wk].egr += monto;
+                        weeks[wk].items.push({ f: cuotaDate, emp: 'TQN', t: 'Deuda GC', i: 'Cuota GC #' + (cuota.num || '?'), en: 'Guido Comparada', v: monto, _deuda: true, _scheduled: true });
+                        weeks[wk].count++;
+                    }
+                }
+            });
+
             const weekKeys = Object.keys(weeks).sort();
 
-            // KPIs
+            // KPIs - separate operational from total
             const totalIng = weekKeys.reduce((s, w) => s + weeks[w].ing, 0);
             const totalEgr = weekKeys.reduce((s, w) => s + weeks[w].egr, 0);
+            const totalEgrOp = weekKeys.reduce((s, w) => s + weeks[w].egrOp, 0);
+            const totalFees = weekKeys.reduce((s, w) => s + weeks[w].fees, 0);
+            const totalDeuda = weekKeys.reduce((s, w) => s + weeks[w].deuda, 0);
             const saldo45 = totalIng + totalEgr;
 
             // Find worst week
@@ -4727,12 +4776,19 @@
                     <div class="kpi-sub">${mov45.length} movimientos en ${weekKeys.length} semanas</div>
                 </div>
                 <div class="kpi">
-                    <div class="kpi-label">Ingresos 45 días</div>
+                    <div class="kpi-label">Ingresos Brutos</div>
                     <div class="kpi-value positive">${formatARS(totalIng)}</div>
+                    <div class="kpi-sub">Fee's: ${formatARS(totalFees)}</div>
                 </div>
                 <div class="kpi">
-                    <div class="kpi-label">Gastos 45 días</div>
-                    <div class="kpi-value negative">${formatARS(totalEgr)}</div>
+                    <div class="kpi-label">Egresos Operativos</div>
+                    <div class="kpi-value negative">${formatARS(totalEgrOp)}</div>
+                    <div class="kpi-sub" style="font-size:9px">Sin fee's ni deuda</div>
+                </div>
+                <div class="kpi" style="border-left:3px solid #a78bfa">
+                    <div class="kpi-label">Deuda (GC + Bancaria)</div>
+                    <div class="kpi-value negative">${formatARS(totalDeuda)}</div>
+                    <div class="kpi-sub">Incluido en egresos totales</div>
                 </div>
                 ${worstWeek ? `<div class="kpi" style="border-left:3px solid var(--rd)">
                     <div class="kpi-label">Semana más comprometida</div>
@@ -4769,14 +4825,28 @@
                                 data: weekKeys.map(w => weeks[w].ing),
                                 backgroundColor: '#34d399',
                                 borderRadius: 4,
-                                order: 2
+                                order: 3
                             },
                             {
-                                label: 'Gastos',
-                                data: weekKeys.map(w => weeks[w].egr),
+                                label: 'Egresos Operativos',
+                                data: weekKeys.map(w => weeks[w].egrOp),
                                 backgroundColor: '#f87171',
                                 borderRadius: 4,
-                                order: 2
+                                order: 3
+                            },
+                            {
+                                label: 'Fee\'s Cobranza',
+                                data: weekKeys.map(w => weeks[w].fees),
+                                backgroundColor: '#fb923c',
+                                borderRadius: 4,
+                                order: 3
+                            },
+                            {
+                                label: 'Deuda (GC+Banc)',
+                                data: weekKeys.map(w => weeks[w].deuda),
+                                backgroundColor: '#a78bfa',
+                                borderRadius: 4,
+                                order: 3
                             },
                             {
                                 label: 'Saldo Acumulado',
@@ -4798,11 +4868,20 @@
                         responsive: true,
                         maintainAspectRatio: false,
                         interaction: { mode: 'index', intersect: false },
-                        plugins: { legend: { labels: { color: '#c9d1d9' } } },
+                        plugins: {
+                            legend: { labels: { color: '#c9d1d9' } },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(ctx) {
+                                        return ctx.dataset.label + ': ' + formatARS(ctx.raw);
+                                    }
+                                }
+                            }
+                        },
                         scales: {
-                            y: { position: 'left', ticks: { color: '#8b949e' }, grid: { color: '#30363d' } },
-                            y1: { position: 'right', ticks: { color: '#fbbf24' }, grid: { drawOnChartArea: false } },
-                            x: { ticks: { color: '#8b949e', font: { size: 10 } }, grid: { color: '#30363d' } }
+                            x: { stacked: true, ticks: { color: '#8b949e', font: { size: 10 } }, grid: { color: '#30363d' } },
+                            y: { stacked: true, position: 'left', ticks: { color: '#8b949e' }, grid: { color: '#30363d' } },
+                            y1: { position: 'right', ticks: { color: '#fbbf24' }, grid: { drawOnChartArea: false } }
                         }
                     }
                 });
@@ -4823,24 +4902,55 @@
                             <b>Semana ${fmtDateAR(wk)} — ${fmtDateAR(endDate.toISOString().slice(0, 10))}</b>
                             <span style="font-size:10px;color:var(--tx2);margin-left:8px">${d.count} movimientos</span>
                         </div>
-                        <div style="display:flex;gap:16px;font-size:12px;">
+                        <div style="display:flex;gap:12px;font-size:11px;flex-wrap:wrap;">
                             <span class="positive">${formatARS(d.ing)}</span>
-                            <span class="negative">${formatARS(d.egr)}</span>
+                            <span class="negative">${formatARS(d.egrOp)}<span style="font-size:9px;color:var(--tx2)"> op</span></span>
+                            ${d.fees ? `<span style="color:#fb923c">${formatARS(d.fees)}<span style="font-size:9px;color:var(--tx2)"> fee's</span></span>` : ''}
+                            ${d.deuda ? `<span style="color:#a78bfa">${formatARS(d.deuda)}<span style="font-size:9px;color:var(--tx2)"> deuda</span></span>` : ''}
                             <span class="${saldoCls}" style="font-weight:700">${formatARS(saldo)}</span>
                         </div>
                     </div>
                     <table><tr><th>Fecha</th><th>Emp</th><th>Tipo</th><th>Ítem</th><th>Entidad</th><th class="text-right">Monto</th></tr>`;
 
-                const sorted = d.items.sort((a, b) => a.f.localeCompare(b.f));
+                const sorted = d.items.sort((a, b) => {
+                    // Group: ingresos first, then operational egresos, then fees, then debt
+                    const getGroup = (m) => {
+                        if ((m.v||0) >= 0) return 0;
+                        if (m._deuda || isDebtPayment(m)) return 3;
+                        if (isFeeDeduction(m)) return 2;
+                        return 1;
+                    };
+                    const ga = getGroup(a), gb = getGroup(b);
+                    if (ga !== gb) return ga - gb;
+                    return a.f.localeCompare(b.f);
+                });
+
+                let lastGroup = -1;
                 sorted.forEach(m => {
-                    const cls = (m.v || 0) >= 0 ? 'positive' : 'negative';
+                    const v = m.v || 0;
+                    const cls = v >= 0 ? 'positive' : 'negative';
+                    const getGroup = (m) => {
+                        if ((m.v||0) >= 0) return 0;
+                        if (m._deuda || isDebtPayment(m)) return 3;
+                        if (isFeeDeduction(m)) return 2;
+                        return 1;
+                    };
+                    const group = getGroup(m);
+                    const groupLabels = { 0: '💰 Ingresos', 1: '📤 Egresos Operativos', 2: '📊 Fee\'s / Comisiones', 3: '🏦 Pagos de Deuda' };
+                    const groupColors = { 0: '#34d399', 1: '#f87171', 2: '#fb923c', 3: '#a78bfa' };
+                    if (group !== lastGroup) {
+                        detailHtml += `<tr><td colspan="6" style="font-size:10px;font-weight:700;color:${groupColors[group]};padding:6px 0 2px;border-bottom:1px solid ${groupColors[group]}30">${groupLabels[group]}</td></tr>`;
+                        lastGroup = group;
+                    }
+
+                    const scheduledBadge = m._scheduled ? '<span style="font-size:8px;background:#a78bfa30;color:#a78bfa;padding:1px 4px;border-radius:3px;margin-left:4px">programado</span>' : '';
                     detailHtml += `<tr>
                         <td>${fmtDateAR(m.f)}</td>
                         <td>${m.emp || ''}</td>
-                        <td>${m.t || ''}</td>
+                        <td>${m.t || ''}${scheduledBadge}</td>
                         <td>${m.i || ''}</td>
                         <td style="font-size:10px">${m.en || ''}</td>
-                        <td class="text-right ${cls}" style="font-weight:600">${formatARS(m.v || 0)}</td>
+                        <td class="text-right ${cls}" style="font-weight:600">${formatARS(v)}</td>
                     </tr>`;
                 });
 
