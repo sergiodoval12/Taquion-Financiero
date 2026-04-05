@@ -612,6 +612,7 @@
 
             <div class="nav-section">
                 <div class="nav-section-title">Análisis</div>
+                <div class="nav-item" onclick="showPage('composicion')">Composición</div>
                 <div class="nav-item" onclick="showPage('bancarizado')">B / N Splits</div>
                 <div class="nav-item" onclick="showPage('semanal')">Semanal 45d</div>
                 <div class="nav-item" onclick="showPage('whatif')">Sandbox</div>
@@ -958,6 +959,80 @@
                         <button id="sbImplementBtn" onclick="sbImplementChanges()" style="font-size:13px;padding:8px 24px;background:var(--gn);color:#000;font-weight:700;border:none;border-radius:6px;cursor:pointer;" disabled>Implementar Cambios en SOT</button>
                     </div>
                     <div id="sbImplementStatus" style="font-size:11px;color:var(--tx2);margin-top:8px"></div>
+                </div>
+            </div>
+
+            <!-- COMPOSICIÓN PAGE -->
+            <div id="composicion" class="page">
+                <h1>Composición de Ingresos y Egresos</h1>
+                <div class="reference-banner">Análisis detallado por cliente, proveedor, categoría y sector | Todos los períodos | Click en items para excluir del análisis</div>
+
+                <!-- Period selector -->
+                <div style="display:flex;gap:12px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
+                    <label style="font-size:11px;color:var(--tx2)">Período:</label>
+                    <select id="compPeriodo" onchange="renderComposicion()" style="background:#161b22;border:1px solid #30363d;color:#e6edf3;padding:4px 8px;border-radius:4px;font-size:11px">
+                        <option value="all">Todo el historial</option>
+                        <option value="2026">2026</option>
+                        <option value="2025">2025</option>
+                        <option value="2024">2024</option>
+                        <option value="2026-Q1">2026 Q1 (Ene-Mar)</option>
+                        <option value="2026-Q2" selected>2026 Q2 (Abr-Jun)</option>
+                        <option value="last6">Últimos 6 meses</option>
+                        <option value="last3">Últimos 3 meses</option>
+                        <option value="proyectado">Solo Proyectado</option>
+                    </select>
+                    <label style="font-size:11px;color:var(--tx2)">Empresa:</label>
+                    <select id="compEmpresa" onchange="renderComposicion()" style="background:#161b22;border:1px solid #30363d;color:#e6edf3;padding:4px 8px;border-radius:4px;font-size:11px">
+                        <option value="all">Ambas</option>
+                        <option value="TQN">TQN</option>
+                        <option value="LMS">LMS</option>
+                    </select>
+                    <label style="font-size:11px;color:var(--tx2)">Incluir:</label>
+                    <label style="font-size:10px;color:var(--tx2)"><input type="checkbox" id="compIncDeuda" onchange="renderComposicion()" checked> Deuda</label>
+                    <label style="font-size:10px;color:var(--tx2)"><input type="checkbox" id="compIncPot" onchange="renderComposicion()"> Potenciales</label>
+                    <label style="font-size:10px;color:var(--tx2)"><input type="checkbox" id="compIncInv" onchange="renderComposicion()"> Inversión</label>
+                    <span id="compExcluded" style="font-size:10px;color:#fb923c;margin-left:auto"></span>
+                </div>
+
+                <div class="kpi-grid" id="compKPIs"></div>
+
+                <!-- Charts row -->
+                <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:18px">
+                    <div class="card" style="flex:1;min-width:320px">
+                        <div class="card-title">Composición de Ingresos <span style="font-size:10px;color:var(--tx2);font-weight:400">por cliente</span></div>
+                        <div style="height:300px"><canvas id="compIngChart"></canvas></div>
+                    </div>
+                    <div class="card" style="flex:1;min-width:320px">
+                        <div class="card-title">Composición de Egresos <span style="font-size:10px;color:var(--tx2);font-weight:400">por categoría</span></div>
+                        <div style="height:300px"><canvas id="compEgrChart"></canvas></div>
+                    </div>
+                </div>
+
+                <!-- Detail tables -->
+                <div style="display:flex;gap:16px;flex-wrap:wrap">
+                    <div class="card" style="flex:1;min-width:340px">
+                        <div class="card-title" style="color:#34d399">Ingresos por Cliente</div>
+                        <div id="compIngTable" style="max-height:500px;overflow-y:auto"></div>
+                    </div>
+                    <div class="card" style="flex:1;min-width:340px">
+                        <div class="card-title" style="color:#f87171">Egresos por Categoría</div>
+                        <div id="compEgrTable" style="max-height:500px;overflow-y:auto"></div>
+                    </div>
+                </div>
+
+                <!-- Cost by sector -->
+                <div class="card" style="margin-top:18px">
+                    <div class="card-title">Costeo por Sector <span style="font-size:10px;color:var(--tx2);font-weight:400">— Desglose de egresos por tipo de gasto</span></div>
+                    <div style="display:flex;gap:16px;flex-wrap:wrap">
+                        <div style="flex:1;min-width:300px;height:280px"><canvas id="compSectorChart"></canvas></div>
+                        <div id="compSectorTable" style="flex:1;min-width:300px;max-height:280px;overflow-y:auto"></div>
+                    </div>
+                </div>
+
+                <!-- What-if panel -->
+                <div id="compWhatIf" class="card" style="margin-top:18px;display:none">
+                    <div class="card-title" style="color:#fbbf24">Impacto de Exclusiones</div>
+                    <div id="compWhatIfContent"></div>
                 </div>
             </div>
 
@@ -1425,7 +1500,7 @@
 
             // Mobile: close sidebar and update title
             document.querySelector('.sidebar')?.classList.remove('open');
-            const titles = { dashboard:'Dashboard', operacion:'Operación BAU', deuda:'Deuda', bancarizado:'B/N Splits', semanal:'Semanal 45d', whatif:'Sandbox', carga:'Carga', movimientos:'Movimientos' };
+            const titles = { dashboard:'Dashboard', operacion:'Operación BAU', deuda:'Deuda', composicion:'Composición', bancarizado:'B/N Splits', semanal:'Semanal 45d', whatif:'Sandbox', carga:'Carga', movimientos:'Movimientos' };
             const mpt = document.getElementById('mobilePageTitle');
             if (mpt) mpt.textContent = titles[pageId] || pageId;
 
@@ -1435,6 +1510,7 @@
                 else if (pageId === 'operacion') renderOperacion();
                 else if (pageId === 'deuda') renderDeuda();
                 else if (pageId === 'bancarizado') renderBancarizado();
+                else if (pageId === 'composicion') renderComposicion();
                 else if (pageId === 'semanal') renderSemanal();
                 else if (pageId === 'whatif') renderWhatIf();
                 else if (pageId === 'movimientos') renderMovimientos();
@@ -2000,20 +2076,23 @@
             // Helper to build editable table for a side (ing/egr)
             function buildDesgloseTable(items, side, color) {
                 const sorted = side === 'ing' ? items.slice().sort((a,b) => b.v - a.v) : items.slice().sort((a,b) => a.v - b.v);
-                let h = '<tr><th style="text-align:left;font-size:10px">Fecha</th><th style="text-align:left;font-size:10px">Tipo</th><th style="text-align:left;font-size:10px">Item</th><th style="text-align:right;font-size:10px">Monto</th><th style="font-size:10px;width:30px"></th></tr>';
+                let h = '<tr><th style="text-align:left;font-size:10px">Fecha</th><th style="text-align:left;font-size:10px">Emp</th><th style="text-align:left;font-size:10px">Tipo</th><th style="text-align:left;font-size:10px">Item</th><th style="text-align:left;font-size:10px">Entidad/Cliente</th><th style="text-align:right;font-size:10px">Monto</th><th style="font-size:10px;width:30px"></th></tr>';
                 sorted.forEach((r, idx) => {
                     const edited = BAU_EDITS.some(e => e.movIdx === r.movIdx);
                     const bg = edited ? (side === 'ing' ? 'background:#34d39915;' : 'background:#f8717115;') : '';
+                    const eoBadge = r.eo === 'R' ? '<span style="font-size:7px;background:#34d39930;color:#34d399;padding:0 3px;border-radius:2px;margin-left:2px">R</span>' : '';
                     h += '<tr style="' + bg + '">' +
-                        '<td id="bau_f_' + side + '_' + idx + '" onclick="bauEditDate(\'' + mes + '\',\'' + side + '\',' + idx + ')" style="font-size:10px;cursor:pointer;color:#58a6ff;white-space:nowrap" title="Click para cambiar fecha">' + fmtDateAR(r.f) + '</td>' +
+                        '<td id="bau_f_' + side + '_' + idx + '" onclick="bauEditDate(\'' + mes + '\',\'' + side + '\',' + idx + ')" style="font-size:10px;cursor:pointer;color:#58a6ff;white-space:nowrap" title="Click para cambiar fecha">' + fmtDateAR(r.f) + eoBadge + '</td>' +
+                        '<td style="font-size:9px;color:var(--tx2)">' + (r.emp || '') + '</td>' +
                         '<td style="font-size:10px;color:var(--tx2)">' + r.t + '</td>' +
                         '<td style="font-size:10px">' + r.i + '</td>' +
+                        '<td style="font-size:9px;color:#8b949e;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + (r.en || '').replace(/"/g, '&quot;') + '">' + (r.en || '-') + '</td>' +
                         '<td id="bau_v_' + side + '_' + idx + '" onclick="bauEditValue(\'' + mes + '\',\'' + side + '\',' + idx + ')" style="text-align:right;font-size:10px;color:' + color + ';cursor:pointer;font-weight:600" title="Click para editar monto">' + formatARS(r.v) + (edited ? ' ✎' : '') + '</td>' +
                         '<td><button onclick="bauDeleteItem(\'' + mes + '\',\'' + side + '\',' + idx + ')" style="background:none;border:none;color:#f8717188;cursor:pointer;font-size:12px;padding:0 2px" title="Eliminar">✕</button></td>' +
                         '</tr>';
                 });
                 const total = items.reduce((s, r) => s + r.v, 0);
-                h += '<tr style="border-top:1px solid #30363d;font-weight:700"><td colspan="3" style="font-size:10px">TOTAL (' + items.length + ' items)</td><td style="text-align:right;font-size:10px;color:' + color + '">' + formatARS(total) + '</td><td></td></tr>';
+                h += '<tr style="border-top:1px solid #30363d;font-weight:700"><td colspan="5" style="font-size:10px">TOTAL (' + items.length + ' items)</td><td style="text-align:right;font-size:10px;color:' + color + '">' + formatARS(total) + '</td><td></td></tr>';
                 return h;
             }
             const hIng = buildDesgloseTable(detail.ingresos, 'ing', '#34d399');
@@ -2072,7 +2151,7 @@
 
                 // Store detail with mov index for direct editing
                 if (!BAU_DETAIL[mes]) BAU_DETAIL[mes] = { ingresos: [], egresos: [], totalIng: 0, totalEgr: 0 };
-                const rec = { t: m.t, i: it || '(sin item)', v: v, f: m.f, emp: m.emp, bn: m.bn, movIdx: movIdx };
+                const rec = { t: m.t, i: it || '(sin item)', en: m.en || '', d: m.d || '', v: v, f: m.f, emp: m.emp, bn: m.bn, eo: m.eo, movIdx: movIdx };
                 if (v >= 0) {
                     BAU_DETAIL[mes].ingresos.push(rec);
                     BAU_DETAIL[mes].totalIng += v;
@@ -4733,6 +4812,303 @@
             sbRenderInversiones();
             sbRefreshAll();
             document.getElementById('sbImplementStatus').textContent = 'Todos los cambios fueron descartados.';
+        }
+
+        // ========= COMPOSICIÓN DE INGRESOS Y EGRESOS =========
+        const COMP_EXCLUDED = new Set(); // items excluded from analysis
+
+        function renderComposicion() {
+            const periodo = document.getElementById('compPeriodo')?.value || '2026-Q2';
+            const empresa = document.getElementById('compEmpresa')?.value || 'all';
+            const incDeuda = document.getElementById('compIncDeuda')?.checked;
+            const incPot = document.getElementById('compIncPot')?.checked;
+            const incInv = document.getElementById('compIncInv')?.checked;
+            const mov = DATA.mov || [];
+
+            // Period filter
+            function inPeriod(f) {
+                if (!f) return false;
+                const mes = f.slice(0, 7);
+                const yr = f.slice(0, 4);
+                if (periodo === 'all') return true;
+                if (periodo === '2026' || periodo === '2025' || periodo === '2024') return yr === periodo;
+                if (periodo === '2026-Q1') return mes >= '2026-01' && mes <= '2026-03';
+                if (periodo === '2026-Q2') return mes >= '2026-04' && mes <= '2026-06';
+                if (periodo === 'last6') {
+                    const d = new Date('2026-04-04'); d.setMonth(d.getMonth() - 6);
+                    return f >= d.toISOString().slice(0, 10);
+                }
+                if (periodo === 'last3') {
+                    const d = new Date('2026-04-04'); d.setMonth(d.getMonth() - 3);
+                    return f >= d.toISOString().slice(0, 10);
+                }
+                if (periodo === 'proyectado') return true; // filtered by eo below
+                return true;
+            }
+
+            // Movement classification
+            function getClass(m) {
+                const t = m.t || '';
+                const it = (m.i || '').toLowerCase();
+                if (t === 'Potenciales') return 'potencial';
+                if (it.startsWith('aporte de capital') || it.includes('aporte mutuo') || it.includes('aporte muto')) return 'inversion';
+                if (t === 'Préstamos Bancarios' || it.includes('devolucion a gc')) return 'deuda';
+                return 'operativo';
+            }
+
+            // Filter movements
+            const filtered = mov.filter(m => {
+                if (!inPeriod(m.f)) return false;
+                if (empresa !== 'all' && m.emp !== empresa) return false;
+                if (periodo === 'proyectado' && m.eo !== 'P') return false;
+                const cls = getClass(m);
+                if (cls === 'deuda' && !incDeuda) return false;
+                if (cls === 'potencial' && !incPot) return false;
+                if (cls === 'inversion' && !incInv) return false;
+                return true;
+            });
+
+            // Separate included vs excluded
+            const active = filtered.filter(m => !COMP_EXCLUDED.has(compItemKey(m)));
+            const excluded = filtered.filter(m => COMP_EXCLUDED.has(compItemKey(m)));
+
+            // KPIs
+            const totalIng = active.filter(m => m.v >= 0).reduce((s, m) => s + m.v, 0);
+            const totalEgr = active.filter(m => m.v < 0).reduce((s, m) => s + m.v, 0);
+            const neto = totalIng + totalEgr;
+            const months = new Set(active.map(m => (m.f || '').slice(0, 7)));
+            const avgMensual = months.size > 0 ? neto / months.size : 0;
+
+            document.getElementById('compKPIs').innerHTML = `
+                <div class="kpi"><div class="kpi-label">Ingresos</div><div class="kpi-value positive">${formatARS(totalIng)}</div><div class="kpi-sub">${active.filter(m=>m.v>=0).length} movimientos</div></div>
+                <div class="kpi"><div class="kpi-label">Egresos</div><div class="kpi-value negative">${formatARS(totalEgr)}</div><div class="kpi-sub">${active.filter(m=>m.v<0).length} movimientos</div></div>
+                <div class="kpi" style="border-left:3px solid ${neto>=0?'var(--gn)':'var(--rd)'}"><div class="kpi-label">Saldo Neto</div><div class="kpi-value ${neto>=0?'positive':'negative'}">${formatARS(neto)}</div><div class="kpi-sub">Promedio ${formatARS(avgMensual)}/mes</div></div>
+                <div class="kpi"><div class="kpi-label">Margen</div><div class="kpi-value" style="color:${neto>=0?'#34d399':'#f87171'}">${totalIng ? ((neto/totalIng)*100).toFixed(1) : 0}%</div><div class="kpi-sub">${months.size} meses | ${active.length} mov</div></div>
+            `;
+
+            // Excluded indicator
+            const exEl = document.getElementById('compExcluded');
+            if (exEl) exEl.textContent = COMP_EXCLUDED.size > 0 ? COMP_EXCLUDED.size + ' items excluidos' : '';
+
+            // === INGRESOS BY CLIENT (using 'en' field, fallback to 'i') ===
+            const ingByClient = {};
+            active.filter(m => m.v > 0).forEach(m => {
+                // Use entidad for cobranza, item for others
+                let key = m.en || m.i || '(sin nombre)';
+                if (key.length > 60) key = key.slice(0, 57) + '...';
+                if (!ingByClient[key]) ingByClient[key] = { total: 0, count: 0, tipo: m.t || '', items: [] };
+                ingByClient[key].total += m.v;
+                ingByClient[key].count++;
+                ingByClient[key].items.push(m);
+            });
+            const ingSorted = Object.entries(ingByClient).sort((a, b) => b[1].total - a[1].total);
+
+            // === EGRESOS BY CATEGORY (using 'i' for grouping, 'en' for detail) ===
+            const egrByCat = {};
+            active.filter(m => m.v < 0).forEach(m => {
+                // Smart category: use 'i' (item) as main category, but group similar
+                let cat = m.i || m.t || '(sin categoría)';
+                // Group generic "Proveedores" by entidad
+                if (cat === 'Proveedores' && m.en) {
+                    const en = m.en.toLowerCase();
+                    // Keep known providers as their own category
+                    if (en.includes('josefina') || en.includes('maharbiz')) cat = 'JOSEFINA MAHARBIZ';
+                    else if (en.includes('visa') || en.includes('tarjeta')) cat = 'Tarjeta VISA';
+                    else if (en.includes('alquiler')) cat = 'Alquiler';
+                    else if (en.includes('google') || en.includes('golaware')) cat = 'Google / Tech';
+                    else if (en.includes('notion')) cat = 'Notion';
+                    else if (en.includes('swiss') || en.includes('osde')) cat = 'Salud / OSDE';
+                    else if (en.includes('wit') || en.includes('wendap')) cat = 'WIT / Wendap';
+                    else cat = 'Proveedores Varios';
+                }
+                if (!egrByCat[cat]) egrByCat[cat] = { total: 0, count: 0, items: [] };
+                egrByCat[cat].total += m.v;
+                egrByCat[cat].count++;
+                egrByCat[cat].items.push(m);
+            });
+            const egrSorted = Object.entries(egrByCat).sort((a, b) => a[1].total - b[1].total);
+
+            // === CHARTS ===
+            const chartColors = ['#34d399','#60a5fa','#fbbf24','#f87171','#a78bfa','#fb923c','#e879f9','#22d3ee','#84cc16','#f472b6','#6366f1','#14b8a6'];
+            const chartColorsDark = ['#065f46','#1e3a5f','#78350f','#7f1d1d','#4c1d95','#7c2d12','#701a75','#164e63','#365314','#831843','#312e81','#134e4a'];
+
+            // Ingresos pie
+            const ctxIng = document.getElementById('compIngChart')?.getContext('2d');
+            if (ctxIng) {
+                if (APP.charts.compIng) APP.charts.compIng.destroy();
+                const topIng = ingSorted.slice(0, 10);
+                const otrosIng = ingSorted.slice(10).reduce((s, [, d]) => s + d.total, 0);
+                const labels = topIng.map(([k]) => k.length > 25 ? k.slice(0, 22) + '...' : k);
+                const vals = topIng.map(([, d]) => d.total);
+                if (otrosIng > 0) { labels.push('Otros'); vals.push(otrosIng); }
+
+                APP.charts.compIng = new Chart(ctxIng, {
+                    type: 'doughnut',
+                    data: { labels, datasets: [{ data: vals, backgroundColor: chartColors, borderWidth: 1, borderColor: '#0d1117' }] },
+                    options: {
+                        responsive: true, maintainAspectRatio: false,
+                        plugins: {
+                            legend: { position: 'right', labels: { color: '#c9d1d9', font: { size: 9 }, boxWidth: 12 } },
+                            tooltip: { callbacks: { label: ctx => ctx.label + ': ' + formatARS(ctx.raw) + ' (' + ((ctx.raw / totalIng) * 100).toFixed(1) + '%)' } }
+                        }
+                    }
+                });
+            }
+
+            // Egresos horizontal bar
+            const ctxEgr = document.getElementById('compEgrChart')?.getContext('2d');
+            if (ctxEgr) {
+                if (APP.charts.compEgr) APP.charts.compEgr.destroy();
+                const topEgr = egrSorted.slice(0, 12);
+
+                APP.charts.compEgr = new Chart(ctxEgr, {
+                    type: 'bar',
+                    data: {
+                        labels: topEgr.map(([k]) => k.length > 25 ? k.slice(0, 22) + '...' : k),
+                        datasets: [{ data: topEgr.map(([, d]) => Math.abs(d.total)), backgroundColor: chartColors.map(c => c + 'cc'), borderRadius: 3 }]
+                    },
+                    options: {
+                        indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: { callbacks: { label: ctx => formatARS(-ctx.raw) + ' (' + ((ctx.raw / Math.abs(totalEgr)) * 100).toFixed(1) + '%)' } }
+                        },
+                        scales: {
+                            x: { ticks: { color: '#8b949e', callback: v => (v / 1e6).toFixed(0) + 'M' }, grid: { color: '#30363d' } },
+                            y: { ticks: { color: '#c9d1d9', font: { size: 9 } }, grid: { display: false } }
+                        }
+                    }
+                });
+            }
+
+            // === DETAIL TABLES ===
+            // Ingresos table
+            let hIng = '<table style="width:100%"><tr><th style="text-align:left;font-size:10px">Cliente</th><th style="text-align:left;font-size:10px">Tipo</th><th style="text-align:right;font-size:10px">Monto</th><th style="text-align:right;font-size:10px">%</th><th style="font-size:10px;width:20px"></th></tr>';
+            ingSorted.forEach(([client, d]) => {
+                const pct = totalIng ? ((d.total / totalIng) * 100).toFixed(1) : '0.0';
+                const barW = totalIng ? Math.min((d.total / totalIng) * 100, 100) : 0;
+                const key = compItemKeyFromGroup(d.items);
+                const isExcl = COMP_EXCLUDED.has(key);
+                hIng += '<tr style="cursor:pointer;' + (isExcl ? 'opacity:0.3;text-decoration:line-through;' : '') + '" onclick="compToggleItem(\'' + escHtml(key) + '\')">' +
+                    '<td style="font-size:10px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escHtml(client) + '">' + escHtml(client) + '</td>' +
+                    '<td style="font-size:9px;color:var(--tx2)">' + d.tipo + '</td>' +
+                    '<td style="text-align:right;font-size:10px;color:#34d399;font-weight:600">' + formatARS(d.total) + '</td>' +
+                    '<td style="text-align:right;font-size:9px;color:var(--tx2)">' + pct + '%</td>' +
+                    '<td style="font-size:10px;color:#34d399;width:50px"><div style="background:#34d399;height:6px;border-radius:3px;width:' + barW + '%;opacity:.5"></div></td>' +
+                    '</tr>';
+            });
+            hIng += '</table>';
+            document.getElementById('compIngTable').innerHTML = hIng;
+
+            // Egresos table
+            let hEgr = '<table style="width:100%"><tr><th style="text-align:left;font-size:10px">Categoría</th><th style="text-align:right;font-size:10px">#</th><th style="text-align:right;font-size:10px">Monto</th><th style="text-align:right;font-size:10px">%</th><th style="font-size:10px;width:20px"></th></tr>';
+            egrSorted.forEach(([cat, d]) => {
+                const pct = totalEgr ? ((d.total / totalEgr) * 100).toFixed(1) : '0.0';
+                const barW = totalEgr ? Math.min(Math.abs(d.total / totalEgr) * 100, 100) : 0;
+                const key = compItemKeyFromGroup(d.items);
+                const isExcl = COMP_EXCLUDED.has(key);
+                hEgr += '<tr style="cursor:pointer;' + (isExcl ? 'opacity:0.3;text-decoration:line-through;' : '') + '" onclick="compToggleItem(\'' + escHtml(key) + '\')">' +
+                    '<td style="font-size:10px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escHtml(cat) + '">' + escHtml(cat) + '</td>' +
+                    '<td style="text-align:right;font-size:9px;color:var(--tx2)">' + d.count + '</td>' +
+                    '<td style="text-align:right;font-size:10px;color:#f87171;font-weight:600">' + formatARS(d.total) + '</td>' +
+                    '<td style="text-align:right;font-size:9px;color:var(--tx2)">' + pct + '%</td>' +
+                    '<td style="font-size:10px;width:50px"><div style="background:#f87171;height:6px;border-radius:3px;width:' + barW + '%;opacity:.5"></div></td>' +
+                    '</tr>';
+            });
+            hEgr += '</table>';
+            document.getElementById('compEgrTable').innerHTML = hEgr;
+
+            // === SECTOR / COST TYPE ANALYSIS ===
+            // Group egresos by broad sector using 't' (tipo) + 'd' (detalle)
+            const sectors = {};
+            active.filter(m => m.v < 0).forEach(m => {
+                let sector;
+                const t = m.t || '';
+                const d = m.d || '';
+                if (t === 'Sueldos y Jornales') sector = 'Sueldos y RRHH';
+                else if (t === 'Impuestos y Tasas') sector = 'Impuestos';
+                else if (t === 'Impuestos bancarios') sector = 'Costos Bancarios';
+                else if (t === 'Préstamos Bancarios') sector = 'Deuda Bancaria';
+                else if (t === 'Cobranza') sector = 'Fee\'s Comerciales';
+                else if (d === 'Alquiler') sector = 'Alquiler / Oficina';
+                else if (d === 'Tarjeta Crédito') sector = 'Tarjeta Crédito';
+                else if (d === 'Tecnología' || (m.i || '').match(/Google|Notion|Dropbox|Wit|AWS|Broobe/i)) sector = 'Tecnología';
+                else if (d === 'Fee Comercial') sector = 'Fee\'s Comerciales';
+                else sector = 'Proveedores / Operativo';
+
+                if (!sectors[sector]) sectors[sector] = { total: 0, count: 0, items: [] };
+                sectors[sector].total += m.v;
+                sectors[sector].count++;
+                sectors[sector].items.push(m);
+            });
+            const sectorSorted = Object.entries(sectors).sort((a, b) => a[1].total - b[1].total);
+
+            // Sector chart
+            const ctxSec = document.getElementById('compSectorChart')?.getContext('2d');
+            if (ctxSec) {
+                if (APP.charts.compSector) APP.charts.compSector.destroy();
+                APP.charts.compSector = new Chart(ctxSec, {
+                    type: 'doughnut',
+                    data: {
+                        labels: sectorSorted.map(([k]) => k),
+                        datasets: [{ data: sectorSorted.map(([, d]) => Math.abs(d.total)), backgroundColor: chartColors, borderWidth: 1, borderColor: '#0d1117' }]
+                    },
+                    options: {
+                        responsive: true, maintainAspectRatio: false,
+                        plugins: {
+                            legend: { position: 'right', labels: { color: '#c9d1d9', font: { size: 9 }, boxWidth: 12 } },
+                            tooltip: { callbacks: { label: ctx => ctx.label + ': ' + formatARS(-ctx.raw) + ' (' + ((ctx.raw / Math.abs(totalEgr)) * 100).toFixed(1) + '%)' } }
+                        }
+                    }
+                });
+            }
+
+            // Sector table
+            let hSec = '<table style="width:100%"><tr><th style="text-align:left;font-size:10px">Sector</th><th style="text-align:right;font-size:10px">#</th><th style="text-align:right;font-size:10px">Total</th><th style="text-align:right;font-size:10px">%</th><th style="text-align:right;font-size:10px">/mes</th></tr>';
+            sectorSorted.forEach(([sector, d], i) => {
+                const pct = totalEgr ? ((d.total / totalEgr) * 100).toFixed(1) : '0.0';
+                const perMonth = months.size > 0 ? d.total / months.size : 0;
+                hSec += '<tr>' +
+                    '<td style="font-size:10px"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:' + chartColors[i % chartColors.length] + ';margin-right:6px"></span>' + sector + '</td>' +
+                    '<td style="text-align:right;font-size:9px;color:var(--tx2)">' + d.count + '</td>' +
+                    '<td style="text-align:right;font-size:10px;color:#f87171;font-weight:600">' + formatARS(d.total) + '</td>' +
+                    '<td style="text-align:right;font-size:9px;color:var(--tx2)">' + pct + '%</td>' +
+                    '<td style="text-align:right;font-size:9px;color:var(--tx2)">' + formatARS(perMonth) + '</td>' +
+                    '</tr>';
+            });
+            const totalPerMonth = months.size > 0 ? totalEgr / months.size : 0;
+            hSec += '<tr style="border-top:1px solid #30363d;font-weight:700"><td style="font-size:10px">TOTAL</td><td></td><td style="text-align:right;font-size:10px;color:#f87171">' + formatARS(totalEgr) + '</td><td style="text-align:right;font-size:9px">100%</td><td style="text-align:right;font-size:9px;color:var(--tx2)">' + formatARS(totalPerMonth) + '</td></tr>';
+            hSec += '</table>';
+            document.getElementById('compSectorTable').innerHTML = hSec;
+
+            // What-if panel
+            const wifPanel = document.getElementById('compWhatIf');
+            if (COMP_EXCLUDED.size > 0 && wifPanel) {
+                wifPanel.style.display = 'block';
+                const exclTotal = excluded.reduce((s, m) => s + (m.v || 0), 0);
+                const newNeto = totalIng + totalEgr; // already excludes
+                const origNeto = filtered.reduce((s, m) => s + (m.v || 0), 0);
+                wifPanel.querySelector('#compWhatIfContent').innerHTML = `
+                    <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center">
+                        <div><span style="color:var(--tx2);font-size:11px">Excluidos:</span> <b style="color:#fb923c">${COMP_EXCLUDED.size} items = ${formatARS(exclTotal)}</b></div>
+                        <div><span style="color:var(--tx2);font-size:11px">Neto original:</span> <b>${formatARS(origNeto)}</b></div>
+                        <div><span style="color:var(--tx2);font-size:11px">Neto sin exclusiones:</span> <b style="color:${newNeto>=0?'#34d399':'#f87171'}">${formatARS(newNeto)}</b></div>
+                        <div><span style="color:var(--tx2);font-size:11px">Diferencia:</span> <b style="color:#fbbf24">${formatARS(newNeto - origNeto)}</b></div>
+                        <button onclick="COMP_EXCLUDED.clear();renderComposicion()" style="font-size:10px;padding:3px 10px;background:#30363d;color:#f87171;border:1px solid #f87171;border-radius:4px;cursor:pointer">Limpiar exclusiones</button>
+                    </div>`;
+            } else if (wifPanel) {
+                wifPanel.style.display = 'none';
+            }
+        }
+
+        // Helpers for composicion
+        function compItemKey(m) { return (m.i || '') + '|' + (m.en || '') + '|' + (m.t || ''); }
+        function compItemKeyFromGroup(items) { if (!items || !items.length) return ''; return compItemKey(items[0]); }
+        function escHtml(s) { return (s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;'); }
+        function compToggleItem(key) {
+            if (COMP_EXCLUDED.has(key)) COMP_EXCLUDED.delete(key);
+            else COMP_EXCLUDED.add(key);
+            renderComposicion();
         }
 
         function renderSemanal() {
