@@ -970,8 +970,9 @@
                 <!-- Period selector -->
                 <div style="display:flex;gap:12px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
                     <label style="font-size:11px;color:var(--tx2)">Período:</label>
-                    <select id="compPeriodo" onchange="renderComposicion()" style="background:#161b22;border:1px solid #30363d;color:#e6edf3;padding:4px 8px;border-radius:4px;font-size:11px">
+                    <select id="compPeriodo" onchange="compPeriodoChanged()" style="background:#161b22;border:1px solid #30363d;color:#e6edf3;padding:4px 8px;border-radius:4px;font-size:11px">
                         <option value="all">Todo el historial</option>
+                        <option value="mes">Por Mes</option>
                         <option value="2026">2026</option>
                         <option value="2025">2025</option>
                         <option value="2024">2024</option>
@@ -981,6 +982,7 @@
                         <option value="last3">Últimos 3 meses</option>
                         <option value="proyectado">Solo Proyectado</option>
                     </select>
+                    <select id="compMes" onchange="renderComposicion()" style="background:#161b22;border:1px solid #30363d;color:#e6edf3;padding:4px 8px;border-radius:4px;font-size:11px;display:none"></select>
                     <label style="font-size:11px;color:var(--tx2)">Empresa:</label>
                     <select id="compEmpresa" onchange="renderComposicion()" style="background:#161b22;border:1px solid #30363d;color:#e6edf3;padding:4px 8px;border-radius:4px;font-size:11px">
                         <option value="all">Ambas</option>
@@ -1561,20 +1563,31 @@
                 return 'operativo';
             }
 
-            // Detect debt payments (bancaria + GC)
-            function isDebt(m) {
+            // Detect ALL debt/financing payments (bancaria + GC + refinanciaciones ocultas)
+            // Includes: Préstamos Bancarios, Cobr. Deuda Salta23, Devolucion a GC,
+            //           Refinanciación Santander 100M, Línea de Crédito DUAL
+            // NOT: intereses de descubiertos en cuenta corriente, NOT: mantenimiento CC
+            function isDebtPayment(m) {
                 if (m.v >= 0) return false;
                 const t = m.t || '';
                 const it = (m.i || '').toLowerCase();
-                return t === 'Préstamos Bancarios' || t === 'Cobr. Deuda Salta23' ||
-                       it.includes('devolucion a gc') || it.includes('devolución a gc') ||
-                       it.includes('cuota gc') || it.includes('galicia - mills');
+                const en = (m.en || '').toLowerCase();
+                // Tipo explícito de préstamos
+                if (t === 'Préstamos Bancarios') return true;
+                if (t === 'Cobr. Deuda Salta23') return true;
+                // Devolución a GC (bajo Proveedores)
+                if (it.includes('devolucion a gc') || it.includes('devolución a gc') || it.includes('cuota gc')) return true;
+                // Refinanciación Santander 100M (bajo Proveedores, item=Santander, detalle=Financiamiento)
+                if (it === 'santander' && en.includes('refinanc')) return true;
+                // Galicia Mills
+                if (it.includes('galicia - mills')) return true;
+                return false;
             }
 
             // Build weekly projections for THREE scenarios
-            const weeklyOp = {};     // Operativo Real (con deuda, sin potenciales ni inversión)
+            const weeklyOp = {};     // Operativo Real (con toda la deuda, sin potenciales ni inversión)
             const weeklyFull = {};   // Con Potenciales (operativo + potenciales)
-            const weeklyNoDebt = {}; // Operativo Sin Deuda (operativo menos pagos de deuda)
+            const weeklyNoDebt = {}; // Operativo Sin Deuda Bancaria (sin cuotas de préstamos bancarios)
             const weeklyInv = {};    // Solo inversión (para referencia)
 
             (DATA.mov || []).forEach(m => {
@@ -1586,13 +1599,12 @@
                 if (!weeklyInv[wk]) weeklyInv[wk] = 0;
                 const v = m.v || 0;
                 const cls = movClass(m);
-                const debt = isDebt(m);
 
                 if (cls === 'operativo') {
                     weeklyOp[wk] += v;
                     weeklyFull[wk] += v;
-                    if (!debt) {
-                        weeklyNoDebt[wk] += v; // Operativo sin deuda
+                    if (!isDebtPayment(m)) {
+                        weeklyNoDebt[wk] += v; // Operativo sin deuda (bancaria + GC + refinanciaciones)
                     }
                 } else if (cls === 'potencial') {
                     weeklyFull[wk] += v;
@@ -1648,7 +1660,7 @@
                 const cls = movClass(m);
                 if (cls === 'potencial') totalPotenciales += (m.v || 0);
                 if (cls === 'inversion') totalInversion += (m.v || 0);
-                if (cls === 'operativo' && isDebt(m)) totalDeuda += (m.v || 0);
+                if (cls === 'operativo' && isDebtPayment(m)) totalDeuda += (m.v || 0);
             });
 
             const rwOpMeses = rwOpWeeks ? (rwOpWeeks / 4.33).toFixed(1) : null;
@@ -5012,8 +5024,33 @@
         // ========= COMPOSICIÓN DE INGRESOS Y EGRESOS =========
         const COMP_EXCLUDED = new Set(); // items excluded from analysis
 
+        function compPeriodoChanged() {
+            const sel = document.getElementById('compPeriodo')?.value;
+            const mesSelect = document.getElementById('compMes');
+            if (sel === 'mes') {
+                // Populate month selector with all months from data
+                const months = new Set();
+                (DATA.mov || []).forEach(m => { if (m.f) months.add(m.f.slice(0, 7)); });
+                const sorted = [...months].sort().reverse();
+                const monthNames = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+                mesSelect.innerHTML = sorted.map(m => {
+                    const [y, mm] = m.split('-');
+                    const label = monthNames[parseInt(mm)-1] + ' ' + y;
+                    return '<option value="' + m + '">' + label + '</option>';
+                }).join('');
+                // Default to current month
+                const current = '2026-04';
+                if (sorted.includes(current)) mesSelect.value = current;
+                mesSelect.style.display = '';
+            } else {
+                mesSelect.style.display = 'none';
+            }
+            renderComposicion();
+        }
+
         function renderComposicion() {
-            const periodo = document.getElementById('compPeriodo')?.value || '2026-Q2';
+            const periodoRaw = document.getElementById('compPeriodo')?.value || '2026-Q2';
+            const periodo = periodoRaw === 'mes' ? ('month:' + (document.getElementById('compMes')?.value || '2026-04')) : periodoRaw;
             const empresa = document.getElementById('compEmpresa')?.value || 'all';
             const incDeuda = document.getElementById('compIncDeuda')?.checked;
             const incPot = document.getElementById('compIncPot')?.checked;
@@ -5026,6 +5063,7 @@
                 const mes = f.slice(0, 7);
                 const yr = f.slice(0, 4);
                 if (periodo === 'all') return true;
+                if (periodo.startsWith('month:')) return mes === periodo.slice(6);
                 if (periodo === '2026' || periodo === '2025' || periodo === '2024') return yr === periodo;
                 if (periodo === '2026-Q1') return mes >= '2026-01' && mes <= '2026-03';
                 if (periodo === '2026-Q2') return mes >= '2026-04' && mes <= '2026-06';
