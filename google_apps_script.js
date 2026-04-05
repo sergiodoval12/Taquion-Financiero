@@ -343,6 +343,17 @@ function updateMovimiento(ss, rowIndex, field, value) {
     return { ok: true, row: rowIndex, field: 'eo', value };
   }
 
+  // Support all other movement fields
+  const directFields = { emp: 'emp', t: 't', i: 'i', en: 'en', d: 'd', cat: 'cat', m: 'm', bn: 'bn', fp: 'fp' };
+  if (directFields[field] !== undefined) {
+    const colKey = directFields[field];
+    if (map[colKey] !== undefined) {
+      ws.getRange(rowIndex, map[colKey] + 1).setValue(value);
+      return { ok: true, row: rowIndex, field: field, value };
+    }
+    return { error: 'Column not found for field: ' + field };
+  }
+
   return { error: 'Unknown field: ' + field };
 }
 

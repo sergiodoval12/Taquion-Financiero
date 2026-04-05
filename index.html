@@ -1259,7 +1259,7 @@
 
         // ========= GOOGLE SHEETS SYNC =========
         const SHEETS_CONFIG = {
-            apiUrl: 'https://script.google.com/macros/s/AKfycbxwlA0RHdZPe-k5NuadYdBXaKXHRHDd3t8ilVPVTqkywzGzlJ-8XP-bowO8rllvoVVGzA/exec',
+            apiUrl: 'https://script.google.com/macros/s/AKfycbwM5DE08SKEzzdw6LXOA7o0tXKwr0tHNycDBtXwS7vnSwFP4Jbmfff6DgTCzuPGo8gqkA/exec',
             enabled: true,
             lastSync: null,
             syncing: false
@@ -2016,6 +2016,157 @@
             updateEditsBadge();
         }
 
+        function bauEditRow(mes, side, rowIdx) {
+            const detail = BAU_DETAIL[mes];
+            if (!detail) return;
+            const list = side === 'ing' ? detail.ingresos : detail.egresos;
+            const item = list[rowIdx];
+            if (!item) return;
+
+            // Build inline edit form replacing the row
+            const tr = document.getElementById('bau_row_' + side + '_' + rowIdx);
+            if (!tr) return;
+
+            const fields = [
+                { key: 'f', label: 'Fecha', type: 'date', val: item.f || '' },
+                { key: 'emp', label: 'Empresa', type: 'select', val: item.emp || 'TQN', opts: ['TQN', 'LMS'] },
+                { key: 'eo', label: 'Estado', type: 'select', val: item.eo || 'P', opts: ['R', 'P'] },
+                { key: 't', label: 'Tipo', type: 'text', val: item.t || '' },
+                { key: 'i', label: 'Item', type: 'text', val: item.i === '(sin item)' ? '' : item.i || '' },
+                { key: 'en', label: 'Entidad', type: 'text', val: item.en || '' },
+                { key: 'd', label: 'Detalle', type: 'text', val: item.d || '' },
+                { key: 'v', label: 'Monto', type: 'number', val: Math.round(item.v) }
+            ];
+
+            let formH = '<td colspan="7" style="padding:8px;background:#161b22;border:1px solid #58a6ff44;border-radius:6px">';
+            formH += '<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:flex-end">';
+            fields.forEach(f => {
+                formH += '<div style="display:flex;flex-direction:column;gap:2px">';
+                formH += '<label style="font-size:8px;color:#8b949e;text-transform:uppercase">' + f.label + '</label>';
+                if (f.type === 'select') {
+                    formH += '<select id="bauEd_' + f.key + '" style="width:70px;background:#0d1117;color:#e6edf3;border:1px solid #30363d;border-radius:3px;padding:3px;font-size:10px">';
+                    f.opts.forEach(o => { formH += '<option value="' + o + '"' + (o === f.val ? ' selected' : '') + '>' + o + '</option>'; });
+                    formH += '</select>';
+                } else if (f.type === 'date') {
+                    formH += '<input id="bauEd_' + f.key + '" type="date" value="' + f.val + '" style="width:120px;background:#0d1117;color:#e6edf3;border:1px solid #30363d;border-radius:3px;padding:3px;font-size:10px">';
+                } else if (f.type === 'number') {
+                    formH += '<input id="bauEd_' + f.key + '" type="number" value="' + f.val + '" style="width:100px;background:#0d1117;color:#e6edf3;border:1px solid #30363d;border-radius:3px;padding:3px;font-size:10px;text-align:right">';
+                } else {
+                    formH += '<input id="bauEd_' + f.key + '" type="text" value="' + escH(f.val) + '" style="width:' + (f.key === 'd' ? '140' : '110') + 'px;background:#0d1117;color:#e6edf3;border:1px solid #30363d;border-radius:3px;padding:3px;font-size:10px">';
+                }
+                formH += '</div>';
+            });
+            formH += '<div style="display:flex;gap:4px;align-items:flex-end;padding-bottom:1px">';
+            formH += '<button onclick="bauSaveRow(\'' + mes + '\',\'' + side + '\',' + rowIdx + ')" style="font-size:10px;padding:4px 10px;background:#58a6ff;color:#000;border:none;border-radius:3px;cursor:pointer;font-weight:600">Guardar</button>';
+            formH += '<button onclick="showBAUDesglose(\'' + mes + '\')" style="font-size:10px;padding:4px 8px;background:#30363d;color:#c9d1d9;border:1px solid #484f58;border-radius:3px;cursor:pointer">Cancelar</button>';
+            formH += '</div></div></td>';
+
+            tr.innerHTML = formH;
+            // Focus the Item field since that's the most likely to need editing
+            const itemInput = document.getElementById('bauEd_i');
+            if (itemInput) { itemInput.focus(); itemInput.select(); }
+        }
+
+        function bauSaveRow(mes, side, rowIdx) {
+            const detail = BAU_DETAIL[mes];
+            if (!detail) return;
+            const list = side === 'ing' ? detail.ingresos : detail.egresos;
+            const item = list[rowIdx];
+            if (!item) return;
+
+            // Collect values from form
+            const newF = document.getElementById('bauEd_f')?.value || item.f;
+            const newEmp = document.getElementById('bauEd_emp')?.value || item.emp;
+            const newEo = document.getElementById('bauEd_eo')?.value || item.eo;
+            const newT = document.getElementById('bauEd_t')?.value || item.t;
+            const newI = document.getElementById('bauEd_i')?.value || '';
+            const newEn = document.getElementById('bauEd_en')?.value || '';
+            const newD = document.getElementById('bauEd_d')?.value || '';
+            const newV = parseFloat(document.getElementById('bauEd_v')?.value) || 0;
+
+            // Check if anything changed
+            const changes = [];
+            if (newF !== item.f) changes.push('fecha: ' + fmtDateAR(item.f) + ' → ' + fmtDateAR(newF));
+            if (newEmp !== item.emp) changes.push('empresa: ' + item.emp + ' → ' + newEmp);
+            if (newEo !== item.eo) changes.push('estado: ' + item.eo + ' → ' + newEo);
+            if (newT !== item.t) changes.push('tipo: ' + item.t + ' → ' + newT);
+            if (newI !== (item.i === '(sin item)' ? '' : item.i)) changes.push('item: ' + item.i + ' → ' + (newI || '(vacío)'));
+            if (newEn !== item.en) changes.push('entidad: ' + (item.en || '(vacío)') + ' → ' + (newEn || '(vacío)'));
+            if (newD !== item.d) changes.push('detalle: ' + (item.d || '(vacío)') + ' → ' + (newD || '(vacío)'));
+            if (newV !== item.v) changes.push('monto: ' + formatARS(item.v) + ' → ' + formatARS(newV));
+
+            if (changes.length === 0) { showBAUDesglose(mes); return; }
+
+            if (!requireCFO('Editar movimiento:\n' + changes.join('\n'))) {
+                showBAUDesglose(mes); return;
+            }
+
+            // Apply changes to item and DATA.mov
+            const oldItem = { ...item };
+            item.f = newF;
+            item.emp = newEmp;
+            item.eo = newEo;
+            item.t = newT;
+            item.i = newI || '(sin item)';
+            item.en = newEn;
+            item.d = newD;
+            item.v = newV;
+
+            if (item.movIdx !== undefined) {
+                const mov = DATA.mov[item.movIdx];
+                mov.f = newF;
+                mov.emp = newEmp;
+                mov.eo = newEo;
+                mov.t = newT;
+                mov.i = newI;
+                mov.en = newEn;
+                mov.d = newD;
+                mov.v = newV;
+            }
+
+            // Record edit
+            BAU_EDITS.push({
+                mes: mes, tipo: item.t, item: item.i, action: 'edicion_completa',
+                oldVal: changes.join(', '), newVal: '✓ Actualizado',
+                movIdx: item.movIdx
+            });
+
+            // Sync to Google Sheets
+            if (item.movIdx !== undefined && DATA.mov[item.movIdx]._row) {
+                const sheetRow = DATA.mov[item.movIdx]._row;
+                const batchChanges = [];
+                if (newF !== oldItem.f) batchChanges.push({ type: 'update', rowIndex: sheetRow, field: 'f', value: newF });
+                if (newEmp !== oldItem.emp) batchChanges.push({ type: 'update', rowIndex: sheetRow, field: 'emp', value: newEmp });
+                if (newEo !== oldItem.eo) batchChanges.push({ type: 'update', rowIndex: sheetRow, field: 'eo', value: newEo });
+                if (newT !== oldItem.t) batchChanges.push({ type: 'update', rowIndex: sheetRow, field: 't', value: newT });
+                if (newI !== (oldItem.i === '(sin item)' ? '' : oldItem.i)) batchChanges.push({ type: 'update', rowIndex: sheetRow, field: 'i', value: newI });
+                if (newEn !== oldItem.en) batchChanges.push({ type: 'update', rowIndex: sheetRow, field: 'en', value: newEn });
+                if (newD !== oldItem.d) batchChanges.push({ type: 'update', rowIndex: sheetRow, field: 'd', value: newD });
+                if (newV !== oldItem.v) batchChanges.push({ type: 'update', rowIndex: sheetRow, field: 'v', value: newV });
+
+                if (batchChanges.length > 0) {
+                    sheetsPushChanges({ action: 'batch_update', changes: batchChanges })
+                        .then(r => { if (r.ok) console.log('SOT sync OK:', r); });
+                }
+            }
+
+            // Recalculate totals
+            detail.totalIng = detail.ingresos.reduce((s, r) => s + r.v, 0);
+            detail.totalEgr = detail.egresos.reduce((s, r) => s + r.v, 0);
+
+            // If month changed, need full re-render
+            const newMes = newF.slice(0, 7);
+            if (newMes !== mes) {
+                renderOperacion();
+                if (BAU_DETAIL[newMes]) showBAUDesglose(newMes);
+                else showBAUDesglose(mes);
+            } else {
+                showBAUDesglose(mes);
+                applyEditsAndRefresh();
+            }
+            updateEditsBadge();
+        }
+
         function updateEditsBadge() {
             let badge = document.getElementById('bauEditsBadge');
             if (!badge) {
@@ -2034,7 +2185,7 @@
             let log = '<h3 style="margin:0 0 8px;color:#e6edf3">Historial de Ediciones</h3>';
             log += '<table style="width:100%"><tr><th style="text-align:left;font-size:10px">Mes</th><th style="text-align:left;font-size:10px">Acción</th><th style="text-align:left;font-size:10px">Item</th><th style="text-align:right;font-size:10px">Anterior</th><th style="text-align:right;font-size:10px">Nuevo</th></tr>';
             BAU_EDITS.forEach(e => {
-                const actionLabel = e.action === 'fecha' ? '📅 Fecha' : e.action === 'eliminar' ? '🗑 Eliminar' : '💰 Monto';
+                const actionLabel = e.action === 'fecha' ? '📅 Fecha' : e.action === 'eliminar' ? '🗑 Eliminar' : e.action === 'edicion_completa' ? '✎ Edición' : '💰 Monto';
                 log += '<tr><td style="font-size:10px">' + fmtMonthAR(e.mes) + '</td><td style="font-size:10px;color:var(--tx2)">' + actionLabel + '</td><td style="font-size:10px">' + e.item + '</td><td style="text-align:right;font-size:10px;color:#f87171">' + e.oldVal + '</td><td style="text-align:right;font-size:10px;color:#34d399">' + e.newVal + '</td></tr>';
             });
             log += '</table>';
@@ -2062,6 +2213,20 @@
             }
         }
 
+        // Global helpers for HTML escaping and smart item display
+        function escH(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+        function smartItemDisplay(r) {
+            const GENERIC_ITEMS = ['proveedores', '(sin item)', 'proveedor', ''];
+            const itemLow = (r.i || '').toLowerCase().trim();
+            if (GENERIC_ITEMS.includes(itemLow)) {
+                if (r.en && r.en.trim()) {
+                    return '<span style="color:#fbbf24" title="Item genérico — mostrando Entidad: ' + escH(r.en) + '">' + escH(r.en) + '</span>';
+                }
+                return '<span style="color:#f8717188;font-style:italic" title="Sin item ni entidad — editar para corregir">⚠ Sin clasificar</span>';
+            }
+            return escH(r.i);
+        }
+
         function showBAUDesglose(mes) {
             const detail = BAU_DETAIL[mes];
             if (!detail) return;
@@ -2076,19 +2241,19 @@
             // Helper to build editable table for a side (ing/egr)
             function buildDesgloseTable(items, side, color) {
                 const sorted = side === 'ing' ? items.slice().sort((a,b) => b.v - a.v) : items.slice().sort((a,b) => a.v - b.v);
-                let h = '<tr><th style="text-align:left;font-size:10px">Fecha</th><th style="text-align:left;font-size:10px">Emp</th><th style="text-align:left;font-size:10px">Tipo</th><th style="text-align:left;font-size:10px">Item</th><th style="text-align:left;font-size:10px">Entidad/Cliente</th><th style="text-align:right;font-size:10px">Monto</th><th style="font-size:10px;width:30px"></th></tr>';
+                let h = '<tr><th style="text-align:left;font-size:10px">Fecha</th><th style="text-align:left;font-size:10px">Emp</th><th style="text-align:left;font-size:10px">Tipo</th><th style="text-align:left;font-size:10px">Item</th><th style="text-align:left;font-size:10px">Entidad/Cliente</th><th style="text-align:right;font-size:10px">Monto</th><th style="font-size:10px;width:50px"></th></tr>';
                 sorted.forEach((r, idx) => {
                     const edited = BAU_EDITS.some(e => e.movIdx === r.movIdx);
                     const bg = edited ? (side === 'ing' ? 'background:#34d39915;' : 'background:#f8717115;') : '';
-                    const eoBadge = r.eo === 'R' ? '<span style="font-size:7px;background:#34d39930;color:#34d399;padding:0 3px;border-radius:2px;margin-left:2px">R</span>' : '';
-                    h += '<tr style="' + bg + '">' +
+                    const eoBadge = r.eo === 'R' ? '<span style="font-size:7px;background:#34d39930;color:#34d399;padding:0 3px;border-radius:2px;margin-left:2px">R</span>' : '<span style="font-size:7px;background:#fbbf2430;color:#fbbf24;padding:0 3px;border-radius:2px;margin-left:2px">P</span>';
+                    h += '<tr style="' + bg + '" id="bau_row_' + side + '_' + idx + '">' +
                         '<td id="bau_f_' + side + '_' + idx + '" onclick="bauEditDate(\'' + mes + '\',\'' + side + '\',' + idx + ')" style="font-size:10px;cursor:pointer;color:#58a6ff;white-space:nowrap" title="Click para cambiar fecha">' + fmtDateAR(r.f) + eoBadge + '</td>' +
-                        '<td style="font-size:9px;color:var(--tx2)">' + (r.emp || '') + '</td>' +
-                        '<td style="font-size:10px;color:var(--tx2)">' + r.t + '</td>' +
-                        '<td style="font-size:10px">' + r.i + '</td>' +
-                        '<td style="font-size:9px;color:#8b949e;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + (r.en || '').replace(/"/g, '&quot;') + '">' + (r.en || '-') + '</td>' +
+                        '<td style="font-size:9px;color:var(--tx2)">' + escH(r.emp || '') + '</td>' +
+                        '<td style="font-size:10px;color:var(--tx2)">' + escH(r.t) + '</td>' +
+                        '<td style="font-size:10px">' + smartItemDisplay(r) + '</td>' +
+                        '<td style="font-size:9px;color:#8b949e;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escH(r.en || '') + '">' + (r.en || '-') + '</td>' +
                         '<td id="bau_v_' + side + '_' + idx + '" onclick="bauEditValue(\'' + mes + '\',\'' + side + '\',' + idx + ')" style="text-align:right;font-size:10px;color:' + color + ';cursor:pointer;font-weight:600" title="Click para editar monto">' + formatARS(r.v) + (edited ? ' ✎' : '') + '</td>' +
-                        '<td><button onclick="bauDeleteItem(\'' + mes + '\',\'' + side + '\',' + idx + ')" style="background:none;border:none;color:#f8717188;cursor:pointer;font-size:12px;padding:0 2px" title="Eliminar">✕</button></td>' +
+                        '<td style="white-space:nowrap"><button onclick="bauEditRow(\'' + mes + '\',\'' + side + '\',' + idx + ')" style="background:none;border:none;color:#58a6ff88;cursor:pointer;font-size:11px;padding:0 2px" title="Editar fila completa">✎</button><button onclick="bauDeleteItem(\'' + mes + '\',\'' + side + '\',' + idx + ')" style="background:none;border:none;color:#f8717188;cursor:pointer;font-size:12px;padding:0 2px" title="Eliminar">✕</button></td>' +
                         '</tr>';
                 });
                 const total = items.reduce((s, r) => s + r.v, 0);
