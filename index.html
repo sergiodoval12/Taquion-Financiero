@@ -4151,17 +4151,12 @@
                 <div class="kpi" style="border-left:3px solid #f0883e">
                     <div class="kpi-label">Egreso Deuda ${mesLabel}</div>
                     <div class="kpi-value negative">${formatARS(mesTotalDeuda)}</div>
-                    <div class="kpi-sub">TQN: ${formatARS(mesTotalTQN)} · LMS: ${formatARS(mesTotalLMS)} · GC: ${formatARS(mesTotalGC)}</div>
+                    <div class="kpi-sub">Banc: ${formatARS(mesTotalTQN + mesTotalLMS)} · GC: ${formatARS(mesTotalGC)}</div>
                 </div>
                 <div class="kpi">
-                    <div class="kpi-label">Saldo Bancaria TQN</div>
-                    <div class="kpi-value negative">${formatARS(pendCapTQN + pendIntTQN)}</div>
-                    <div class="kpi-sub">Cap: ${formatARS(pendCapTQN)} · Int: ${formatARS(pendIntTQN)} · ${pendTQN.length} cuotas</div>
-                </div>
-                <div class="kpi">
-                    <div class="kpi-label">Saldo Bancaria LMS</div>
-                    <div class="kpi-value negative">${formatARS(pendLMSTotal)}</div>
-                    <div class="kpi-sub">${pendLMS.length} cuotas restantes</div>
+                    <div class="kpi-label">Saldo Deuda TQN + LMS con Intereses</div>
+                    <div class="kpi-value negative">${formatARS(pendCapTQN + pendIntTQN + pendLMSTotal)}</div>
+                    <div class="kpi-sub">Cap: ${formatARS(pendCapTQN + pendLMSTotal)} · Int: ${formatARS(pendIntTQN)} · ${pendTQN.length + pendLMS.length} cuotas</div>
                 </div>
                 <div class="kpi">
                     <div class="kpi-label">Saldo Deuda GC</div>
@@ -4549,31 +4544,35 @@
             const proxTQN = pendTQN.length > 0 ? pendTQN[0] : null;
             const proxLMS = pendLMS.length > 0 ? pendLMS[0] : null;
 
+            // LMS doesn't have cap/int split — treat total as capital
+            const pendCapLMS = pendLMS.reduce((s, m) => s + (m.cap || m.total || 0), 0);
+            const pendIntLMS = pendLMS.reduce((s, m) => s + (m.int || 0), 0);
+
+            const totalCapPend = pendCapTQN + pendCapLMS;
+            const totalIntPend = pendIntTQN + pendIntLMS;
+            const totalCuotas = pendTQN.length + pendLMS.length;
+
+            // Próxima cuota combinada del mes
+            const mesCuotaTQN = proxTQN ? (proxTQN.cap||0) + (proxTQN.int||0) : 0;
+            const mesCuotaLMS = proxLMS ? (proxLMS.total||0) : 0;
+            const proxMes = proxTQN ? fmtMonthAR(proxTQN.mes) : (proxLMS ? fmtMonthAR(proxLMS.mes) : '');
+
             document.getElementById('deudaBancariaKPIs').innerHTML = `
                 <div class="kpi">
-                    <div class="kpi-label">TQN - Capital Pendiente</div>
-                    <div class="kpi-value negative">${formatARS(pendCapTQN)}</div>
-                    <div class="kpi-sub">${pendTQN.length} cuotas restantes</div>
+                    <div class="kpi-label">TQN + LMS Capital Pendiente</div>
+                    <div class="kpi-value negative">${formatARS(totalCapPend)}</div>
+                    <div class="kpi-sub">TQN: ${formatARS(pendCapTQN)} · LMS: ${formatARS(pendCapLMS)} · ${totalCuotas} cuotas</div>
                 </div>
                 <div class="kpi">
-                    <div class="kpi-label">TQN - Intereses Pendientes</div>
-                    <div class="kpi-value negative">${formatARS(pendIntTQN)}</div>
+                    <div class="kpi-label">TQN + LMS Intereses Pendientes</div>
+                    <div class="kpi-value negative">${formatARS(totalIntPend)}</div>
+                    <div class="kpi-sub">TQN: ${formatARS(pendIntTQN)}${pendIntLMS > 0 ? ' · LMS: ' + formatARS(pendIntLMS) : ''}</div>
                 </div>
-                <div class="kpi">
-                    <div class="kpi-label">TQN - Total Pendiente</div>
-                    <div class="kpi-value negative">${formatARS(pendCapTQN + pendIntTQN)}</div>
-                    <div class="kpi-sub">Ya pagado: ${formatARS(paidCapTQN + paidIntTQN)}</div>
+                <div class="kpi" style="border-left:3px solid #f0883e">
+                    <div class="kpi-label">Próx. Cuota Bancaria (${proxMes})</div>
+                    <div class="kpi-value negative">${formatARS(mesCuotaTQN + mesCuotaLMS)}</div>
+                    <div class="kpi-sub">TQN: ${formatARS(mesCuotaTQN)} · LMS: ${formatARS(mesCuotaLMS)}</div>
                 </div>
-                <div class="kpi">
-                    <div class="kpi-label">LMS - Pendiente</div>
-                    <div class="kpi-value negative">${formatARS(pendLMSTotal)}</div>
-                    <div class="kpi-sub">${pendLMS.length} cuotas | Pagado: ${formatARS(paidLMSTotal)}</div>
-                </div>
-                ${proxTQN ? `<div class="kpi">
-                    <div class="kpi-label">Próx. Cuota TQN (${fmtMonthAR(proxTQN.mes)})</div>
-                    <div class="kpi-value negative">${formatARS((proxTQN.cap||0) + (proxTQN.int||0))}</div>
-                    <div class="kpi-sub">Cap: ${formatARS(proxTQN.cap||0)} | Int: ${formatARS(proxTQN.int||0)}</div>
-                </div>` : ''}
             `;
 
             // TQN Table - highlight pending vs paid
