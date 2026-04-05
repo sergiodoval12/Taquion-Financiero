@@ -1671,11 +1671,21 @@
             }
 
             // Classify each movement
+            // Detect capital injections (aportes, mutuos, préstamos de socios) — NEVER BAU
+            function isCapitalInjection(m) {
+                const it = (m.i || '').toLowerCase();
+                const en = (m.en || '').toLowerCase();
+                if (it.includes('aporte de capital') || it.includes('aporte mutuo') || it.includes('aporte muto')) return true;
+                if (it.startsWith('préstamo gc') || it.startsWith('prestamo gc')) return true;
+                if (en.includes('aporte mutuo') || en.includes('aporte muto') || en.includes('mutuo safe')) return true;
+                if (it.includes('mutuo') && it.includes('aporte')) return true; // "2do Aporte mutuo..." etc
+                return false;
+            }
+
             function movClass(m) {
                 const t = m.t || '';
-                const it = (m.i || '').toLowerCase();
                 if (t === 'Potenciales') return 'potencial';
-                if (it.startsWith('aporte de capital') || it.startsWith('préstamo gc') || it.includes('aporte mutuo') || it.includes('aporte muto')) return 'inversion';
+                if (isCapitalInjection(m)) return 'inversion';
                 return 'operativo';
             }
 
@@ -2450,7 +2460,7 @@
         function renderOperacion() {
             // BAU = pure operations, excluding ALL non-operational items
             const excludeTipos = ['Préstamos Bancarios', 'Cobr. Deuda Salta23', 'Intercompany', 'Potenciales'];
-            const excludeItemPrefixes = ['Aporte de capital', 'Préstamo GC', 'Devolucion a GC', 'Galicia - Mills'];
+            const excludeItemPrefixes = ['Devolucion a GC', 'Devolución a GC', 'Galicia - Mills'];
             const mov = DATA.mov || [];
 
             // Build monthly BAU data WITH detail breakdown
@@ -2458,6 +2468,8 @@
             BAU_DETAIL = {};
             mov.forEach((m, movIdx) => {
                 if (excludeTipos.includes(m.t)) return;
+                // Exclude capital injections (aportes, mutuos, préstamos socios)
+                if (isCapitalInjection(m)) return;
                 const it = m.i || '';
                 for (const prefix of excludeItemPrefixes) {
                     if (it.startsWith(prefix) || it === prefix) return;
@@ -5193,13 +5205,13 @@
                 return true;
             }
 
-            // Movement classification
+            // Movement classification (uses global isCapitalInjection)
             function getClass(m) {
                 const t = m.t || '';
                 const it = (m.i || '').toLowerCase();
                 if (t === 'Potenciales') return 'potencial';
-                if (it.startsWith('aporte de capital') || it.includes('aporte mutuo') || it.includes('aporte muto')) return 'inversion';
-                if (t === 'Préstamos Bancarios' || it.includes('devolucion a gc')) return 'deuda';
+                if (isCapitalInjection(m)) return 'inversion';
+                if (t === 'Préstamos Bancarios' || t === 'Cobr. Deuda Salta23' || it.includes('devolucion a gc') || it.includes('devolución a gc') || it.includes('galicia - mills')) return 'deuda';
                 return 'operativo';
             }
 
