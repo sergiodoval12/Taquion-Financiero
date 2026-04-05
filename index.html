@@ -4114,15 +4114,19 @@
             const pendLMSTotal = pendLMS.reduce((s, m) => s + (m.total || 0), 0);
             const pendLMSCap = pendLMS.reduce((s, m) => s + (m.cap || m.total || 0), 0);
 
-            // GC: recalculate from schedule dynamically
+            // GC: recalculate from schedule — use pagada flag + dynamic cross-check with DATA.mov
             const gcTerm = DATA.gc_term || {};
             const schedule = gcTerm.schedule || [];
             const gcPayments = (DATA.mov || []).filter(m =>
-                m.i && m.i.toLowerCase().includes('devolucion a gc') && m.eo === 'R'
+                m.i && m.i.toLowerCase().includes('devolucion a gc') && (m.eo === 'R' || m.eo === 'E')
             );
             const gcPendientes = schedule.filter(cuota => {
+                // Already marked as paid in the term sheet → not pending
+                if (cuota.pagada) return false;
+                // Also check if there's a real payment in DATA.mov for this month
                 const cuotaMes = (cuota.fecha || '').slice(0, 7);
-                return !gcPayments.some(p => p.f && p.f.startsWith(cuotaMes));
+                if (gcPayments.some(p => p.f && p.f.startsWith(cuotaMes))) return false;
+                return true;
             });
             const tc = parseFloat(document.getElementById('tcUSD')?.value) || MEP.rate;
             const gcPendUSD = gcPendientes.reduce((s, c) => s + (c.usd || 0), 0);
