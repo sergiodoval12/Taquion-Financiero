@@ -36,6 +36,8 @@ function doGet(e) {
       };
     } else if (action === 'ping') {
       result = { ok: true, ts: new Date().toISOString() };
+    } else if (action === 'ensure_structure') {
+      result = ensureStructure(ss);
     } else if (action === 'debug') {
       const sheets = ss.getSheets().map(s => {
         const name = s.getName();
@@ -469,6 +471,9 @@ function updateGCEstado(ss, cuotaNum, estado) {
 // SEED (one-time bulk load)
 // ============================================================
 
+// Full column list for BD Movimientos
+const MOV_ALL_HEADERS = ['Fecha','Estado','Empresa','B/N','Categoría','Tipo','Marco','Detalle','Item','Entidad / Cliente','Monto (K)','Monto Original','Forma Pago','Moneda','Monto USD','TC','Centro de Costo'];
+
 function seedMovimientos(ss, rows) {
   let ws = ss.getSheetByName(SHEET_MOV);
   if (!ws) {
@@ -477,8 +482,7 @@ function seedMovimientos(ss, rows) {
     ws.clear();
   }
 
-  const headers = ['Fecha', 'Estado', 'Empresa', 'B/N', 'Categoría', 'Tipo', 'Marco', 'Detalle', 'Item', 'Entidad / Cliente', 'Monto (K)', 'Monto Original', 'Forma Pago'];
-  const data = [headers];
+  const data = [MOV_ALL_HEADERS];
 
   rows.forEach(m => {
     const v = Number(m.v) || 0;
@@ -495,21 +499,84 @@ function seedMovimientos(ss, rows) {
       m.en || '',
       v / 1000,
       v,
-      m.fp || ''
+      m.fp || '',
+      m.monOrig || 'ARS',
+      m.vUSD || '',
+      m.tcUsado || '',
+      m.cc || ''
     ]);
   });
 
-  ws.getRange(1, 1, data.length, headers.length).setValues(data);
+  ws.getRange(1, 1, data.length, MOV_ALL_HEADERS.length).setValues(data);
 
-  // Format header
-  const headerRange = ws.getRange(1, 1, 1, headers.length);
+  const headerRange = ws.getRange(1, 1, 1, MOV_ALL_HEADERS.length);
   headerRange.setFontWeight('bold');
   headerRange.setBackground('#1f2937');
   headerRange.setFontColor('#ffffff');
   ws.setFrozenRows(1);
-  for (let c = 1; c <= headers.length; c++) ws.autoResizeColumn(c);
+  for (let c = 1; c <= MOV_ALL_HEADERS.length; c++) ws.autoResizeColumn(c);
 
   return { ok: true, rows: data.length - 1, sheet: SHEET_MOV };
+}
+
+// ============================================================
+// ENSURE STRUCTURE — adds missing columns/sheets without losing data
+// ============================================================
+
+function ensureStructure(ss) {
+  const report = { movColumns: [], nomCreated: false };
+
+  // 1) Ensure BD Movimientos has all columns
+  let wsMov = ss.getSheetByName(SHEET_MOV);
+  if (wsMov) {
+    const lastCol = wsMov.getLastColumn();
+    const existingHeaders = lastCol > 0 ? wsMov.getRange(1, 1, 1, lastCol).getValues()[0].map(h => String(h).trim()) : [];
+    const existingLower = existingHeaders.map(h => h.toLowerCase());
+
+    MOV_ALL_HEADERS.forEach(header => {
+      // Check if this header already exists (case-insensitive, partial match)
+      const hLower = header.toLowerCase();
+      const exists = existingLower.some(eh =>
+        eh === hLower ||
+        (hLower === 'forma pago' && eh.startsWith('forma')) ||
+        (hLower === 'moneda' && eh === 'moneda') ||
+        (hLower === 'monto usd' && (eh === 'monto_usd' || eh === 'monto usd')) ||
+        (hLower === 'tc' && (eh === 'tc' || eh === 'tipo_cambio' || eh === 'tipo cambio')) ||
+        (hLower === 'centro de costo' && (eh === 'centro_costo' || eh === 'centro de costo' || eh === 'proyecto'))
+      );
+
+      if (!exists) {
+        const newCol = wsMov.getLastColumn() + 1;
+        wsMov.getRange(1, newCol).setValue(header);
+        wsMov.getRange(1, newCol).setFontWeight('bold').setBackground('#1f2937').setFontColor('#ffffff');
+        report.movColumns.push(header);
+      }
+    });
+  } else {
+    // Create BD Movimientos with all headers
+    wsMov = ss.insertSheet(SHEET_MOV);
+    wsMov.getRange(1, 1, 1, MOV_ALL_HEADERS.length).setValues([MOV_ALL_HEADERS]);
+    wsMov.getRange(1, 1, 1, MOV_ALL_HEADERS.length).setFontWeight('bold').setBackground('#1f2937').setFontColor('#ffffff');
+    wsMov.setFrozenRows(1);
+    report.movColumns = MOV_ALL_HEADERS;
+  }
+
+  // 2) Ensure Nómina sheet exists
+  let wsNom = ss.getSheetByName(SHEET_NOM);
+  if (!wsNom) {
+    wsNom = ss.insertSheet(SHEET_NOM);
+    wsNom.getRange(1, 1, 1, NOM_HEADERS.length).setValues([NOM_HEADERS]);
+    wsNom.getRange(1, 1, 1, NOM_HEADERS.length).setFontWeight('bold').setBackground('#1f2937').setFontColor('#ffffff');
+    wsNom.setFrozenRows(1);
+    for (let c = 1; c <= NOM_HEADERS.length; c++) wsNom.autoResizeColumn(c);
+    report.nomCreated = true;
+  }
+
+  // 3) Ensure Deuda GC exists (just check)
+  report.deudaGC = !!ss.getSheetByName(SHEET_GC);
+  report.deudaBD = !!ss.getSheetByName(SHEET_BD);
+
+  return { ok: true, report, ts: new Date().toISOString() };
 }
 
 // ============================================================

@@ -636,7 +636,10 @@
                     <button onclick="sheetsPullData()" style="flex:1;font-size:9px;padding:4px;background:#30363d;color:#58a6ff;border:1px solid #484f58;border-radius:3px;cursor:pointer" title="Descargar datos del Sheet">↓ Pull</button>
                     <button onclick="sheetsPing()" style="flex:1;font-size:9px;padding:4px;background:#30363d;color:#34d399;border:1px solid #484f58;border-radius:3px;cursor:pointer" title="Probar conexión">♻ Test</button>
                 </div>
-                <button onclick="sheetsSeedData()" style="width:100%;font-size:9px;padding:4px;margin-bottom:6px;background:#7c3aed;color:#fff;border:1px solid #6d28d9;border-radius:3px;cursor:pointer" title="Carga inicial masiva de datos al Sheet">⬆ Carga Inicial al Sheet</button>
+                <div style="display:flex;gap:4px;margin-bottom:6px">
+                    <button onclick="sheetsEnsureStructure()" style="flex:1;font-size:9px;padding:4px;background:#f0883e20;color:#f0883e;border:1px solid #f0883e50;border-radius:3px;cursor:pointer" title="Verificar y crear columnas/pestañas faltantes">🔧 Estructura</button>
+                    <button onclick="sheetsFullSeed()" style="flex:1;font-size:9px;padding:4px;background:#7c3aed;color:#fff;border:1px solid #6d28d9;border-radius:3px;cursor:pointer" title="Subir TODO al Sheet: Movimientos + Nómina">⬆ Seed Total</button>
+                </div>
                 <div id="syncStatus" style="font-size:9px;color:#8b949e;word-break:break-all">Sin conexión a Sheet</div>
             </div>
         </div>
@@ -1424,7 +1427,7 @@
 
         // ========= GOOGLE SHEETS SYNC =========
         const SHEETS_CONFIG = {
-            apiUrl: 'https://script.google.com/macros/s/AKfycbyjOqLidTlFJ3mRI_YDTdttvl_AgNNYaEVHCe-_ss73Aw405WtOsZT94TLNZMyv4mEx_g/exec',
+            apiUrl: 'https://script.google.com/macros/s/AKfycbw5zMg7kUKVTM-Yly8poeeCpgVrTSF0CEtDlcXaCqQcboFNYIlZ2S-gCk_zzInj6rOsgA/exec',
             enabled: true,
             lastSync: null,
             syncing: false
@@ -1533,6 +1536,73 @@
             } catch (err) {
                 sheetsSyncStatus('❌ Error en carga: ' + err.message, '#f87171');
                 alert('Error en la carga inicial: ' + err.message);
+            }
+        }
+
+        // Ensure Sheet has all columns and tabs
+        async function sheetsEnsureStructure() {
+            if (!SHEETS_CONFIG.enabled || !SHEETS_CONFIG.apiUrl) {
+                alert('Primero configurá la URL del Google Sheet');
+                return;
+            }
+            sheetsSyncStatus('🔧 Verificando estructura del SOT...', '#f0883e');
+            try {
+                const resp = await fetch(SHEETS_CONFIG.apiUrl + '?action=ensure_structure');
+                const result = await resp.json();
+                if (result.error) throw new Error(result.error);
+                const r = result.report || {};
+                let msg = '✅ Estructura SOT verificada.';
+                const details = [];
+                if (r.movColumns && r.movColumns.length > 0) details.push('Columnas agregadas a Movimientos: ' + r.movColumns.join(', '));
+                if (r.nomCreated) details.push('Pestaña Nómina creada');
+                if (details.length > 0) msg += ' ' + details.join(' · ');
+                else msg += ' Todo en orden.';
+                sheetsSyncStatus(msg, '#34d399');
+                alert(msg);
+            } catch (err) {
+                sheetsSyncStatus('❌ Error verificando estructura: ' + err.message, '#f87171');
+                alert('Error: ' + err.message);
+            }
+        }
+
+        // Full seed: upload ALL data (movimientos + nómina) to Sheet
+        async function sheetsFullSeed() {
+            if (!SHEETS_CONFIG.enabled || !SHEETS_CONFIG.apiUrl) {
+                alert('Primero configurá la URL del Google Sheet');
+                return;
+            }
+            const movCount = (DATA.mov || []).length;
+            const nomCount = NOMINA.length;
+            if (!requireCFO('SEED TOTAL: Subir ' + movCount + ' movimientos + ' + nomCount + ' empleados al Sheet.\nEsto REEMPLAZA las pestañas BD Movimientos y Nómina.')) return;
+
+            sheetsSyncStatus('⬆ Subiendo TODO al SOT... (' + movCount + ' mov + ' + nomCount + ' empleados)', '#7c3aed');
+            try {
+                // 1) Seed movimientos
+                const movResp = await fetch(SHEETS_CONFIG.apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/plain' },
+                    body: JSON.stringify({ action: 'seed', mov: DATA.mov })
+                });
+                const movResult = await movResp.json();
+                if (movResult.error) throw new Error('Movimientos: ' + movResult.error);
+
+                // 2) Seed nómina
+                const nomResp = await fetch(SHEETS_CONFIG.apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/plain' },
+                    body: JSON.stringify({ action: 'seed_nomina', rows: NOMINA })
+                });
+                const nomResult = await nomResp.json();
+                if (nomResult.error) throw new Error('Nómina: ' + nomResult.error);
+
+                SHEETS_CONFIG.nominaSynced = true;
+                const movRows = movResult.seed && movResult.seed.mov ? movResult.seed.mov.rows : movCount;
+                const nomRows = nomResult.rows || nomCount;
+                sheetsSyncStatus('✅ SOT completo: ' + movRows + ' movimientos + ' + nomRows + ' empleados', '#34d399');
+                alert('Seed Total exitoso:\n• ' + movRows + ' movimientos (con Moneda, Monto USD, TC, Centro de Costo)\n• ' + nomRows + ' empleados en Nómina');
+            } catch (err) {
+                sheetsSyncStatus('❌ Error en seed total: ' + err.message, '#f87171');
+                alert('Error: ' + err.message);
             }
         }
 
