@@ -1463,75 +1463,117 @@
             const opMonths = SB_DATA ? SB_DATA.months.length : 7;
 
             // === POSICIÓN DE CAJA & RUNWAY ===
-            // Calculate BAU monthly net from recent real months
-            const bauMonthly = {};
-            (DATA.mov || []).forEach(m => {
-                if (dashExcludeTipos.includes(m.t)) return;
-                const it = m.i || '';
-                for (const pfx of dashExcludeItems) { if (it.startsWith(pfx) || it === pfx) return; }
-                const mes = (m.f || '').slice(0, 7);
-                if (!mes) return;
-                if (!bauMonthly[mes]) bauMonthly[mes] = { ing: 0, egr: 0 };
-                if ((m.v || 0) >= 0) bauMonthly[mes].ing += m.v || 0;
-                else bauMonthly[mes].egr += Math.abs(m.v || 0);
-            });
-
-            // Average burn from last 6 real months (before April 2026)
-            const realMonths = Object.keys(bauMonthly).filter(m => m < '2026-04').sort().slice(-6);
-            const avgIng = realMonths.reduce((s, m) => s + bauMonthly[m].ing, 0) / realMonths.length;
-            const avgEgr = realMonths.reduce((s, m) => s + bauMonthly[m].egr, 0) / realMonths.length;
-            const avgBurnNeto = avgIng - avgEgr;  // negative if burning cash
-
-            // Current position: use EN CURSO data
+            // DUAL runway: Operativo Real vs Con Potenciales
             const saldoActual = CAJA.saldoEnCurso;
             const disponibleConDesc = CAJA.saldoEnCursoConDesc;
             const descubierto = CAJA.descubiertoAprobado;
 
-            // Runway: months until cash runs out (including descubierto)
-            // If net burn is negative, runway = available cash / |monthly burn|
-            let runwayMeses = 0;
-            if (avgBurnNeto < 0) {
-                runwayMeses = Math.max(0, disponibleConDesc / Math.abs(avgBurnNeto));
-            } else {
-                runwayMeses = 99; // positive cashflow = infinite runway
+            function getWeekMon(dateStr) {
+                const d = new Date(dateStr);
+                const day = d.getDay();
+                const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+                const mon = new Date(d); mon.setDate(diff);
+                return mon.toISOString().slice(0, 10);
             }
 
-            // Project forward month by month
-            const projMonths = Object.keys(bauMonthly).filter(m => m >= '2026-04').sort().slice(0, 7);
-            let runningCash = saldoActual;
-            const cashProjection = [{ mes: 'Actual', saldo: saldoActual, conDesc: disponibleConDesc }];
-            projMonths.forEach(m => {
-                const d = bauMonthly[m];
-                const neto = (d ? d.ing - d.egr : avgBurnNeto);
-                runningCash += neto;
-                cashProjection.push({
-                    mes: m,
-                    saldo: runningCash,
-                    conDesc: runningCash + descubierto
-                });
+            // Classify each movement
+            function movClass(m) {
+                const t = m.t || '';
+                const it = (m.i || '').toLowerCase();
+                if (t === 'Potenciales') return 'potencial';
+                if (it.startsWith('aporte de capital') || it.startsWith('préstamo gc') || it.includes('aporte mutuo') || it.includes('aporte muto')) return 'inversion';
+                return 'operativo'; // everything else: operational, debt, fees — all real cash
+            }
+
+            // Build weekly projections for both scenarios
+            const weeklyOp = {};   // Operativo Real (sin potenciales ni inversión)
+            const weeklyFull = {}; // Con Potenciales (sin inversión)
+            const weeklyInv = {};  // Solo inversión (para mostrar impacto separado)
+
+            (DATA.mov || []).forEach(m => {
+                if (!m.f || m.f < '2026-04-06') return;
+                const wk = getWeekMon(m.f);
+                if (!weeklyOp[wk]) weeklyOp[wk] = 0;
+                if (!weeklyFull[wk]) weeklyFull[wk] = 0;
+                if (!weeklyInv[wk]) weeklyInv[wk] = 0;
+                const v = m.v || 0;
+                const cls = movClass(m);
+                if (cls === 'operativo') {
+                    weeklyOp[wk] += v;
+                    weeklyFull[wk] += v;
+                } else if (cls === 'potencial') {
+                    weeklyFull[wk] += v; // only in full scenario
+                } else if (cls === 'inversion') {
+                    weeklyInv[wk] += v; // tracked separately
+                }
             });
 
-            // Runway alarm
+            // Merge all week keys
+            const allWkSet = new Set([...Object.keys(weeklyOp), ...Object.keys(weeklyFull), ...Object.keys(weeklyInv)]);
+            const weekKeys = [...allWkSet].sort();
+
+            // Project both scenarios
+            let cashOp = saldoActual, cashFull = saldoActual, cashInv = saldoActual;
+            const projOp = [{ label: 'Hoy', saldo: saldoActual, conDesc: disponibleConDesc }];
+            const projFull = [{ label: 'Hoy', saldo: saldoActual, conDesc: disponibleConDesc }];
+            const projInv = [{ label: 'Hoy', saldo: saldoActual, conDesc: disponibleConDesc }];
+            let rwOpWeeks = null, rwOpWeek = null;
+            let rwFullWeeks = null, rwFullWeek = null;
+            let minOpConDesc = disponibleConDesc, minOpWeek = null;
+            let minFullConDesc = disponibleConDesc, minFullWeek = null;
+            let totalPotenciales = 0, totalInversion = 0;
+
+            weekKeys.forEach((wk, i) => {
+                cashOp += (weeklyOp[wk] || 0);
+                cashFull += (weeklyFull[wk] || 0);
+                cashInv += (weeklyOp[wk] || 0) + (weeklyInv[wk] || 0);
+                const cdOp = cashOp + descubierto;
+                const cdFull = cashFull + descubierto;
+                const cdInv = cashInv + descubierto;
+                const endD = new Date(wk); endD.setDate(endD.getDate() + 6);
+                const label = fmtDateAR(wk).slice(0,5) + '-' + fmtDateAR(endD.toISOString().slice(0,10)).slice(0,5);
+                projOp.push({ label, saldo: cashOp, conDesc: cdOp, wk });
+                projFull.push({ label, saldo: cashFull, conDesc: cdFull, wk });
+                projInv.push({ label, saldo: cashInv, conDesc: cdInv, wk });
+                if (cdOp < minOpConDesc) { minOpConDesc = cdOp; minOpWeek = wk; }
+                if (cdFull < minFullConDesc) { minFullConDesc = cdFull; minFullWeek = wk; }
+                if (cdOp < 0 && rwOpWeeks === null) { rwOpWeeks = i + 1; rwOpWeek = wk; }
+                if (cdFull < 0 && rwFullWeeks === null) { rwFullWeeks = i + 1; rwFullWeek = wk; }
+            });
+
+            // Totals for display
+            (DATA.mov || []).forEach(m => {
+                if (!m.f || m.f < '2026-04') return;
+                const cls = movClass(m);
+                if (cls === 'potencial') totalPotenciales += (m.v || 0);
+                if (cls === 'inversion') totalInversion += (m.v || 0);
+            });
+
+            const rwOpMeses = rwOpWeeks ? (rwOpWeeks / 4.33).toFixed(1) : null;
+            const rwFullMeses = rwFullWeeks ? (rwFullWeeks / 4.33).toFixed(1) : null;
+            const rwMesesNum = rwOpWeeks ? parseFloat(rwOpMeses) : 99;
+
+            // Runway alarm — based on OPERATIVO (conservative)
             const alarmEl = document.getElementById('runwayAlarm');
-            if (runwayMeses <= 3) {
-                alarmEl.textContent = 'CRÍTICO — ' + runwayMeses.toFixed(1) + ' meses';
+            if (rwOpWeek && rwMesesNum <= 2) {
+                alarmEl.textContent = 'CRÍTICO — Runway Operativo: ' + rwOpMeses + ' meses';
                 alarmEl.style.background = '#f8717155';
                 alarmEl.style.color = '#f87171';
-            } else if (runwayMeses <= 6) {
-                alarmEl.textContent = 'ATENCIÓN — ' + runwayMeses.toFixed(1) + ' meses';
+            } else if (rwOpWeek && rwMesesNum <= 4) {
+                alarmEl.textContent = 'ATENCIÓN — Runway Operativo: ' + rwOpMeses + ' meses';
                 alarmEl.style.background = '#fbbf2455';
                 alarmEl.style.color = '#fbbf24';
-            } else if (runwayMeses < 99) {
-                alarmEl.textContent = runwayMeses.toFixed(1) + ' meses de runway';
-                alarmEl.style.background = '#34d39955';
-                alarmEl.style.color = '#34d399';
+            } else if (rwOpWeek) {
+                alarmEl.textContent = 'Runway Operativo: ' + rwOpMeses + ' meses';
+                alarmEl.style.background = '#fb923c55';
+                alarmEl.style.color = '#fb923c';
             } else {
-                alarmEl.textContent = 'Cashflow Positivo';
+                alarmEl.textContent = 'Runway >6 meses';
                 alarmEl.style.background = '#34d39955';
                 alarmEl.style.color = '#34d399';
             }
 
-            // Caja KPIs
+            // Caja KPIs — dual runway
             document.getElementById('cajaKPIs').innerHTML = `
                 <div class="kpi" style="border-left:3px solid #f87171">
                     <div class="kpi-label">Saldo Bancario Actual</div>
@@ -1539,31 +1581,38 @@
                     <div class="kpi-sub">Semana ${fmtDateAR(CAJA.semanaEnCurso)} (en curso)</div>
                 </div>
                 <div class="kpi" style="border-left:3px solid #60a5fa">
-                    <div class="kpi-label">Descubierto Aprobado</div>
-                    <div class="kpi-value" style="color:#60a5fa">${formatARS(descubierto)}</div>
-                    <div class="kpi-sub">Galicia + Macro + Santander + BBVA</div>
-                </div>
-                <div class="kpi" style="border-left:3px solid ${disponibleConDesc >= 0 ? '#34d399' : '#f87171'}">
                     <div class="kpi-label">Disponible con Descubierto</div>
                     <div class="kpi-value ${disponibleConDesc >= 0 ? 'positive' : 'negative'}">${formatARS(disponibleConDesc)}</div>
-                    <div class="kpi-sub">= Saldo + Descubierto</div>
+                    <div class="kpi-sub">Desc: ${formatARS(descubierto)}</div>
                 </div>
-                <div class="kpi" style="border-left:3px solid ${runwayMeses <= 3 ? '#f87171' : runwayMeses <= 6 ? '#fbbf24' : '#34d399'}">
-                    <div class="kpi-label">Runway Compañía</div>
-                    <div class="kpi-value" style="color:${runwayMeses <= 3 ? '#f87171' : runwayMeses <= 6 ? '#fbbf24' : '#34d399'};font-size:28px">${runwayMeses < 99 ? runwayMeses.toFixed(1) + ' meses' : '∞'}</div>
-                    <div class="kpi-sub">Burn neto BAU: ${formatARS(avgBurnNeto)}/mes</div>
+                <div class="kpi" style="border-left:3px solid ${rwMesesNum <= 2 ? '#f87171' : rwMesesNum <= 4 ? '#fbbf24' : '#fb923c'}">
+                    <div class="kpi-label">Runway Operativo</div>
+                    <div class="kpi-value" style="color:${rwMesesNum <= 2 ? '#f87171' : rwMesesNum <= 4 ? '#fbbf24' : '#fb923c'};font-size:24px">${rwOpWeek ? rwOpMeses + 'm' : '>6m'}</div>
+                    <div class="kpi-sub">${rwOpWeek ? 'Quiebre sem ' + fmtDateAR(rwOpWeek).slice(0,5) : 'Mín: ' + formatARS(minOpConDesc)}</div>
+                    <div class="kpi-sub" style="font-size:8px;margin-top:2px">Sin potenciales ni inversión</div>
+                </div>
+                <div class="kpi" style="border-left:3px solid ${rwFullWeek ? '#fbbf24' : '#34d399'}">
+                    <div class="kpi-label">Runway c/ Potenciales</div>
+                    <div class="kpi-value" style="color:${rwFullWeek ? '#fbbf24' : '#34d399'};font-size:24px">${rwFullWeek ? rwFullMeses + 'm' : '>6m'}</div>
+                    <div class="kpi-sub">${rwFullWeek ? 'Quiebre sem ' + fmtDateAR(rwFullWeek).slice(0,5) : 'Mín: ' + formatARS(minFullConDesc)}</div>
+                    <div class="kpi-sub" style="font-size:8px;margin-top:2px">Pipeline: ${formatARS(totalPotenciales)}</div>
+                </div>
+                <div class="kpi" style="border-left:3px solid #a78bfa">
+                    <div class="kpi-label">Inversión (no operativo)</div>
+                    <div class="kpi-value" style="color:#a78bfa;font-size:22px">${formatARS(totalInversion)}</div>
+                    <div class="kpi-sub">Aportes de capital, SAFEs</div>
                 </div>
             `;
 
-            // Runway gauge chart (doughnut)
+            // Runway gauge — shows OPERATIVO (conservative)
             const ctxRw = document.getElementById('runwayChart').getContext('2d');
             if (APP.charts.runway) APP.charts.runway.destroy();
-            const rwVal = Math.min(runwayMeses, 12);
-            const rwColor = runwayMeses <= 3 ? '#f87171' : runwayMeses <= 6 ? '#fbbf24' : '#34d399';
+            const rwVal = rwOpWeek ? Math.min(parseFloat(rwOpMeses), 12) : Math.min(weekKeys.length / 4.33, 12);
+            const rwColor = rwMesesNum <= 2 ? '#f87171' : rwMesesNum <= 4 ? '#fbbf24' : '#fb923c';
             APP.charts.runway = new Chart(ctxRw, {
                 type: 'doughnut',
                 data: {
-                    labels: ['Runway', 'Restante'],
+                    labels: ['Runway Op', 'Restante'],
                     datasets: [{
                         data: [rwVal, Math.max(0, 12 - rwVal)],
                         backgroundColor: [rwColor, '#21262d'],
@@ -1574,62 +1623,67 @@
                     responsive: true,
                     maintainAspectRatio: false,
                     cutout: '75%',
-                    plugins: {
-                        legend: { display: false },
-                        tooltip: { enabled: false }
-                    }
+                    plugins: { legend: { display: false }, tooltip: { enabled: false } }
                 },
                 plugins: [{
                     id: 'centerText',
                     afterDraw(chart) {
                         const { ctx: c, chartArea: { width, height, top, left } } = chart;
                         c.save();
-                        c.font = 'bold 24px sans-serif';
+                        c.font = 'bold 20px sans-serif';
                         c.fillStyle = rwColor;
                         c.textAlign = 'center';
                         c.textBaseline = 'middle';
-                        const txt = runwayMeses < 99 ? runwayMeses.toFixed(1) : '∞';
-                        c.fillText(txt, left + width / 2, top + height / 2 - 8);
-                        c.font = '12px sans-serif';
+                        c.fillText(rwOpWeek ? parseFloat(rwOpMeses).toFixed(1) : '>6', left + width / 2, top + height / 2 - 10);
+                        c.font = '10px sans-serif';
                         c.fillStyle = '#8b949e';
-                        c.fillText('meses', left + width / 2, top + height / 2 + 16);
+                        c.fillText('meses op.', left + width / 2, top + height / 2 + 10);
                         c.restore();
                     }
                 }]
             });
 
-            // Cash evolution chart
+            // Cash evolution chart — DUAL: Operativo vs Con Potenciales
             const ctxCe = document.getElementById('cajaEvolutionChart').getContext('2d');
             if (APP.charts.cajaEvol) APP.charts.cajaEvol.destroy();
             APP.charts.cajaEvol = new Chart(ctxCe, {
                 type: 'line',
                 data: {
-                    labels: cashProjection.map(p => p.mes === 'Actual' ? 'Actual' : fmtMonthAR(p.mes)),
+                    labels: projOp.map(p => p.label),
                     datasets: [
                         {
-                            label: 'Saldo Bancario',
-                            data: cashProjection.map(p => p.saldo),
+                            label: 'Operativo (ConDesc)',
+                            data: projOp.map(p => p.conDesc),
                             borderColor: '#f87171',
-                            backgroundColor: 'rgba(248,113,113,0.1)',
+                            backgroundColor: 'rgba(248,113,113,0.08)',
                             fill: true,
                             tension: 0.3,
                             borderWidth: 2,
-                            pointRadius: 4,
-                            pointBackgroundColor: cashProjection.map(p => p.saldo >= 0 ? '#34d399' : '#f87171')
+                            pointRadius: 2,
+                            pointBackgroundColor: projOp.map(p => p.conDesc >= 0 ? '#fb923c' : '#f87171')
                         },
                         {
-                            label: 'Con Descubierto',
-                            data: cashProjection.map(p => p.conDesc),
-                            borderColor: '#60a5fa',
+                            label: 'Con Potenciales (ConDesc)',
+                            data: projFull.map(p => p.conDesc),
+                            borderColor: '#34d399',
                             borderDash: [5, 3],
                             tension: 0.3,
                             borderWidth: 2,
-                            pointRadius: 3,
-                            pointBackgroundColor: cashProjection.map(p => p.conDesc >= 0 ? '#34d399' : '#f87171')
+                            pointRadius: 2,
+                            pointBackgroundColor: projFull.map(p => p.conDesc >= 0 ? '#34d399' : '#f87171')
                         },
                         {
-                            label: 'Cero',
-                            data: cashProjection.map(() => 0),
+                            label: 'Con Inversión (ConDesc)',
+                            data: projInv.map(p => p.conDesc),
+                            borderColor: '#a78bfa',
+                            borderDash: [2, 4],
+                            tension: 0.3,
+                            borderWidth: 1.5,
+                            pointRadius: 0
+                        },
+                        {
+                            label: 'Límite ($0)',
+                            data: projOp.map(() => 0),
                             borderColor: '#fbbf2466',
                             borderWidth: 1,
                             borderDash: [3, 3],
@@ -1641,13 +1695,19 @@
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
                     plugins: {
-                        legend: { labels: { color: '#c9d1d9', font: { size: 10 } } },
-                        title: { display: true, text: 'Proyección de Caja', color: '#c9d1d9', font: { size: 12 } }
+                        legend: { labels: { color: '#c9d1d9', font: { size: 9 } } },
+                        title: { display: true, text: 'Proyección ConDesc: Operativo vs Potenciales vs Inversión', color: '#c9d1d9', font: { size: 11 } },
+                        tooltip: {
+                            callbacks: {
+                                label: function(ctx) { return ctx.dataset.label + ': ' + formatARS(ctx.raw); }
+                            }
+                        }
                     },
                     scales: {
                         y: { ticks: { color: '#8b949e', callback: v => (v/1e6).toFixed(0) + 'M' }, grid: { color: '#30363d' } },
-                        x: { ticks: { color: '#8b949e', font: { size: 9 } }, grid: { color: '#30363d' } }
+                        x: { ticks: { color: '#8b949e', font: { size: 7 }, maxRotation: 45, maxTicksLimit: 15 }, grid: { color: '#30363d' } }
                     }
                 }
             });
