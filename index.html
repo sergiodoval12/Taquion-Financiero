@@ -1539,7 +1539,7 @@
             const opMonths = SB_DATA ? SB_DATA.months.length : 7;
 
             // === POSICIÓN DE CAJA & RUNWAY ===
-            // DUAL runway: Operativo Real vs Con Potenciales
+            // TRIPLE runway: Operativo | Con Potenciales | Operativo Sin Deuda
             const saldoActual = CAJA.saldoEnCurso;
             const disponibleConDesc = CAJA.saldoEnCursoConDesc;
             const descubierto = CAJA.descubiertoAprobado;
@@ -1558,63 +1558,88 @@
                 const it = (m.i || '').toLowerCase();
                 if (t === 'Potenciales') return 'potencial';
                 if (it.startsWith('aporte de capital') || it.startsWith('préstamo gc') || it.includes('aporte mutuo') || it.includes('aporte muto')) return 'inversion';
-                return 'operativo'; // everything else: operational, debt, fees — all real cash
+                return 'operativo';
             }
 
-            // Build weekly projections for both scenarios
-            const weeklyOp = {};   // Operativo Real (sin potenciales ni inversión)
-            const weeklyFull = {}; // Con Potenciales (sin inversión)
-            const weeklyInv = {};  // Solo inversión (para mostrar impacto separado)
+            // Detect debt payments (bancaria + GC)
+            function isDebt(m) {
+                if (m.v >= 0) return false;
+                const t = m.t || '';
+                const it = (m.i || '').toLowerCase();
+                return t === 'Préstamos Bancarios' || t === 'Cobr. Deuda Salta23' ||
+                       it.includes('devolucion a gc') || it.includes('devolución a gc') ||
+                       it.includes('cuota gc') || it.includes('galicia - mills');
+            }
+
+            // Build weekly projections for THREE scenarios
+            const weeklyOp = {};     // Operativo Real (con deuda, sin potenciales ni inversión)
+            const weeklyFull = {};   // Con Potenciales (operativo + potenciales)
+            const weeklyNoDebt = {}; // Operativo Sin Deuda (operativo menos pagos de deuda)
+            const weeklyInv = {};    // Solo inversión (para referencia)
 
             (DATA.mov || []).forEach(m => {
                 if (!m.f || m.f < '2026-04-06') return;
                 const wk = getWeekMon(m.f);
                 if (!weeklyOp[wk]) weeklyOp[wk] = 0;
                 if (!weeklyFull[wk]) weeklyFull[wk] = 0;
+                if (!weeklyNoDebt[wk]) weeklyNoDebt[wk] = 0;
                 if (!weeklyInv[wk]) weeklyInv[wk] = 0;
                 const v = m.v || 0;
                 const cls = movClass(m);
+                const debt = isDebt(m);
+
                 if (cls === 'operativo') {
                     weeklyOp[wk] += v;
                     weeklyFull[wk] += v;
+                    if (!debt) {
+                        weeklyNoDebt[wk] += v; // Operativo sin deuda
+                    }
                 } else if (cls === 'potencial') {
-                    weeklyFull[wk] += v; // only in full scenario
+                    weeklyFull[wk] += v;
                 } else if (cls === 'inversion') {
-                    weeklyInv[wk] += v; // tracked separately
+                    weeklyInv[wk] += v;
                 }
             });
 
             // Merge all week keys
-            const allWkSet = new Set([...Object.keys(weeklyOp), ...Object.keys(weeklyFull), ...Object.keys(weeklyInv)]);
+            const allWkSet = new Set([...Object.keys(weeklyOp), ...Object.keys(weeklyFull), ...Object.keys(weeklyNoDebt), ...Object.keys(weeklyInv)]);
             const weekKeys = [...allWkSet].sort();
 
-            // Project both scenarios
-            let cashOp = saldoActual, cashFull = saldoActual, cashInv = saldoActual;
+            // Project all three scenarios
+            let cashOp = saldoActual, cashFull = saldoActual, cashNoDebt = saldoActual, cashInv = saldoActual;
             const projOp = [{ label: 'Hoy', saldo: saldoActual, conDesc: disponibleConDesc }];
             const projFull = [{ label: 'Hoy', saldo: saldoActual, conDesc: disponibleConDesc }];
+            const projNoDebt = [{ label: 'Hoy', saldo: saldoActual, conDesc: disponibleConDesc }];
             const projInv = [{ label: 'Hoy', saldo: saldoActual, conDesc: disponibleConDesc }];
             let rwOpWeeks = null, rwOpWeek = null;
             let rwFullWeeks = null, rwFullWeek = null;
+            let rwNoDebtWeeks = null, rwNoDebtWeek = null;
             let minOpConDesc = disponibleConDesc, minOpWeek = null;
             let minFullConDesc = disponibleConDesc, minFullWeek = null;
-            let totalPotenciales = 0, totalInversion = 0;
+            let minNoDebtConDesc = disponibleConDesc, minNoDebtWeek = null;
+            let totalPotenciales = 0, totalInversion = 0, totalDeuda = 0;
 
             weekKeys.forEach((wk, i) => {
                 cashOp += (weeklyOp[wk] || 0);
                 cashFull += (weeklyFull[wk] || 0);
+                cashNoDebt += (weeklyNoDebt[wk] || 0);
                 cashInv += (weeklyOp[wk] || 0) + (weeklyInv[wk] || 0);
                 const cdOp = cashOp + descubierto;
                 const cdFull = cashFull + descubierto;
+                const cdNoDebt = cashNoDebt + descubierto;
                 const cdInv = cashInv + descubierto;
                 const endD = new Date(wk); endD.setDate(endD.getDate() + 6);
                 const label = fmtDateAR(wk).slice(0,5) + '-' + fmtDateAR(endD.toISOString().slice(0,10)).slice(0,5);
                 projOp.push({ label, saldo: cashOp, conDesc: cdOp, wk });
                 projFull.push({ label, saldo: cashFull, conDesc: cdFull, wk });
+                projNoDebt.push({ label, saldo: cashNoDebt, conDesc: cdNoDebt, wk });
                 projInv.push({ label, saldo: cashInv, conDesc: cdInv, wk });
                 if (cdOp < minOpConDesc) { minOpConDesc = cdOp; minOpWeek = wk; }
                 if (cdFull < minFullConDesc) { minFullConDesc = cdFull; minFullWeek = wk; }
+                if (cdNoDebt < minNoDebtConDesc) { minNoDebtConDesc = cdNoDebt; minNoDebtWeek = wk; }
                 if (cdOp < 0 && rwOpWeeks === null) { rwOpWeeks = i + 1; rwOpWeek = wk; }
                 if (cdFull < 0 && rwFullWeeks === null) { rwFullWeeks = i + 1; rwFullWeek = wk; }
+                if (cdNoDebt < 0 && rwNoDebtWeeks === null) { rwNoDebtWeeks = i + 1; rwNoDebtWeek = wk; }
             });
 
             // Totals for display
@@ -1623,11 +1648,14 @@
                 const cls = movClass(m);
                 if (cls === 'potencial') totalPotenciales += (m.v || 0);
                 if (cls === 'inversion') totalInversion += (m.v || 0);
+                if (cls === 'operativo' && isDebt(m)) totalDeuda += (m.v || 0);
             });
 
             const rwOpMeses = rwOpWeeks ? (rwOpWeeks / 4.33).toFixed(1) : null;
             const rwFullMeses = rwFullWeeks ? (rwFullWeeks / 4.33).toFixed(1) : null;
+            const rwNoDebtMeses = rwNoDebtWeeks ? (rwNoDebtWeeks / 4.33).toFixed(1) : null;
             const rwMesesNum = rwOpWeeks ? parseFloat(rwOpMeses) : 99;
+            const rwNoDebtNum = rwNoDebtWeeks ? parseFloat(rwNoDebtMeses) : 99;
 
             // Runway alarm — based on OPERATIVO (conservative)
             const alarmEl = document.getElementById('runwayAlarm');
@@ -1649,7 +1677,7 @@
                 alarmEl.style.color = '#34d399';
             }
 
-            // Caja KPIs — dual runway
+            // Caja KPIs — TRIPLE runway
             document.getElementById('cajaKPIs').innerHTML = `
                 <div class="kpi" style="border-left:3px solid #f87171">
                     <div class="kpi-label">Saldo Bancario Actual</div>
@@ -1665,7 +1693,7 @@
                     <div class="kpi-label">Runway Operativo</div>
                     <div class="kpi-value" style="color:${rwMesesNum <= 2 ? '#f87171' : rwMesesNum <= 4 ? '#fbbf24' : '#fb923c'};font-size:24px">${rwOpWeek ? rwOpMeses + 'm' : '>6m'}</div>
                     <div class="kpi-sub">${rwOpWeek ? 'Quiebre sem ' + fmtDateAR(rwOpWeek).slice(0,5) : 'Mín: ' + formatARS(minOpConDesc)}</div>
-                    <div class="kpi-sub" style="font-size:8px;margin-top:2px">Sin potenciales ni inversión</div>
+                    <div class="kpi-sub" style="font-size:8px;margin-top:2px">Con deuda, sin potenciales</div>
                 </div>
                 <div class="kpi" style="border-left:3px solid ${rwFullWeek ? '#fbbf24' : '#34d399'}">
                     <div class="kpi-label">Runway c/ Potenciales</div>
@@ -1673,10 +1701,11 @@
                     <div class="kpi-sub">${rwFullWeek ? 'Quiebre sem ' + fmtDateAR(rwFullWeek).slice(0,5) : 'Mín: ' + formatARS(minFullConDesc)}</div>
                     <div class="kpi-sub" style="font-size:8px;margin-top:2px">Pipeline: ${formatARS(totalPotenciales)}</div>
                 </div>
-                <div class="kpi" style="border-left:3px solid #a78bfa">
-                    <div class="kpi-label">Inversión (no operativo)</div>
-                    <div class="kpi-value" style="color:#a78bfa;font-size:22px">${formatARS(totalInversion)}</div>
-                    <div class="kpi-sub">Aportes de capital, SAFEs</div>
+                <div class="kpi" style="border-left:3px solid #60a5fa">
+                    <div class="kpi-label">Runway Op. Sin Deuda</div>
+                    <div class="kpi-value" style="color:${rwNoDebtNum <= 3 ? '#fb923c' : '#60a5fa'};font-size:24px">${rwNoDebtWeek ? rwNoDebtMeses + 'm' : '>6m'}</div>
+                    <div class="kpi-sub">${rwNoDebtWeek ? 'Quiebre sem ' + fmtDateAR(rwNoDebtWeek).slice(0,5) : 'Mín: ' + formatARS(minNoDebtConDesc)}</div>
+                    <div class="kpi-sub" style="font-size:8px;margin-top:2px">Ahorro deuda: ${formatARS(Math.abs(totalDeuda))}</div>
                 </div>
             `;
 
@@ -1719,7 +1748,7 @@
                 }]
             });
 
-            // Cash evolution chart — DUAL: Operativo vs Con Potenciales
+            // Cash evolution chart — TRIPLE: Operativo vs Potenciales vs Sin Deuda
             const ctxCe = document.getElementById('cajaEvolutionChart').getContext('2d');
             if (APP.charts.cajaEvol) APP.charts.cajaEvol.destroy();
             APP.charts.cajaEvol = new Chart(ctxCe, {
@@ -1728,18 +1757,18 @@
                     labels: projOp.map(p => p.label),
                     datasets: [
                         {
-                            label: 'Operativo (ConDesc)',
+                            label: 'Operativo (con deuda)',
                             data: projOp.map(p => p.conDesc),
                             borderColor: '#f87171',
                             backgroundColor: 'rgba(248,113,113,0.08)',
                             fill: true,
                             tension: 0.3,
-                            borderWidth: 2,
+                            borderWidth: 2.5,
                             pointRadius: 2,
                             pointBackgroundColor: projOp.map(p => p.conDesc >= 0 ? '#fb923c' : '#f87171')
                         },
                         {
-                            label: 'Con Potenciales (ConDesc)',
+                            label: 'Con Potenciales',
                             data: projFull.map(p => p.conDesc),
                             borderColor: '#34d399',
                             borderDash: [5, 3],
@@ -1749,13 +1778,14 @@
                             pointBackgroundColor: projFull.map(p => p.conDesc >= 0 ? '#34d399' : '#f87171')
                         },
                         {
-                            label: 'Con Inversión (ConDesc)',
-                            data: projInv.map(p => p.conDesc),
-                            borderColor: '#a78bfa',
-                            borderDash: [2, 4],
+                            label: 'Op. Sin Deuda',
+                            data: projNoDebt.map(p => p.conDesc),
+                            borderColor: '#60a5fa',
+                            borderDash: [8, 4],
                             tension: 0.3,
-                            borderWidth: 1.5,
-                            pointRadius: 0
+                            borderWidth: 2,
+                            pointRadius: 2,
+                            pointBackgroundColor: projNoDebt.map(p => p.conDesc >= 0 ? '#60a5fa' : '#f87171')
                         },
                         {
                             label: 'Límite ($0)',
@@ -1774,7 +1804,7 @@
                     interaction: { mode: 'index', intersect: false },
                     plugins: {
                         legend: { labels: { color: '#c9d1d9', font: { size: 9 } } },
-                        title: { display: true, text: 'Proyección ConDesc: Operativo vs Potenciales vs Inversión', color: '#c9d1d9', font: { size: 11 } },
+                        title: { display: true, text: 'Proyección ConDesc: Operativo vs Potenciales vs Sin Deuda', color: '#c9d1d9', font: { size: 11 } },
                         tooltip: {
                             callbacks: {
                                 label: function(ctx) { return ctx.dataset.label + ': ' + formatARS(ctx.raw); }
