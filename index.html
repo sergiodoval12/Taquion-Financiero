@@ -337,6 +337,152 @@
             }
         }
 
+        /* ========= RESPONSIVE / MOBILE ========= */
+        @media (max-width: 768px) {
+            .sidebar {
+                position: fixed;
+                width: 100%;
+                height: auto;
+                max-height: 0;
+                overflow: hidden;
+                z-index: 1000;
+                padding: 0;
+                transition: max-height .3s ease, padding .3s ease;
+                border-right: none;
+                border-bottom: 1px solid #30363d;
+            }
+            .sidebar.open {
+                max-height: 100vh;
+                padding: 16px;
+                overflow-y: auto;
+            }
+            .main {
+                margin-left: 0;
+                padding: 16px;
+                padding-top: 56px; /* space for mobile header */
+            }
+            .logo { margin-bottom: 12px; }
+            .nav-section { margin-bottom: 12px; }
+            .nav-item { padding: 10px 12px; font-size: 13px; }
+
+            /* Mobile top bar */
+            #mobileHeader {
+                display: flex !important;
+            }
+
+            /* KPIs */
+            .kpi-grid {
+                grid-template-columns: 1fr 1fr;
+                gap: 10px;
+                margin-bottom: 16px;
+            }
+            .kpi {
+                padding: 12px;
+            }
+            .kpi-label {
+                font-size: 10px;
+                margin-bottom: 4px;
+            }
+            .kpi-value {
+                font-size: 16px;
+            }
+
+            /* Tables: horizontal scroll */
+            table {
+                display: block;
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+                white-space: nowrap;
+                margin: 10px 0;
+            }
+            th, td {
+                padding: 8px 10px;
+                font-size: 11px;
+            }
+
+            /* Charts */
+            .chart-container {
+                height: 220px !important;
+            }
+            .chart-container canvas {
+                max-height: 220px;
+            }
+
+            /* Headings */
+            h1 { font-size: 20px; margin-bottom: 8px; }
+            h2 { font-size: 16px; }
+            h3 { font-size: 14px; }
+            p { font-size: 12px; }
+
+            /* Grid layouts in sandbox */
+            .sb-items-list {
+                grid-template-columns: 1fr;
+            }
+            .sb-month-grid {
+                grid-template-columns: 1fr 1fr;
+            }
+            .sb-chips {
+                gap: 6px;
+            }
+            .sb-chip {
+                padding: 8px 10px;
+                font-size: 11px;
+            }
+
+            /* Cards / panels */
+            .card { padding: 10px 12px; }
+
+            /* Reference banners */
+            .reference-banner { font-size: 11px; padding: 10px; }
+
+            /* Sandbox two-col layout */
+            .sandbox-nav { padding: 10px 12px; }
+
+            /* Any inline 2-col grid → stack on mobile */
+            .responsive-grid-2,
+            [style*="grid-template-columns:1fr 1fr"] {
+                grid-template-columns: 1fr !important;
+            }
+            [style*="grid-template-columns:1fr 1fr 1fr"] {
+                grid-template-columns: 1fr 1fr !important;
+            }
+
+            /* Deuda sub-tabs */
+            #deudaSubTabs { flex-wrap: wrap; }
+            #deudaSubTabs button { flex: 1; min-width: 100px; }
+
+            /* Login screen */
+            #loginScreen > div { padding: 32px 24px; }
+
+            /* Sidebar sync panel */
+            .sidebar [style*="position:absolute;bottom:0"] {
+                position: relative !important;
+                margin-top: 16px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .kpi-grid {
+                grid-template-columns: 1fr;
+                gap: 8px;
+            }
+            .kpi-value {
+                font-size: 14px;
+            }
+            .sb-month-grid {
+                grid-template-columns: 1fr;
+            }
+            .main {
+                padding: 10px;
+                padding-top: 52px;
+            }
+        }
+
+        /* Hide mobile header on desktop */
+        #mobileHeader {
+            display: none;
+        }
+
         .success-message {
             background-color: #34d39920;
             color: #34d399;
@@ -414,8 +560,47 @@
 </style>
 </head>
 <body>
+    <!-- LOGIN SCREEN -->
+    <div id="loginScreen" style="position:fixed;top:0;left:0;width:100%;height:100%;background:#0d1117;z-index:9999;display:flex;align-items:center;justify-content:center">
+        <div style="background:#161b22;border:1px solid #30363d;border-radius:16px;padding:48px;text-align:center;max-width:400px;width:90%">
+            <div style="font-size:32px;font-weight:800;color:#58a6ff;margin-bottom:4px">Taquion CF</div>
+            <div style="font-size:13px;color:#8b949e;margin-bottom:32px">Sistema de Control Financiero</div>
+            <input type="password" id="loginPassword" placeholder="Ingresá la clave de acceso"
+                style="width:100%;padding:12px 16px;background:#0d1117;color:#e6edf3;border:1px solid #30363d;border-radius:8px;font-size:14px;text-align:center;outline:none;box-sizing:border-box"
+                onkeydown="if(event.key==='Enter')checkLogin()">
+            <button onclick="checkLogin()" style="width:100%;margin-top:12px;padding:12px;background:#58a6ff;color:#000;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer">Ingresar</button>
+            <div id="loginError" style="color:#f87171;font-size:12px;margin-top:12px;display:none">Clave incorrecta</div>
+        </div>
+    </div>
+    <script>
+        function checkLogin() {
+            const pwd = document.getElementById('loginPassword').value;
+            if (pwd === 'Financiero2026TQN') {
+                document.getElementById('loginScreen').style.display = 'none';
+                sessionStorage.setItem('tqn_auth', '1');
+            } else {
+                document.getElementById('loginError').style.display = 'block';
+                document.getElementById('loginPassword').value = '';
+                document.getElementById('loginPassword').focus();
+            }
+        }
+        // Auto-login if already authenticated in this session
+        if (sessionStorage.getItem('tqn_auth') === '1') {
+            document.addEventListener('DOMContentLoaded', () => {
+                document.getElementById('loginScreen').style.display = 'none';
+            });
+        }
+    </script>
+
+    <!-- MOBILE HEADER -->
+    <div id="mobileHeader" style="position:fixed;top:0;left:0;right:0;height:48px;background:#1a1d27;border-bottom:1px solid #30363d;z-index:999;align-items:center;justify-content:space-between;padding:0 16px">
+        <button onclick="document.querySelector('.sidebar').classList.toggle('open')" style="background:none;border:none;color:#c9d1d9;font-size:24px;cursor:pointer;padding:4px 8px" aria-label="Menu">☰</button>
+        <span style="font-size:16px;font-weight:700;color:#58a6ff">Taquion CF</span>
+        <span id="mobilePageTitle" style="font-size:11px;color:#8b949e;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+    </div>
+
     <div class="container">
-        <div class="sidebar">
+        <div class="sidebar" onclick="if(window.innerWidth<=768 && event.target.classList.contains('nav-item')){this.classList.remove('open')}">
             <div class="logo">Taquion CF</div>
 
             <div class="nav-section">
@@ -436,6 +621,16 @@
                 <div class="nav-section-title">Operaciones</div>
                 <div class="nav-item" onclick="showPage('carga')">Carga de Datos</div>
                 <div class="nav-item" onclick="showPage('movimientos')">Movimientos</div>
+            </div>
+
+            <div style="position:absolute;bottom:0;left:0;right:0;padding:12px;border-top:1px solid #30363d;background:#0d1117">
+                <div style="font-size:10px;font-weight:600;color:#8b949e;margin-bottom:6px">GOOGLE SHEETS SOT</div>
+                <div style="display:flex;gap:4px;margin-bottom:6px">
+                    <button onclick="sheetsConfigureUrl()" style="flex:1;font-size:9px;padding:4px;background:#30363d;color:#c9d1d9;border:1px solid #484f58;border-radius:3px;cursor:pointer" title="Configurar URL del Sheet">⚙ Config</button>
+                    <button onclick="sheetsPullData()" style="flex:1;font-size:9px;padding:4px;background:#30363d;color:#58a6ff;border:1px solid #484f58;border-radius:3px;cursor:pointer" title="Descargar datos del Sheet">↓ Pull</button>
+                    <button onclick="sheetsPing()" style="flex:1;font-size:9px;padding:4px;background:#30363d;color:#34d399;border:1px solid #484f58;border-radius:3px;cursor:pointer" title="Probar conexión">♻ Test</button>
+                </div>
+                <div id="syncStatus" style="font-size:9px;color:#8b949e;word-break:break-all">Sin conexión a Sheet</div>
             </div>
         </div>
 
@@ -705,7 +900,7 @@
                 </div>
 
                 <!-- Changes log + chart -->
-                <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:18px;">
+                <div class="responsive-grid-2" style="display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:18px;">
                     <div>
                         <div class="card">
                             <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;">
@@ -936,6 +1131,108 @@
             realUntil: new Date('2026-04-03')  // Everything from 2026-04-04 is proyectado
         };
 
+        // ========= GOOGLE SHEETS SYNC =========
+        const SHEETS_CONFIG = {
+            apiUrl: 'https://script.google.com/macros/s/AKfycbw1netFB5kxCwuNPL3yJz8a8NttZcdx820pAThFndcNV2Gxta7hLk1Nj6iQNuTMi9JlxQ/exec',
+            enabled: true,
+            lastSync: null,
+            syncing: false
+        };
+
+        // Initialize from localStorage
+        (function() {
+            const saved = localStorage.getItem('tqn_sheets_url');
+            if (saved) {
+                SHEETS_CONFIG.apiUrl = saved;
+                SHEETS_CONFIG.enabled = true;
+            }
+        })();
+
+        function sheetsConfigureUrl() {
+            const current = SHEETS_CONFIG.apiUrl || '';
+            const url = prompt('Pegá la URL del Apps Script Web App:\n(La obtenés en Google Sheets → Extensiones → Apps Script → Deploy)', current);
+            if (!url) return;
+            SHEETS_CONFIG.apiUrl = url.trim();
+            SHEETS_CONFIG.enabled = true;
+            localStorage.setItem('tqn_sheets_url', url.trim());
+            sheetsSyncStatus('URL configurada. Probando conexión...');
+            sheetsPing();
+        }
+
+        async function sheetsPing() {
+            if (!SHEETS_CONFIG.enabled || !SHEETS_CONFIG.apiUrl) return;
+            try {
+                const resp = await fetch(SHEETS_CONFIG.apiUrl + '?action=ping');
+                const data = await resp.json();
+                if (data.ok) {
+                    sheetsSyncStatus('✅ Conectado a Google Sheets', '#34d399');
+                } else {
+                    sheetsSyncStatus('❌ Error: ' + (data.error || 'Respuesta inválida'), '#f87171');
+                }
+            } catch (err) {
+                sheetsSyncStatus('❌ No se pudo conectar: ' + err.message, '#f87171');
+            }
+        }
+
+        async function sheetsPullData() {
+            if (!SHEETS_CONFIG.enabled || !SHEETS_CONFIG.apiUrl) {
+                alert('Primero configurá la URL del Google Sheet (botón ⚙ en la barra superior)');
+                return;
+            }
+            SHEETS_CONFIG.syncing = true;
+            sheetsSyncStatus('🔄 Descargando datos del Sheet...', '#fbbf24');
+            try {
+                const resp = await fetch(SHEETS_CONFIG.apiUrl + '?action=all');
+                const sheetData = await resp.json();
+                if (sheetData.error) throw new Error(sheetData.error);
+
+                // Update DATA.mov with sheet data (preserving _row for writes)
+                if (sheetData.mov && sheetData.mov.length > 0) {
+                    DATA.mov = sheetData.mov;
+                    sheetsSyncStatus('✅ Datos sincronizados: ' + sheetData.mov.length + ' movimientos', '#34d399');
+                }
+                if (sheetData.bd) DATA.bd = sheetData.bd;
+                if (sheetData.bdl) DATA.bdl = sheetData.bdl;
+
+                SHEETS_CONFIG.lastSync = new Date().toISOString();
+                // Refresh current page
+                const page = APP.currentPage || 'dashboard';
+                if (page === 'dashboard') renderDashboard();
+                else if (page === 'operacion') renderOperacion();
+                else if (page === 'deuda') renderDeuda();
+            } catch (err) {
+                sheetsSyncStatus('❌ Error al sincronizar: ' + err.message, '#f87171');
+            }
+            SHEETS_CONFIG.syncing = false;
+        }
+
+        async function sheetsPushChanges(changes) {
+            if (!SHEETS_CONFIG.enabled || !SHEETS_CONFIG.apiUrl) return { ok: false, error: 'No configurado' };
+            sheetsSyncStatus('🔄 Guardando cambios en Sheet...', '#fbbf24');
+            try {
+                const resp = await fetch(SHEETS_CONFIG.apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(changes)
+                });
+                const result = await resp.json();
+                if (result.error) throw new Error(result.error);
+                sheetsSyncStatus('✅ ' + (result.applied || result.added || 0) + ' cambios guardados en SOT', '#34d399');
+                SHEETS_CONFIG.lastSync = new Date().toISOString();
+                return result;
+            } catch (err) {
+                sheetsSyncStatus('❌ Error al guardar: ' + err.message, '#f87171');
+                return { ok: false, error: err.message };
+            }
+        }
+
+        function sheetsSyncStatus(msg, color) {
+            const el = document.getElementById('syncStatus');
+            if (el) {
+                el.innerHTML = '<span style="color:' + (color || '#8b949e') + '">' + msg + '</span>';
+            }
+        }
+
         // Posición de Caja - datos extraídos del archivo original (valores en pesos, ×1000 del RESUMEN)
         // Fuente: "RES EJEC Semanal B 24-25-26", semana 2026-14 (30 Mar) = última REAL
         const CAJA = {
@@ -1002,8 +1299,14 @@
 
             // Show selected page
             document.getElementById(pageId).classList.add('active');
-            event.target.classList.add('active');
+            if (event && event.target) event.target.classList.add('active');
             APP.currentPage = pageId;
+
+            // Mobile: close sidebar and update title
+            document.querySelector('.sidebar')?.classList.remove('open');
+            const titles = { dashboard:'Dashboard', operacion:'Operación BAU', deuda:'Deuda', bancarizado:'B/N Splits', semanal:'Semanal 45d', whatif:'Sandbox', carga:'Carga', movimientos:'Movimientos' };
+            const mpt = document.getElementById('mobilePageTitle');
+            if (mpt) mpt.textContent = titles[pageId] || pageId;
 
             // Render page-specific content
             setTimeout(() => {
@@ -3217,7 +3520,18 @@
 
             const statusEl = document.getElementById('sbImplementStatus');
             if (statusEl) statusEl.innerHTML = '<span style="color:var(--gn);font-weight:600">✓ Se implementaron ' + applied + ' cambios en la SOT. Dashboard y Runway actualizados.</span>';
-            alert('Se implementaron ' + applied + ' cambios en la base de datos (SOT).\nDashboard, Operación BAU y Runway fueron recalculados.');
+
+            // Sync to Google Sheet if connected
+            if (SHEETS_CONFIG.enabled && SHEETS_CONFIG.apiUrl) {
+                // Collect new movements added to DATA.mov that need to be pushed
+                const newMov = DATA.mov.filter(m => m.d && (m.d.includes('simulad') || m.d.includes('Simulación') || m.d.includes('Incremento')));
+                if (newMov.length > 0) {
+                    sheetsPushChanges({ action: 'add_movimientos', rows: newMov.slice(-applied) });
+                }
+                if (statusEl) statusEl.innerHTML += '<br><span style="color:#58a6ff;font-size:10px">Sincronizando con Google Sheets...</span>';
+            }
+
+            alert('Se implementaron ' + applied + ' cambios en la base de datos (SOT).\nDashboard, Operación BAU y Runway fueron recalculados.' + (SHEETS_CONFIG.enabled ? '\nSincronizando con Google Sheets...' : ''));
         }
 
         // ========= ACUERDOS DE DESCUBIERTO BANCARIO =========
