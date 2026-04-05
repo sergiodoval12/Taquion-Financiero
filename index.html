@@ -1386,6 +1386,25 @@
                         <table id="nominaTable" style="min-width:1000px"></table>
                     </div>
                 </div>
+
+                <!-- Reconciliación Nómina ↔ Movimientos -->
+                <div class="card" style="margin-top:20px">
+                    <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+                        <span>Reconciliación Nómina ↔ Movimientos</span>
+                        <div style="display:flex;gap:8px;align-items:center">
+                            <select id="reconcMes" onchange="renderReconciliation()" style="background:#161b22;border:1px solid #30363d;color:#e6edf3;padding:4px 8px;border-radius:4px;font-size:11px"></select>
+                            <span style="font-size:10px;color:#8b949e">Esperado (Nómina) vs Real (Movimientos)</span>
+                        </div>
+                    </div>
+                    <!-- Reconciliation KPIs -->
+                    <div id="reconcKPIs" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-bottom:16px"></div>
+                    <!-- Reconciliation by empresa + modalidad -->
+                    <div id="reconcDetail" style="margin-bottom:16px"></div>
+                    <!-- Reconciliation by area -->
+                    <div id="reconcByArea"></div>
+                    <!-- Name matching log for individual movements -->
+                    <div id="reconcNameMatches" style="margin-top:12px"></div>
+                </div>
             </div>
 
         </div>
@@ -2031,6 +2050,12 @@
 
             // Sueldos classification by item
             if (t === 'Sueldos y Jornales') {
+                // First: try matching individual movements to NOMINA employees
+                if (typeof NOMINA !== 'undefined' && NOMINA.length > 0) {
+                    const matched = matchMovToNomina(m);
+                    if (matched && matched.area) return matched.area;
+                }
+
                 if (it === 'socios' || it === 'dirección') return 'Top Management';
                 if (it === 'cargas sociales') return 'Capital Humano';
                 if (it === 'beneficios') return 'Capital Humano';
@@ -2401,6 +2426,296 @@
             }
             html += '</tbody>';
             table.innerHTML = html;
+
+            // Also render reconciliation section
+            renderReconciliation();
+        }
+
+        // === RECONCILIACIÓN NÓMINA ↔ MOVIMIENTOS ===
+        // Core engine: computes expected (from NOMINA) vs actual (from DATA.mov) for a given month
+        function reconcileNominaMov(yearMonth) {
+            // yearMonth = 'YYYY-MM'
+            const activos = NOMINA.filter(e => {
+                if (e.estado === 'Baja') {
+                    // Include if baja was after this month
+                    if (e.fechaBaja && e.fechaBaja.slice(0,7) > yearMonth) return true;
+                    return false;
+                }
+                return e.estado === 'Activo';
+            });
+
+            // --- EXPECTED from NOMINA ---
+            const expected = {
+                TQN: { RRDD: 0, Monotributo: 0, Mixta_RRDD: 0, Mixta_Mono: 0, Tarjeta: 0, Conectividad: 0, BenMono: 0, BenOS: 0, total: 0, headcount: 0 },
+                LMS: { RRDD: 0, Monotributo: 0, Mixta_RRDD: 0, Mixta_Mono: 0, Tarjeta: 0, Conectividad: 0, BenMono: 0, BenOS: 0, total: 0, headcount: 0 }
+            };
+            const expectedByArea = {};
+
+            activos.forEach(emp => {
+                const empresa = emp.empresa || 'TQN';
+                if (!expected[empresa]) return; // skip unknown empresa
+                expected[empresa].headcount++;
+
+                const bruto = parseFloat(emp.sueldoBruto) || 0;
+                const mono = parseFloat(emp.facturaMono) || 0;
+                const tarjeta = parseFloat(emp.benTarjeta) || 0;
+                const conect = parseFloat(emp.benConect) || 0;
+                const benMono = parseFloat(emp.benMono) || 0;
+                const benOS = parseFloat(emp.benOS) || 0;
+
+                if (emp.modalidad === 'RRDD') {
+                    expected[empresa].RRDD += bruto;
+                } else if (emp.modalidad === 'Monotributo') {
+                    expected[empresa].Monotributo += mono;
+                } else if (emp.modalidad === 'Mixta') {
+                    expected[empresa].Mixta_RRDD += bruto;
+                    expected[empresa].Mixta_Mono += mono;
+                } else if (emp.modalidad === 'Factura') {
+                    expected[empresa].Monotributo += mono; // Factura counts as monotributo-type
+                }
+
+                expected[empresa].Tarjeta += tarjeta;
+                expected[empresa].Conectividad += conect;
+                expected[empresa].BenMono += benMono;
+                expected[empresa].BenOS += benOS;
+                expected[empresa].total += bruto + mono + tarjeta + conect + benMono + benOS;
+
+                // Area breakdown
+                const area = emp.area || 'Sin asignar';
+                if (!expectedByArea[area]) expectedByArea[area] = { costo: 0, headcount: 0, empresa: {} };
+                expectedByArea[area].costo += bruto + mono + tarjeta + conect + benMono + benOS;
+                expectedByArea[area].headcount++;
+                if (!expectedByArea[area].empresa[empresa]) expectedByArea[area].empresa[empresa] = 0;
+                expectedByArea[area].empresa[empresa] += bruto + mono + tarjeta + conect + benMono + benOS;
+            });
+
+            // Computed aggregates for comparison with movement categories
+            // Expected SUELDOS RRDD = RRDD brutos + Mixta RRDD portion
+            // Expected SUELDOS MONOTRIBUTOS = Monotributo facturas + Mixta Mono portion
+            // Expected PAGOS DIGITALES = Tarjeta prepaga totals
+            const expectedCategories = {
+                TQN: {
+                    'SUELDOS RRDD': expected.TQN.RRDD + expected.TQN.Mixta_RRDD,
+                    'SUELDOS MONOTRIBUTOS': expected.TQN.Monotributo + expected.TQN.Mixta_Mono,
+                    'PAGOS DIGITALES': expected.TQN.Tarjeta,
+                    'CONECTIVIDAD': expected.TQN.Conectividad,
+                    'BENEFICIOS MONO': expected.TQN.BenMono + expected.TQN.BenOS
+                },
+                LMS: {
+                    'SUELDOS RRDD': expected.LMS.RRDD + expected.LMS.Mixta_RRDD,
+                    'SUELDOS MONOTRIBUTOS': expected.LMS.Monotributo + expected.LMS.Mixta_Mono,
+                    'PAGOS DIGITALES': expected.LMS.Tarjeta,
+                    'CONECTIVIDAD': expected.LMS.Conectividad,
+                    'BENEFICIOS MONO': expected.LMS.BenMono + expected.LMS.BenOS
+                }
+            };
+
+            // --- ACTUAL from DATA.mov ---
+            const sueldosMov = (DATA.mov || []).filter(m =>
+                m.t === 'Sueldos y Jornales' &&
+                m.f && m.f.slice(0, 7) === yearMonth &&
+                !m._deleted
+            );
+
+            const actual = { TQN: {}, LMS: {} };
+            const actualByArea = {};
+            const nameMatches = []; // log of individual movements matched to NOMINA employees
+
+            sueldosMov.forEach(m => {
+                const empresa = m.e || 'TQN';
+                if (!actual[empresa]) actual[empresa] = {};
+                const item = (m.i || 'Otros').toUpperCase();
+                const entidad = (m.en || '').toUpperCase();
+                const val = Math.abs(m.v || 0); // Sueldos are egresos (negative), use absolute
+
+                // Classify into reconciliation categories
+                let cat = 'OTROS';
+                if (item === 'SUELDOS Y HONORARIOS' || item === 'SUELDOS Y JORNALES') {
+                    if (entidad.includes('RRDD') || entidad.includes('RELACION DE DEPENDENCIA') || entidad.includes('RELACIÓN DE DEPENDENCIA')) {
+                        cat = 'SUELDOS RRDD';
+                    } else if (entidad.includes('MONOTRIB') || entidad.includes('FACTURA')) {
+                        cat = 'SUELDOS MONOTRIBUTOS';
+                    } else if (entidad.includes('PREPAGA') || entidad.includes('TARJETA') || entidad.includes('DIGITAL')) {
+                        cat = 'PAGOS DIGITALES';
+                    } else {
+                        cat = 'SUELDOS OTROS';
+                    }
+                } else if (item === 'CARGAS SOCIALES' || item === 'AFIP') {
+                    cat = 'CARGAS SOCIALES';
+                } else if (item === 'BENEFICIOS') {
+                    if (entidad.includes('PREPAGA') || entidad.includes('TARJETA') || entidad.includes('DIGITAL')) {
+                        cat = 'PAGOS DIGITALES';
+                    } else {
+                        cat = 'BENEFICIOS';
+                    }
+                } else if (item === 'LIQUIDACIONES FINALES') {
+                    cat = 'LIQUIDACIONES FINALES';
+                } else if (item === 'MAESTRANZA') {
+                    cat = 'MAESTRANZA';
+                } else if (item === 'SOCIOS' || item === 'DIRECCIÓN') {
+                    cat = 'SOCIOS/DIRECCIÓN';
+                } else if (item === 'STAFF') {
+                    cat = 'STAFF';
+                }
+
+                if (!actual[empresa][cat]) actual[empresa][cat] = 0;
+                actual[empresa][cat] += val;
+
+                // Try name matching for individual movements
+                const matched = matchMovToNomina(m);
+                if (matched) {
+                    nameMatches.push({ mov: m, emp: matched, cat: cat });
+                    // Area attribution
+                    const area = matched.area || 'Sin asignar';
+                    if (!actualByArea[area]) actualByArea[area] = 0;
+                    actualByArea[area] += val;
+                }
+            });
+
+            return {
+                yearMonth,
+                expected,
+                expectedCategories,
+                expectedByArea,
+                actual,
+                actualByArea,
+                nameMatches,
+                movCount: sueldosMov.length,
+                totalExpected: expected.TQN.total + expected.LMS.total,
+                totalActual: sueldosMov.reduce((s, m) => s + Math.abs(m.v || 0), 0)
+            };
+        }
+
+        // Match a movement to a NOMINA employee by name in the entidad field
+        function matchMovToNomina(mov) {
+            const en = (mov.en || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+            if (!en || en.length < 3) return null;
+
+            for (const emp of NOMINA) {
+                if (emp.estado === 'Baja' && emp.fechaBaja && emp.fechaBaja.slice(0,7) < (mov.f || '').slice(0,7)) continue;
+                const apellido = (emp.apellido || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+                const nombre = (emp.nombre || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+                // Match by apellido (most distinctive)
+                if (apellido && apellido.length > 2 && en.includes(apellido)) return emp;
+                // Match by first name + partial apellido for compound names
+                if (nombre && nombre.length > 3 && en.includes(nombre)) {
+                    // Require at least first word of apellido too to avoid false positives
+                    const firstApellido = apellido.split(' ')[0];
+                    if (firstApellido && firstApellido.length > 2 && en.includes(firstApellido)) return emp;
+                }
+            }
+            return null;
+        }
+
+        // Get available months that have Sueldos y Jornales movements
+        function getReconcMonths() {
+            const months = new Set();
+            (DATA.mov || []).forEach(m => {
+                if (m.t === 'Sueldos y Jornales' && m.f && !m._deleted) {
+                    months.add(m.f.slice(0, 7));
+                }
+            });
+            return [...months].sort().reverse(); // newest first
+        }
+
+        // Render the reconciliation section
+        function renderReconciliation() {
+            const mesSelect = document.getElementById('reconcMes');
+            if (!mesSelect) return;
+
+            // Populate month selector
+            const months = getReconcMonths();
+            if (months.length === 0) {
+                document.getElementById('reconcKPIs').innerHTML = '<div style="color:#8b949e;padding:20px;text-align:center">No hay movimientos de Sueldos y Jornales para reconciliar.</div>';
+                return;
+            }
+
+            const currentVal = mesSelect.value;
+            if (mesSelect.options.length <= 1) {
+                mesSelect.innerHTML = '';
+                months.forEach(m => {
+                    const opt = document.createElement('option');
+                    opt.value = m;
+                    const [y, mo] = m.split('-');
+                    const mNames = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+                    opt.textContent = mNames[parseInt(mo)-1] + ' ' + y;
+                    mesSelect.appendChild(opt);
+                });
+                // Default to most recent month with data
+                mesSelect.value = months[0];
+            }
+            if (currentVal && months.includes(currentVal)) mesSelect.value = currentVal;
+
+            const selectedMonth = mesSelect.value;
+            if (!selectedMonth) return;
+
+            const rec = reconcileNominaMov(selectedMonth);
+
+            // KPIs
+            const delta = rec.totalExpected - rec.totalActual;
+            const pctDiff = rec.totalExpected > 0 ? ((delta / rec.totalExpected) * 100).toFixed(1) : '0';
+            const deltaColor = Math.abs(parseFloat(pctDiff)) > 15 ? '#f85149' : (Math.abs(parseFloat(pctDiff)) > 5 ? '#f0883e' : '#3fb950');
+
+            document.getElementById('reconcKPIs').innerHTML = `
+                <div class="kpi-card"><div class="kpi-label">Esperado (Nómina)</div><div class="kpi-value">${formatMoney(rec.totalExpected)}</div><div class="kpi-sub">HC: ${rec.expected.TQN.headcount + rec.expected.LMS.headcount}</div></div>
+                <div class="kpi-card"><div class="kpi-label">Real (Movimientos)</div><div class="kpi-value">${formatMoney(rec.totalActual)}</div><div class="kpi-sub">${rec.movCount} movimientos</div></div>
+                <div class="kpi-card"><div class="kpi-label">Delta</div><div class="kpi-value" style="color:${deltaColor}">${delta >= 0 ? '+' : ''}${formatMoney(delta)}</div><div class="kpi-sub">${pctDiff}% diferencia</div></div>
+                <div class="kpi-card"><div class="kpi-label">Matches Individuales</div><div class="kpi-value">${rec.nameMatches.length}</div><div class="kpi-sub">Movimientos → Empleado</div></div>
+            `;
+
+            // Detail by empresa + category
+            let detailHtml = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">';
+            ['TQN', 'LMS'].forEach(empresa => {
+                const exp = rec.expectedCategories[empresa] || {};
+                const act = rec.actual[empresa] || {};
+                const allCats = new Set([...Object.keys(exp), ...Object.keys(act)]);
+                detailHtml += `<div style="background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:12px">`;
+                detailHtml += `<div style="font-weight:600;color:#e6edf3;margin-bottom:8px;font-size:13px">${empresa}</div>`;
+                detailHtml += '<table style="width:100%;font-size:11px"><thead><tr style="color:#8b949e"><th style="text-align:left">Categoría</th><th style="text-align:right">Esperado</th><th style="text-align:right">Real</th><th style="text-align:right">Delta</th></tr></thead><tbody>';
+                let totalExp = 0, totalAct = 0;
+                [...allCats].sort().forEach(cat => {
+                    const e = exp[cat] || 0;
+                    const a = act[cat] || 0;
+                    const d = e - a;
+                    totalExp += e;
+                    totalAct += a;
+                    const dColor = Math.abs(d) > 0 && e > 0 ? (Math.abs(d/e) > 0.15 ? '#f85149' : (Math.abs(d/e) > 0.05 ? '#f0883e' : '#3fb950')) : '#8b949e';
+                    detailHtml += `<tr><td>${cat}</td><td style="text-align:right">${e > 0 ? formatMoney(e) : '-'}</td><td style="text-align:right">${a > 0 ? formatMoney(a) : '-'}</td><td style="text-align:right;color:${dColor}">${d !== 0 ? (d > 0 ? '+' : '') + formatMoney(d) : '-'}</td></tr>`;
+                });
+                // Also show actual categories not in expected
+                const actOnlyCats = Object.keys(act).filter(c => !allCats.has(c) || !(exp[c]));
+                detailHtml += `<tr style="border-top:1px solid #30363d;font-weight:600"><td>Total</td><td style="text-align:right">${formatMoney(totalExp)}</td><td style="text-align:right">${formatMoney(totalAct)}</td><td style="text-align:right">${formatMoney(totalExp - totalAct)}</td></tr>`;
+                detailHtml += '</tbody></table></div>';
+            });
+            detailHtml += '</div>';
+            document.getElementById('reconcDetail').innerHTML = detailHtml;
+
+            // Area breakdown comparison
+            const allAreas = new Set([...Object.keys(rec.expectedByArea), ...Object.keys(rec.actualByArea)]);
+            let areaHtml = '<div style="margin-top:8px"><div style="font-size:11px;color:#8b949e;margin-bottom:6px;font-weight:600">Comparación por Área (parcial — solo movimientos individuales identificados)</div>';
+            areaHtml += '<table style="width:100%;font-size:11px"><thead><tr style="color:#8b949e"><th style="text-align:left">Área</th><th style="text-align:center">HC</th><th style="text-align:right">Esperado</th><th style="text-align:right">Real (matched)</th><th style="text-align:right">Cobertura</th></tr></thead><tbody>';
+            [...allAreas].sort().forEach(area => {
+                const expArea = rec.expectedByArea[area] || { costo: 0, headcount: 0 };
+                const actArea = rec.actualByArea[area] || 0;
+                const cov = expArea.costo > 0 ? ((actArea / expArea.costo) * 100).toFixed(0) : '-';
+                const color = AREA_COLORS[area] || '#4b5563';
+                areaHtml += `<tr><td><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${color};margin-right:4px"></span>${area}</td><td style="text-align:center">${expArea.headcount}</td><td style="text-align:right">${formatMoney(expArea.costo)}</td><td style="text-align:right">${actArea > 0 ? formatMoney(actArea) : '-'}</td><td style="text-align:right;color:#8b949e">${cov}%</td></tr>`;
+            });
+            areaHtml += '</tbody></table></div>';
+            document.getElementById('reconcByArea').innerHTML = areaHtml;
+
+            // Name match log
+            if (rec.nameMatches.length > 0) {
+                let matchHtml = '<div style="margin-top:8px"><div style="font-size:11px;color:#8b949e;margin-bottom:6px;font-weight:600">Movimientos Individuales Identificados</div>';
+                matchHtml += '<table style="width:100%;font-size:10px"><thead><tr style="color:#8b949e"><th>Fecha</th><th>Emp</th><th>Item</th><th>Entidad</th><th style="text-align:right">Monto</th><th>→ Empleado</th><th>Área</th></tr></thead><tbody>';
+                rec.nameMatches.forEach(nm => {
+                    matchHtml += `<tr><td>${nm.mov.f || '-'}</td><td>${nm.mov.e || '-'}</td><td style="font-size:9px">${nm.mov.i || '-'}</td><td style="font-size:9px">${nm.mov.en || '-'}</td><td style="text-align:right">${formatMoney(Math.abs(nm.mov.v||0))}</td><td style="color:#58a6ff">${nm.emp.nombre} ${nm.emp.apellido}</td><td>${nm.emp.area || '-'}</td></tr>`;
+                });
+                matchHtml += '</tbody></table></div>';
+                document.getElementById('reconcNameMatches').innerHTML = matchHtml;
+            } else {
+                document.getElementById('reconcNameMatches').innerHTML = '<div style="font-size:10px;color:#8b949e;padding:8px">No se encontraron coincidencias de nombre en movimientos individuales para este mes.</div>';
+            }
         }
 
         function showAltaForm() {
