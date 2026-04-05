@@ -2172,12 +2172,69 @@
         // === RENDER NÓMINA ===
         let nominaAreaChartInstance = null;
 
-        // Helper: compute sueldo neto total from components
         function getNeto(e) {
             return (parseFloat(e.sueldoNeto) || 0) ||
                 ((parseFloat(e.sueldoBruto)||0) + (parseFloat(e.facturaMono)||0) +
                  (parseFloat(e.benTarjeta)||0) + (parseFloat(e.benConect)||0) +
                  (parseFloat(e.benMono)||0) + (parseFloat(e.benOS)||0));
+        }
+
+        // Inline edit: click a cell → input/select → blur/enter saves → push to SOT
+        function editNominaField(id, field, currentVal, type, options) {
+            const emp = NOMINA.find(e => e.id === id);
+            if (!emp) return;
+
+            const cell = event.target.closest('td');
+            if (!cell || cell.querySelector('input,select')) return; // already editing
+
+            const origHtml = cell.innerHTML;
+            let input;
+
+            if (type === 'select' && options) {
+                input = document.createElement('select');
+                input.style.cssText = 'width:100%;background:#0d1117;color:#e6edf3;border:1px solid #58a6ff;padding:2px;font-size:11px;border-radius:3px';
+                options.forEach(o => {
+                    const opt = document.createElement('option');
+                    opt.value = o; opt.textContent = o;
+                    if (o === currentVal) opt.selected = true;
+                    input.appendChild(opt);
+                });
+            } else {
+                input = document.createElement('input');
+                input.type = type === 'money' ? 'number' : 'text';
+                input.value = currentVal || '';
+                input.style.cssText = 'width:100%;background:#0d1117;color:#e6edf3;border:1px solid #58a6ff;padding:2px 4px;font-size:11px;border-radius:3px;text-align:' + (type === 'money' ? 'right' : 'left');
+                if (type === 'money') input.step = '1';
+            }
+
+            cell.innerHTML = '';
+            cell.appendChild(input);
+            input.focus();
+            if (input.select) input.select();
+
+            function save() {
+                const newVal = type === 'money' ? (parseFloat(input.value) || 0) : input.value.trim();
+                if (newVal === currentVal && type !== 'money') { cell.innerHTML = origHtml; return; }
+                if (type === 'money' && newVal === (parseFloat(currentVal) || 0)) { cell.innerHTML = origHtml; return; }
+
+                // Update local
+                emp[field] = newVal;
+                // Recalc neto if money field changed
+                if (['sueldoBruto','facturaMono','benTarjeta','benConect','benMono','benOS'].includes(field)) {
+                    emp.sueldoNeto = (parseFloat(emp.sueldoBruto)||0) + (parseFloat(emp.facturaMono)||0) +
+                        (parseFloat(emp.benTarjeta)||0) + (parseFloat(emp.benConect)||0) +
+                        (parseFloat(emp.benMono)||0) + (parseFloat(emp.benOS)||0);
+                }
+                saveNomina();
+                nominaUpdateSheet(id, { [field]: newVal }); // → SOT
+                renderNomina(); // re-render to update KPIs + chart
+            }
+
+            input.addEventListener('blur', save);
+            input.addEventListener('keydown', function(ev) {
+                if (ev.key === 'Enter') { ev.preventDefault(); save(); }
+                if (ev.key === 'Escape') { cell.innerHTML = origHtml; }
+            });
         }
 
         function renderNomina() {
@@ -2278,11 +2335,19 @@
             const countSpan = document.getElementById('nominaCount');
             if (countSpan) countSpan.textContent = `(${filtered.length})`;
 
-            // Roster table — enriched columns
+            // Roster table — editable inline
             const table = document.getElementById('nominaTable');
+            const ec = 'cursor:pointer;border-bottom:1px dashed #30363d'; // editable cell style hint
+            const allAreas = [...AREAS, 'Sin asignar'];
+            const allEquipos = ['CEO','BEHAVIORAL SCIENCE','LUMOS','NEGOCIO','AM','MKT','TECNOLOGIA','ADMINISTRACION','CH','DISEÑO','DIGITAL','MAESTRANZA','LEGALES','COMUNICACIONES','SERVICIOS','ESPAÑA','COMERCIAL'];
+            const allModalidades = ['RRDD','Monotributo','Mixta','Factura'];
+            const allEmpresas = ['TQN','LMS'];
+            const allClasif = ['VENDIBLE','NO VENDIBLE'];
+            const allSeniority = ['','Jr','Semi-Sr','Sr','Lead','Manager','Director','C-Level'];
+
             let html = '<thead><tr style="font-size:10px;color:#8b949e;text-transform:uppercase;letter-spacing:0.5px">';
-            html += '<th>Nombre</th><th>UN / Equipo</th><th>Líder</th><th>Clasif</th><th>Modalidad</th><th>Empresa</th>';
-            html += '<th style="text-align:right">Bruto Recibo</th><th style="text-align:right">Fact. Mono</th><th style="text-align:right">Benef. Tarjeta</th><th style="text-align:right">Neto Total</th>';
+            html += '<th>Nombre</th><th>UN</th><th>Equipo</th><th>Líder</th><th>Clasif</th><th>Modal.</th><th>Emp</th>';
+            html += '<th style="text-align:right">Bruto</th><th style="text-align:right">Fact.Mono</th><th style="text-align:right">Tarjeta</th><th style="text-align:right">Conect</th><th style="text-align:right">Neto</th>';
             html += '<th>Estado</th><th style="text-align:center">Acc.</th></tr></thead><tbody>';
 
             filtered.sort((a, b) => (a.area || '').localeCompare(b.area || '') || (a.nombre || '').localeCompare(b.nombre || ''));
@@ -2293,25 +2358,34 @@
                 const areaColor = AREA_COLORS[e.area] || '#4b5563';
                 const fullName = (e.nombre || '') + (e.apellido ? ' ' + e.apellido : '');
                 const estadoBadge = isBaja
-                    ? `<span style="background:#da363430;color:#f85149;padding:2px 8px;border-radius:10px;font-size:10px">Baja${e.fechaBaja ? ' ' + new Date(e.fechaBaja).toLocaleDateString('es-AR') : ''}</span>`
+                    ? `<span style="background:#da363430;color:#f85149;padding:2px 8px;border-radius:10px;font-size:10px">Baja</span>`
                     : '<span style="background:#23863630;color:#3fb950;padding:2px 8px;border-radius:10px;font-size:10px">Activo</span>';
-                const clasifBadge = e.clasif === 'VENDIBLE'
-                    ? '<span style="color:#3fb950;font-size:10px">V</span>'
-                    : '<span style="color:#8b949e;font-size:10px">NV</span>';
-                const equipoLabel = e.area ? `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${areaColor};margin-right:4px"></span>${e.area}` + (e.equipo ? `<br><span style="font-size:9px;color:#8b949e">${e.equipo}</span>` : '') : (e.equipo || '-');
 
                 html += `<tr style="${rowStyle}">`;
-                html += `<td style="font-weight:600;white-space:nowrap">${fullName || '-'}${e.notas ? '<br><span style=font-size:9px;color:#f0883e>' + e.notas + '</span>' : ''}</td>`;
-                html += `<td>${equipoLabel}</td>`;
-                html += `<td style="font-size:11px">${e.lider || '-'}</td>`;
-                html += `<td style="text-align:center">${clasifBadge}</td>`;
-                html += `<td style="font-size:11px">${e.modalidad || '-'}</td>`;
-                html += `<td>${e.empresa || '-'}</td>`;
-                html += `<td style="text-align:right;font-size:11px">${formatMoney(parseFloat(e.sueldoBruto)||0)}</td>`;
-                html += `<td style="text-align:right;font-size:11px">${(parseFloat(e.facturaMono)||0) > 0 ? formatMoney(e.facturaMono) : '-'}</td>`;
-                html += `<td style="text-align:right;font-size:11px">${(parseFloat(e.benTarjeta)||0) > 0 ? formatMoney(e.benTarjeta) : '-'}</td>`;
+                // Name (editable text)
+                html += `<td style="font-weight:600;white-space:nowrap;${ec}" onclick="editNominaField(${e.id},'nombre','${(e.nombre||'').replace(/'/g,"\\'")}','text')">${fullName || '-'}</td>`;
+                // UN/Area (editable select)
+                html += `<td style="${ec}" onclick="editNominaField(${e.id},'area','${e.area||''}','select',${JSON.stringify(allAreas).replace(/"/g,'&quot;')})"><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${areaColor};margin-right:4px"></span>${e.area || '-'}</td>`;
+                // Equipo (editable select)
+                html += `<td style="font-size:10px;color:#8b949e;${ec}" onclick="editNominaField(${e.id},'equipo','${e.equipo||''}','select',${JSON.stringify(allEquipos).replace(/"/g,'&quot;')})">${e.equipo || '-'}</td>`;
+                // Líder (editable text)
+                html += `<td style="font-size:11px;${ec}" onclick="editNominaField(${e.id},'lider','${(e.lider||'').replace(/'/g,"\\'")}','text')">${e.lider || '-'}</td>`;
+                // Clasificación (editable select)
+                html += `<td style="text-align:center;${ec}" onclick="editNominaField(${e.id},'clasif','${e.clasif||''}','select',${JSON.stringify(allClasif).replace(/"/g,'&quot;')})">${e.clasif === 'VENDIBLE' ? '<span style=color:#3fb950>V</span>' : '<span style=color:#8b949e>NV</span>'}</td>`;
+                // Modalidad (editable select)
+                html += `<td style="font-size:11px;${ec}" onclick="editNominaField(${e.id},'modalidad','${e.modalidad||''}','select',${JSON.stringify(allModalidades).replace(/"/g,'&quot;')})">${e.modalidad || '-'}</td>`;
+                // Empresa (editable select)
+                html += `<td style="${ec}" onclick="editNominaField(${e.id},'empresa','${e.empresa||''}','select',${JSON.stringify(allEmpresas).replace(/"/g,'&quot;')})">${e.empresa || '-'}</td>`;
+                // Money fields (editable number)
+                html += `<td style="text-align:right;font-size:11px;${ec}" onclick="editNominaField(${e.id},'sueldoBruto','${parseFloat(e.sueldoBruto)||0}','money')">${formatMoney(parseFloat(e.sueldoBruto)||0)}</td>`;
+                html += `<td style="text-align:right;font-size:11px;${ec}" onclick="editNominaField(${e.id},'facturaMono','${parseFloat(e.facturaMono)||0}','money')">${(parseFloat(e.facturaMono)||0) > 0 ? formatMoney(e.facturaMono) : '-'}</td>`;
+                html += `<td style="text-align:right;font-size:11px;${ec}" onclick="editNominaField(${e.id},'benTarjeta','${parseFloat(e.benTarjeta)||0}','money')">${(parseFloat(e.benTarjeta)||0) > 0 ? formatMoney(e.benTarjeta) : '-'}</td>`;
+                html += `<td style="text-align:right;font-size:11px;${ec}" onclick="editNominaField(${e.id},'benConect','${parseFloat(e.benConect)||0}','money')">${(parseFloat(e.benConect)||0) > 0 ? formatMoney(e.benConect) : '-'}</td>`;
+                // Neto (read-only, calculated)
                 html += `<td style="text-align:right;font-weight:600">${formatMoney(getNeto(e))}</td>`;
+                // Estado
                 html += `<td>${estadoBadge}</td>`;
+                // Actions
                 html += '<td style="text-align:center;white-space:nowrap">';
                 if (isBaja) {
                     html += `<button onclick="reactivarEmpleado(${e.id})" style="background:none;border:none;color:#58a6ff;cursor:pointer;font-size:11px;padding:2px 6px" title="Reactivar">↩</button>`;
@@ -2323,7 +2397,7 @@
             });
 
             if (filtered.length === 0) {
-                html += '<tr><td colspan="12" style="text-align:center;padding:30px;color:#8b949e">No hay empleados registrados. Usá "+ Alta" para agregar.</td></tr>';
+                html += '<tr><td colspan="14" style="text-align:center;padding:30px;color:#8b949e">No hay empleados registrados. Usá "+ Alta" para agregar.</td></tr>';
             }
             html += '</tbody>';
             table.innerHTML = html;
