@@ -152,9 +152,9 @@ function getMovimientos(ss) {
     else if (h === 'monto (k)' || h === 'movimiento') colMap.v_div = i;
     else if (h.startsWith('forma')) colMap.fp = i;
     else if (h === 'moneda') colMap.moneda = i;
-    else if (h === 'monto_usd' || h === 'monto usd') colMap.vUSD = i;
     else if (h === 'tc' || h === 'tipo_cambio' || h === 'tipo cambio') colMap.tc = i;
     else if (h === 'centro_costo' || h === 'centro de costo' || h === 'centro de costos') colMap.cc = i;
+    else if (h === 'factura' || h === 'fac' || h === 'estado factura' || h === 'factura ok') colMap.factura = i;
   });
 
   const rows = [];
@@ -200,11 +200,11 @@ function getMovimientos(ss) {
       v: valor,
       fp: colMap.fp !== undefined ? String(row[colMap.fp] || '').trim() : '',
       monOrig: colMap.moneda !== undefined ? (String(row[colMap.moneda] || '').trim().toUpperCase() || 'ARS') : 'ARS',
-      vUSD: colMap.vUSD !== undefined ? (Number(row[colMap.vUSD]) || undefined) : undefined,
       tcUsado: colMap.tc !== undefined ? (Number(row[colMap.tc]) || undefined) : undefined,
       cc: colMap.cc !== undefined ? String(row[colMap.cc] || '').trim() : '',
       cli: colMap.cli !== undefined ? String(row[colMap.cli] || '').trim() : '',
-      proy: colMap.proy !== undefined ? String(row[colMap.proy] || '').trim() : ''
+      proy: colMap.proy !== undefined ? String(row[colMap.proy] || '').trim() : '',
+      factura: colMap.factura !== undefined ? String(row[colMap.factura] || '').trim() : ''
     });
   }
   return rows;
@@ -359,9 +359,9 @@ function getMovHeaders(ws) {
     else if (hl === 'monto (k)' || hl === 'movimiento') map.v_div = i;
     else if (hl.startsWith('forma')) map.fp = i;
     else if (hl === 'moneda') map.moneda = i;
-    else if (hl === 'monto_usd' || hl === 'monto usd') map.vUSD = i;
     else if (hl === 'tc' || hl === 'tipo_cambio' || hl === 'tipo cambio') map.tc = i;
     else if (hl === 'centro_costo' || hl === 'centro de costo' || hl === 'centro de costos') map.cc = i;
+    else if (hl === 'factura' || hl === 'fac' || hl === 'estado factura' || hl === 'factura ok') map.factura = i;
   });
   return { headers, map, count: headers.length };
 }
@@ -392,7 +392,7 @@ function updateMovimiento(ss, rowIndex, field, value) {
   }
 
   // Support all other movement fields
-  const directFields = { emp: 'emp', t: 't', i: 'i', en: 'en', d: 'd', cat: 'cat', m: 'm', bn: 'bn', fp: 'fp', moneda: 'moneda', vUSD: 'vUSD', tc: 'tc', cc: 'cc', cli: 'cli', proy: 'proy' };
+  const directFields = { emp: 'emp', t: 't', i: 'i', en: 'en', d: 'd', cat: 'cat', m: 'm', bn: 'bn', fp: 'fp', moneda: 'moneda', tc: 'tc', cc: 'cc', cli: 'cli', proy: 'proy', factura: 'factura' };
   if (directFields[field] !== undefined) {
     const colKey = directFields[field];
     if (map[colKey] !== undefined) {
@@ -432,11 +432,11 @@ function addMovimientos(ss, rows) {
     if (map.v_div !== undefined) rowArr[map.v_div] = (Number(mov.v) || 0) / 1000;
     if (map.fp !== undefined) rowArr[map.fp] = mov.fp || '';
     if (map.moneda !== undefined) rowArr[map.moneda] = mov.monOrig || 'ARS';
-    if (map.vUSD !== undefined) rowArr[map.vUSD] = mov.vUSD || '';
     if (map.tc !== undefined) rowArr[map.tc] = mov.tcUsado || '';
     if (map.cc !== undefined) rowArr[map.cc] = mov.cc || '';
     if (map.cli !== undefined) rowArr[map.cli] = mov.cli || '';
     if (map.proy !== undefined) rowArr[map.proy] = mov.proy || '';
+    if (map.factura !== undefined) rowArr[map.factura] = mov.factura || '';
 
     newData.push(rowArr);
     added++;
@@ -499,7 +499,9 @@ function updateGCEstado(ss, cuotaNum, estado) {
 
 // Full column list for BD Movimientos
 // IMPORTANT: 'Entidad' = a quién le pagás (proveedor); 'Cliente' = para quién es el gasto; 'Proyecto' = proyecto del cliente
-const MOV_ALL_HEADERS = ['Fecha','Estado','Empresa','B/N','Categoría','Tipo','Marco','Detalle','Item','Entidad','Monto (K)','Monto Original','Forma Pago','Moneda','Monto USD','TC','Centro de Costo','Cliente','Proyecto'];
+// Note: 'Monto USD' fue removido — Monto Original + Moneda son la fuente de verdad,
+// la conversión a pesos/dólares se hace en la app según la vista activa.
+const MOV_ALL_HEADERS = ['Fecha','Estado','Empresa','B/N','Categoría','Tipo','Marco','Detalle','Item','Entidad','Monto (K)','Monto Original','Moneda','TC','Forma Pago','Centro de Costo','Cliente','Proyecto','Factura'];
 
 function seedMovimientos(ss, rows) {
   let ws = ss.getSheetByName(SHEET_MOV);
@@ -526,13 +528,13 @@ function seedMovimientos(ss, rows) {
       m.en || '',
       v / 1000,
       v,
-      m.fp || '',
       m.monOrig || 'ARS',
-      m.vUSD || '',
       m.tcUsado || '',
+      m.fp || '',
       m.cc || '',
       m.cli || '',
-      m.proy || ''
+      m.proy || '',
+      m.factura || ''
     ]);
   });
 
@@ -569,13 +571,13 @@ function ensureStructure(ss) {
         eh === hLower ||
         (hLower === 'forma pago' && eh.startsWith('forma')) ||
         (hLower === 'moneda' && eh === 'moneda') ||
-        (hLower === 'monto usd' && (eh === 'monto_usd' || eh === 'monto usd')) ||
         (hLower === 'tc' && (eh === 'tc' || eh === 'tipo_cambio' || eh === 'tipo cambio')) ||
         (hLower === 'centro de costo' && (eh === 'centro_costo' || eh === 'centro de costo' || eh === 'centro de costos')) ||
         // Backwards compat: existing 'Entidad / Cliente' header satisfies the new 'Entidad' column
         (hLower === 'entidad' && (eh === 'entidad' || eh === 'entidad / cliente' || eh === 'entidad/cliente' || eh === 'proveedor')) ||
         (hLower === 'cliente' && (eh === 'cliente' || eh === 'cliente final' || eh === 'cliente_final')) ||
-        (hLower === 'proyecto' && eh === 'proyecto')
+        (hLower === 'proyecto' && eh === 'proyecto') ||
+        (hLower === 'factura' && (eh === 'factura' || eh === 'fac' || eh === 'estado factura' || eh === 'factura ok'))
       );
 
       if (!exists) {
@@ -605,7 +607,7 @@ function ensureStructure(ss) {
     report.nomCreated = true;
   }
 
-  // 3) Ensure Catálogo CC exists with the 11 cost centers precharged
+  // 3) Ensure Catálogo CC exists with the 11 cost centers + 9 industrias precargadas
   let wsCC = ss.getSheetByName(SHEET_CC);
   if (!wsCC) {
     wsCC = ss.insertSheet(SHEET_CC);
@@ -619,6 +621,22 @@ function ensureStructure(ss) {
     for (let c = 1; c <= CC_HEADERS.length; c++) wsCC.autoResizeColumn(c);
     report.ccCreated = true;
     report.ccRows = CC_SEED.length;
+  } else {
+    // El catálogo ya existe — chequeamos que estén las Industrias.
+    // Si faltan, las agregamos sin pisar lo existente.
+    const lastRow = wsCC.getLastRow();
+    const existingCCs = lastRow >= 2
+      ? wsCC.getRange(2, 1, lastRow - 1, 1).getValues().map(r => String(r[0] || '').trim().toLowerCase())
+      : [];
+    const missingRows = CC_SEED.filter(row => {
+      const name = String(row[0] || '').trim().toLowerCase();
+      return name && existingCCs.indexOf(name) === -1;
+    });
+    if (missingRows.length > 0) {
+      const startRow = wsCC.getLastRow() + 1;
+      wsCC.getRange(startRow, 1, missingRows.length, CC_HEADERS.length).setValues(missingRows);
+      report.ccAppended = missingRows.map(r => r[0]);
+    }
   }
 
   // 4) Ensure Deuda GC exists (just check)
@@ -920,7 +938,76 @@ const CC_SEED = [
    'Intereses bancarios, comisiones, impuestos sobre saldos, mantenimiento de cuenta, préstamos bancarios, Deuda Privada (ex-socio Guido Comparada, mutuos)',
    'Servicios contables (Administración)',
    'Si es un costo o ingreso vinculado a un instrumento financiero o deuda',
-   'Galicia, Macro, Santander, BBVA, Ciudad, Bind, Mills, Guido Comparada']
+   'Galicia, Macro, Santander, BBVA, Ciudad, Bind, Mills, Guido Comparada'],
+  // INDUSTRIAS — se usan en la columna Centro de Costo cuando el movimiento es un INGRESO
+  // (sirven para taggear de dónde viene la facturación por vertical de negocio).
+  ['Public Affairs', 'Industria',
+   'Ingresos vinculados a Public Affairs / Asuntos Públicos',
+   'Facturación de proyectos de public affairs, lobby, gobierno, asuntos regulatorios',
+   'Consumo masivo (aunque sea gobierno), entretenimiento',
+   'Tag de INGRESO. Usar cuando el cliente facturado está contratando por su agenda institucional',
+   'Ministerios, cámaras, reguladores'],
+  ['Turismo', 'Industria',
+   'Ingresos vinculados a la vertical Turismo',
+   'Facturación de hoteles, aerolíneas, agencias, entes de promoción turística',
+   'Entretenimiento (Entertaiment y Deportes), retail de souvenirs (Consumo Masivo)',
+   'Tag de INGRESO. Cliente cuyo negocio principal es el turismo',
+   'Hoteles, aerolíneas, oficinas de turismo'],
+  ['Banca & Fintech', 'Industria',
+   'Ingresos vinculados a Banca tradicional y Fintechs',
+   'Bancos, billeteras virtuales, PSPs, exchanges, lending, seguros vinculados a crédito',
+   'Seguros puros (Seguros), Tecnología pura (Tecnología & AI)',
+   'Tag de INGRESO. Cliente cuyo negocio está regulado por BCRA o CNV',
+   'Galicia, Mercado Pago, Ualá, Lemon'],
+  ['Seguros', 'Industria',
+   'Ingresos vinculados a la industria aseguradora',
+   'Compañías de seguros patrimoniales, vida, ART, salud',
+   'Bancaseguros (Banca & Fintech), prepagas puras de salud (Consumo Masivo / Seguros según caso)',
+   'Tag de INGRESO. Cliente asegurador',
+   'Sancor Seguros, La Caja, Galeno, Swiss Medical (según caso)'],
+  ['Consumo Masivo', 'Industria',
+   'Ingresos vinculados a CPG / Retail / FMCG',
+   'Alimentos, bebidas, limpieza, cuidado personal, retail masivo, ecommerce de consumo',
+   'Lujo (podría ir Entretenimiento), fintech aunque venda a consumidor (Banca & Fintech)',
+   'Tag de INGRESO. Cliente cuyo negocio es producto de consumo masivo',
+   'Unilever, Coca-Cola, Mondelez, Arcor'],
+  ['Tecnología & AI', 'Industria',
+   'Ingresos vinculados a empresas tech y AI',
+   'Software companies, SaaS, AI, hardware, plataformas digitales, startups tech',
+   'Fintechs (Banca & Fintech), e-commerce de consumo (Consumo Masivo)',
+   'Tag de INGRESO. Cliente cuyo producto core es tecnología',
+   'Globant, Mercado Libre (discutir), startups SaaS'],
+  ['Energía, Minería y Agua', 'Industria',
+   'Ingresos vinculados a Energía, Oil & Gas, Minería, Agua, Utilities',
+   'Petroleras, mineras, energéticas, renovables, distribuidoras eléctricas / gas / agua',
+   'Construcción/real estate puro (Urbanismo Real State)',
+   'Tag de INGRESO. Cliente del sector primario / utilities',
+   'YPF, Pan American Energy, Vista, Edenor, Metrogas'],
+  ['Entretenimiento y Deportes', 'Industria',
+   'Ingresos vinculados a Entretenimiento, Medios, Deportes y Cultura',
+   'Productoras, medios, clubes deportivos, federaciones, streaming, gaming, cultura',
+   'Turismo puro (Turismo), marcas de consumo que sponsorean (Consumo Masivo)',
+   'Tag de INGRESO. Cliente del mundo del entretenimiento, deportes o medios',
+   'Clubes, productoras, medios, federaciones deportivas'],
+  ['Urbanismo Real State', 'Industria',
+   'Ingresos vinculados a Urbanismo, Real Estate, Construcción',
+   'Desarrolladoras inmobiliarias, constructoras, municipios (proyecto urbano), brokers',
+   'Utilities (Energía, Minería y Agua), retail en locales (Consumo Masivo)',
+   'Tag de INGRESO. Cliente cuyo negocio es desarrollar ciudad / real estate',
+   'Desarrolladoras, constructoras, brokers inmobiliarios']
+];
+
+// Lista plana de industrias (para validaciones y selectores en la app)
+const INDUSTRIAS_LIST = [
+  'Public Affairs',
+  'Turismo',
+  'Banca & Fintech',
+  'Seguros',
+  'Consumo Masivo',
+  'Tecnología & AI',
+  'Energía, Minería y Agua',
+  'Entretenimiento y Deportes',
+  'Urbanismo Real State'
 ];
 
 function getCatalogoCC(ss) {
