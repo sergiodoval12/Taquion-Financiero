@@ -691,11 +691,23 @@
             <!-- OPERACION BAU PAGE -->
             <div id="operacion" class="page">
                 <h1>Operación BAU</h1>
-                <p style="color:var(--tx2)">Cashflow operacional puro: sin préstamos bancarios, deuda GC, aportes de capital, Cobr. Deuda Salta23, intercompany ni potenciales. <b>Clickeá un mes</b> para ver el desglose.</p>
+                <p style="color:var(--tx2)">Cashflow operacional puro. <b>Excluye todo lo del CC Financiero</b> (préstamos bancarios, deuda GC, aportes SAFE, intereses, AFIP/SUSS, etc.) — eso vive en la sección Deuda. <b>Clickeá un mes</b> para ver el desglose.</p>
 
-                <div class="chart-container" style="cursor:pointer">
+                <div class="kpi-grid" id="operacionKPIs"></div>
+
+                <div class="chart-container" style="cursor:pointer;margin-top:12px">
                     <canvas id="operacionChart"></canvas>
                 </div>
+
+                <h2 style="margin-top:20px">Centros de Costo Vendibles <span style="font-size:11px;color:var(--tx2);font-weight:normal">— margen por unidad de negocio</span></h2>
+                <div id="opVendiblesCards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;margin-bottom:14px"></div>
+
+                <h2>Centros de Costo Soporte <span style="font-size:11px;color:var(--tx2);font-weight:normal">— costos transversales (sin Financiero)</span></h2>
+                <div id="opSoporteCards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:14px"></div>
+
+                <h2>Ingresos por Industria / Vertical <span style="font-size:11px;color:var(--tx2);font-weight:normal">— mix de cobranzas según el cliente</span></h2>
+                <div id="opIndustriasCards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;margin-bottom:6px"></div>
+                <div id="opUntaggedWarning" style="font-size:11px;margin-bottom:14px"></div>
 
                 <div id="bauDesglose" style="display:none;margin:16px 0;padding:16px;background:#161b22;border:1px solid #30363d;border-radius:10px">
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
@@ -1567,6 +1579,35 @@
             'Entretenimiento y Deportes',
             'Urbanismo Real State'
         ];
+        // Centros de Costo - clasificación oficial (Catálogo CC en SOT)
+        const CC_VENDIBLES = ['Insights', 'Inspire', 'Ignite', 'Cuentas', 'Comercial'];
+        const CC_SOPORTE = ['Top Management', 'Tecnología', 'Administración', 'Capital Humano', 'Estructura Operativa', 'Financiero'];
+        // CCs que NUNCA deben aparecer en la operación BAU (son financieros, no operativos)
+        const CC_NO_BAU = ['Financiero'];
+        // Color por CC para gráficos/badges
+        const CC_COLORS = {
+            'Insights': '#a78bfa', 'Inspire': '#f472b6', 'Ignite': '#f97316',
+            'Cuentas': '#34d399', 'Comercial': '#fbbf24',
+            'Top Management': '#60a5fa', 'Tecnología': '#22d3ee',
+            'Administración': '#94a3b8', 'Capital Humano': '#c084fc',
+            'Estructura Operativa': '#78716c', 'Financiero': '#38bdf8',
+            'Sin asignar': '#4b5563'
+        };
+        // Color por industria
+        const INDUSTRIA_COLORS = {
+            'Public Affairs': '#3b82f6', 'Turismo': '#06b6d4', 'Banca & Fintech': '#8b5cf6',
+            'Seguros': '#10b981', 'Consumo Masivo': '#f59e0b', 'Tecnología & AI': '#ec4899',
+            'Energía, Minería y Agua': '#84cc16', 'Entretenimiento y Deportes': '#ef4444',
+            'Urbanismo Real State': '#a16207'
+        };
+        function isFinancieroCC(m) {
+            const c = String(m && m.cc || '').trim();
+            if (!c) return false;
+            return CC_NO_BAU.indexOf(c) >= 0;
+        }
+        function isIndustria(name) {
+            return INDUSTRIAS_LIST.indexOf(String(name || '').trim()) >= 0;
+        }
 
         // ========= CFO AUTHORIZATION =========
         let CFO_AUTHORIZED = false;
@@ -4713,8 +4754,9 @@
                     '<th style="text-align:left;font-size:10px;padding:6px 4px;white-space:nowrap">Fecha</th>' +
                     '<th style="text-align:left;font-size:10px;padding:6px 4px;width:40px">Emp</th>' +
                     '<th style="text-align:left;font-size:10px;padding:6px 4px;min-width:80px">Tipo</th>' +
-                    '<th style="text-align:left;font-size:10px;padding:6px 4px;min-width:160px">Item</th>' +
-                    '<th style="text-align:left;font-size:10px;padding:6px 4px;min-width:160px">Entidad/Cliente</th>' +
+                    '<th style="text-align:left;font-size:10px;padding:6px 4px;min-width:140px">Item</th>' +
+                    '<th style="text-align:left;font-size:10px;padding:6px 4px;min-width:140px">Entidad/Cliente</th>' +
+                    '<th style="text-align:left;font-size:10px;padding:6px 4px;min-width:110px">CC / Industria</th>' +
                     '<th style="text-align:right;font-size:10px;padding:6px 4px;min-width:90px">Monto</th>' +
                     '<th style="text-align:center;font-size:10px;padding:6px 4px;width:60px">Acc.</th>' +
                     '</tr></thead><tbody>';
@@ -4722,12 +4764,19 @@
                     const edited = BAU_EDITS.some(e => e.movIdx === r.movIdx);
                     const bg = edited ? (side === 'ing' ? 'background:#34d39910;' : 'background:#f8717110;') : '';
                     const eoBadge = r.eo === 'R' ? '<span style="font-size:7px;background:#34d39930;color:#34d399;padding:1px 4px;border-radius:2px;margin-left:3px">R</span>' : '<span style="font-size:7px;background:#fbbf2430;color:#fbbf24;padding:1px 4px;border-radius:2px;margin-left:3px">P</span>';
+                    const ccStr = (r.cc || '').trim();
+                    const ccIsInd = isIndustria(ccStr);
+                    const ccColor = ccStr ? (ccIsInd ? (INDUSTRIA_COLORS[ccStr] || '#58a6ff') : (CC_COLORS[ccStr] || '#8b949e')) : '#6b7280';
+                    const ccBadge = ccStr
+                        ? '<span style="display:inline-block;font-size:9px;padding:1px 6px;border-radius:8px;background:' + ccColor + '20;color:' + ccColor + ';border:1px solid ' + ccColor + '50">' + escH(ccStr) + '</span>'
+                        : '<span style="font-size:9px;color:#fbbf24">⚠ sin tag</span>';
                     h += '<tr style="' + bg + 'border-bottom:1px solid #21262d" id="bau_row_' + side + '_' + idx + '">' +
                         '<td id="bau_f_' + side + '_' + idx + '" onclick="bauEditDate(\'' + mes + '\',\'' + side + '\',' + idx + ')" style="font-size:11px;padding:5px 4px;cursor:pointer;color:#58a6ff;white-space:nowrap" title="Click para cambiar fecha">' + fmtDateAR(r.f) + eoBadge + '</td>' +
                         '<td style="font-size:10px;padding:5px 4px;color:var(--tx2)">' + escH(r.emp || '') + '</td>' +
                         '<td style="font-size:10px;padding:5px 4px;color:var(--tx2)">' + escH(r.t) + '</td>' +
                         '<td style="font-size:11px;padding:5px 4px" title="' + escH(r.i) + '">' + smartItemDisplay(r) + '</td>' +
                         '<td style="font-size:10px;padding:5px 4px;color:#8b949e" title="' + escH(r.en || '') + '">' + escH(r.en || '-') + '</td>' +
+                        '<td style="font-size:10px;padding:5px 4px">' + ccBadge + '</td>' +
                         '<td id="bau_v_' + side + '_' + idx + '" onclick="bauEditValue(\'' + mes + '\',\'' + side + '\',' + idx + ')" style="text-align:right;font-size:11px;padding:5px 4px;color:' + color + ';cursor:pointer;font-weight:600;white-space:nowrap" title="Click para editar monto">' + formatMovValue(r.v, r.f) + (edited ? ' ✎' : '') + '</td>' +
                         '<td style="text-align:center;padding:5px 4px;white-space:nowrap">' +
                             '<button onclick="bauEditRow(\'' + mes + '\',\'' + side + '\',' + idx + ')" style="background:#1f2937;border:1px solid #374151;color:#58a6ff;cursor:pointer;font-size:11px;padding:2px 6px;border-radius:3px;margin-right:3px" title="Editar fila completa">✎</button>' +
@@ -4735,7 +4784,7 @@
                         '</td></tr>';
                 });
                 const total = items.reduce((s, r) => s + r.v, 0);
-                h += '<tr style="border-top:2px solid #30363d;font-weight:700"><td colspan="5" style="font-size:11px;padding:6px 4px">TOTAL (' + items.length + ' items)</td><td style="text-align:right;font-size:11px;padding:6px 4px;color:' + color + '">' + formatARS(total) + '</td><td></td></tr>';
+                h += '<tr style="border-top:2px solid #30363d;font-weight:700"><td colspan="6" style="font-size:11px;padding:6px 4px">TOTAL (' + items.length + ' items)</td><td style="text-align:right;font-size:11px;padding:6px 4px;color:' + color + '">' + formatARS(total) + '</td><td></td></tr>';
                 h += '</tbody></table></div>';
                 return h;
             }
@@ -4788,17 +4837,29 @@
         }
 
         function renderOperacion() {
-            // BAU = pure operations, excluding ALL non-operational items
+            // BAU = pure operations: la regla de oro es CC ≠ Financiero
+            // (catálogo CC: Financiero = bancos, préstamos, intereses, GC, AFIP/SUSS, aportes SAFE, etc)
+            // También excluimos los tipos legacy que aún no tienen CC asignado
             const excludeTipos = ['Préstamos Bancarios', 'Cobr. Deuda Salta23', 'Intercompany', 'Potenciales'];
             const excludeItemPrefixes = ['Devolucion a GC', 'Devolución a GC', 'Galicia - Mills'];
             const mov = DATA.mov || [];
 
-            // Build monthly BAU data WITH detail breakdown
+            // Build monthly BAU data WITH detail breakdown + CC/Industria aggregations
             const monthlyBAU = {};
             BAU_DETAIL = {};
+            // Aggregations across all months for the "by CC" and "by industria" cards
+            const ccTotals = {};         // CC vendible -> egreso (signed neg)
+            const ccSoporteTotals = {};  // CC soporte (sin Financiero) -> egreso
+            const indTotals = {};        // industria -> ingreso
+            const ccSoporteIngTotals = {}; // CCs soporte que generan ingreso (raro, p.ej. Estructura)
+            const ingSinTagTotal = { v: 0, n: 0 };
+            const egrSinTagTotal = { v: 0, n: 0 };
+
             mov.forEach((m, movIdx) => {
+                // === REGLA #1: excluir todo lo que sea CC=Financiero ===
+                if (isFinancieroCC(m)) return;
+                // === REGLA #2: excluir tipos legacy financieros (compat con datos viejos sin CC) ===
                 if (excludeTipos.includes(m.t)) return;
-                // Exclude capital injections (aportes, mutuos, préstamos socios)
                 if (isCapitalInjection(m)) return;
                 const it = m.i || '';
                 for (const prefix of excludeItemPrefixes) {
@@ -4814,15 +4875,111 @@
 
                 // Store detail with mov index for direct editing
                 if (!BAU_DETAIL[mes]) BAU_DETAIL[mes] = { ingresos: [], egresos: [], totalIng: 0, totalEgr: 0 };
-                const rec = { t: m.t, i: it || '(sin item)', en: m.en || '', d: m.d || '', v: v, f: m.f, emp: m.emp, bn: m.bn, eo: m.eo, movIdx: movIdx };
+                const cc = String(m.cc || '').trim();
+                const rec = { t: m.t, i: it || '(sin item)', en: m.en || '', d: m.d || '', v: v, f: m.f, emp: m.emp, bn: m.bn, eo: m.eo, cc: cc, cli: m.cli || '', proy: m.proy || '', movIdx: movIdx };
                 if (v >= 0) {
                     BAU_DETAIL[mes].ingresos.push(rec);
                     BAU_DETAIL[mes].totalIng += v;
+                    // Aggregate ingresos by industria (usa CC si está taggeado como industria, si no usa cliente)
+                    if (isIndustria(cc)) {
+                        if (!indTotals[cc]) indTotals[cc] = { v: 0, n: 0 };
+                        indTotals[cc].v += v; indTotals[cc].n += 1;
+                    } else if (CC_VENDIBLES.indexOf(cc) >= 0) {
+                        if (!ccTotals[cc]) ccTotals[cc] = { v: 0, n: 0, ing: 0, egr: 0 };
+                        ccTotals[cc].ing += v; ccTotals[cc].n += 1;
+                    } else if (CC_SOPORTE.indexOf(cc) >= 0) {
+                        if (!ccSoporteIngTotals[cc]) ccSoporteIngTotals[cc] = { v: 0, n: 0 };
+                        ccSoporteIngTotals[cc].v += v; ccSoporteIngTotals[cc].n += 1;
+                    } else {
+                        ingSinTagTotal.v += v; ingSinTagTotal.n += 1;
+                    }
                 } else {
                     BAU_DETAIL[mes].egresos.push(rec);
                     BAU_DETAIL[mes].totalEgr += v;
+                    // Aggregate egresos por CC vendible o soporte
+                    if (CC_VENDIBLES.indexOf(cc) >= 0) {
+                        if (!ccTotals[cc]) ccTotals[cc] = { v: 0, n: 0, ing: 0, egr: 0 };
+                        ccTotals[cc].egr += v; ccTotals[cc].n += 1;
+                    } else if (CC_SOPORTE.indexOf(cc) >= 0) {
+                        if (!ccSoporteTotals[cc]) ccSoporteTotals[cc] = { v: 0, n: 0 };
+                        ccSoporteTotals[cc].v += v; ccSoporteTotals[cc].n += 1;
+                    } else {
+                        egrSinTagTotal.v += v; egrSinTagTotal.n += 1;
+                    }
                 }
             });
+
+            // === Render: KPIs + breakdown by CC vendible + breakdown by Industria ===
+            const totalIngBAU = Object.values(monthlyBAU).reduce((s, d) => s + d.ing, 0);
+            const totalEgrBAU = Object.values(monthlyBAU).reduce((s, d) => s + d.egr, 0);
+            const netBAU = totalIngBAU + totalEgrBAU;
+            const opKPIsEl = document.getElementById('operacionKPIs');
+            if (opKPIsEl) {
+                opKPIsEl.innerHTML = `
+                    <div class="kpi"><div class="kpi-label">Ingresos BAU (acumulado)</div><div class="kpi-value positive">${formatARS(totalIngBAU)}</div><div class="kpi-sub">${Object.values(BAU_DETAIL).reduce((s,d)=>s+d.ingresos.length,0)} movs</div></div>
+                    <div class="kpi"><div class="kpi-label">Egresos BAU (acumulado)</div><div class="kpi-value negative">${formatARS(totalEgrBAU)}</div><div class="kpi-sub">${Object.values(BAU_DETAIL).reduce((s,d)=>s+d.egresos.length,0)} movs</div></div>
+                    <div class="kpi"><div class="kpi-label">Neto BAU</div><div class="kpi-value ${netBAU>=0?'positive':'negative'}">${formatARS(netBAU)}</div><div class="kpi-sub">Sin Financiero</div></div>
+                `;
+            }
+
+            // Vendibles cards (revenue centers)
+            const vendCards = document.getElementById('opVendiblesCards');
+            if (vendCards) {
+                const totalEgrVend = CC_VENDIBLES.reduce((s,c)=>s + (ccTotals[c]?.egr || 0), 0);
+                vendCards.innerHTML = CC_VENDIBLES.map(cc => {
+                    const d = ccTotals[cc] || { ing: 0, egr: 0, n: 0 };
+                    const margen = d.ing + d.egr; // egr es neg
+                    const pctEgr = totalEgrVend !== 0 ? (Math.abs(d.egr) / Math.abs(totalEgrVend) * 100) : 0;
+                    return `<div style="background:#0d1117;border:1px solid #30363d;border-left:3px solid ${CC_COLORS[cc]};border-radius:8px;padding:10px">
+                        <div style="font-weight:700;color:${CC_COLORS[cc]};font-size:12px;margin-bottom:6px">${cc}</div>
+                        <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--tx2)"><span>Ingresos</span><b class="positive">${formatARS(d.ing)}</b></div>
+                        <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--tx2)"><span>Egresos</span><b class="negative">${formatARS(d.egr)}</b></div>
+                        <div style="display:flex;justify-content:space-between;font-size:11px;border-top:1px solid #30363d;padding-top:4px;margin-top:4px"><span><b>Margen</b></span><b class="${margen>=0?'positive':'negative'}">${formatARS(margen)}</b></div>
+                        <div style="font-size:9px;color:var(--tx2);margin-top:3px">${d.n} movs · ${pctEgr.toFixed(0)}% del egreso vendible</div>
+                    </div>`;
+                }).join('');
+            }
+
+            // Soporte cards (cost centers, sin Financiero)
+            const sopCards = document.getElementById('opSoporteCards');
+            if (sopCards) {
+                const visibles = CC_SOPORTE.filter(c => CC_NO_BAU.indexOf(c) < 0);
+                sopCards.innerHTML = visibles.map(cc => {
+                    const d = ccSoporteTotals[cc] || { v: 0, n: 0 };
+                    return `<div style="background:#0d1117;border:1px solid #30363d;border-left:3px solid ${CC_COLORS[cc]};border-radius:8px;padding:10px">
+                        <div style="font-weight:700;color:${CC_COLORS[cc]};font-size:11px;margin-bottom:6px">${cc}</div>
+                        <div class="negative" style="font-size:14px;font-weight:700">${formatARS(d.v)}</div>
+                        <div style="font-size:9px;color:var(--tx2);margin-top:3px">${d.n} movs</div>
+                    </div>`;
+                }).join('');
+            }
+
+            // Industrias cards (verticales de ingreso)
+            const indCards = document.getElementById('opIndustriasCards');
+            if (indCards) {
+                const totalInd = INDUSTRIAS_LIST.reduce((s,i)=>s + (indTotals[i]?.v || 0), 0);
+                indCards.innerHTML = INDUSTRIAS_LIST.map(ind => {
+                    const d = indTotals[ind] || { v: 0, n: 0 };
+                    const pct = totalInd > 0 ? (d.v / totalInd * 100) : 0;
+                    const color = INDUSTRIA_COLORS[ind] || '#58a6ff';
+                    return `<div style="background:#0d1117;border:1px solid #30363d;border-left:3px solid ${color};border-radius:8px;padding:10px">
+                        <div style="font-weight:700;color:${color};font-size:11px;margin-bottom:6px">${ind}</div>
+                        <div class="positive" style="font-size:14px;font-weight:700">${formatARS(d.v)}</div>
+                        <div style="background:#161b22;height:4px;border-radius:2px;margin-top:4px;overflow:hidden">
+                            <div style="background:${color};height:100%;width:${pct.toFixed(1)}%"></div>
+                        </div>
+                        <div style="font-size:9px;color:var(--tx2);margin-top:3px">${d.n} movs · ${pct.toFixed(0)}% del ingreso vertical</div>
+                    </div>`;
+                }).join('');
+                // Untagged warning
+                const untag = document.getElementById('opUntaggedWarning');
+                if (untag) {
+                    const parts = [];
+                    if (ingSinTagTotal.n > 0) parts.push(`<span style="color:#fbbf24">⚠ ${ingSinTagTotal.n} ingresos sin industria/CC: ${formatARS(ingSinTagTotal.v)}</span>`);
+                    if (egrSinTagTotal.n > 0) parts.push(`<span style="color:#fbbf24">⚠ ${egrSinTagTotal.n} egresos sin CC: ${formatARS(egrSinTagTotal.v)}</span>`);
+                    untag.innerHTML = parts.join(' &nbsp;·&nbsp; ');
+                }
+            }
 
             const months = Object.keys(monthlyBAU).sort();
 
