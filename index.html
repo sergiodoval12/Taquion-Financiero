@@ -1543,7 +1543,7 @@
 
         // ========= GOOGLE SHEETS SYNC =========
         const SHEETS_CONFIG = {
-            apiUrl: 'https://script.google.com/macros/s/AKfycbw5zMg7kUKVTM-Yly8poeeCpgVrTSF0CEtDlcXaCqQcboFNYIlZ2S-gCk_zzInj6rOsgA/exec',
+            apiUrl: 'https://script.google.com/macros/s/AKfycbyP_4AfuKGH_3QVweZJMKfCejuh_KM3baXP5Moi3RqO3GKyV6PpzZr5vzgQH51EG9U7fg/exec',
             enabled: true,
             lastSync: null,
             syncing: false,
@@ -1946,6 +1946,11 @@
                     }
                 }
                 if (!m.monOrig) m.monOrig = 'ARS';
+
+                // Backfill new SOT columns (Centro de Costo, Cliente, Proyecto)
+                if (m.cc === undefined || m.cc === null) m.cc = '';
+                if (m.cli === undefined || m.cli === null) m.cli = '';
+                if (m.proy === undefined || m.proy === null) m.proy = '';
             });
         }
 
@@ -3187,7 +3192,23 @@
             if (newVStr === null) return;
             const newV = parseFloat(newVStr);
             if (isNaN(newV)) { alert('Monto inválido'); return; }
-            CHECK_PENDING[idx] = { action: 'modify', f: newF, v: newV, origF: m.f, origV: m.v };
+            const newI = prompt('Item (descripción del servicio) — actual: ' + (m.i || ''), m.i || '');
+            if (newI === null) return;
+            const newEn = prompt('Entidad (proveedor / a quién le pagás) — actual: ' + (m.en || ''), m.en || '');
+            if (newEn === null) return;
+            const newCC = prompt('Centro de Costo — actual: ' + (m.cc || '') + '\n(Insights, Inspire, Ignite, Cuentas, Comercial, Top Management, Tecnología, Administración, Capital Humano, Estructura Operativa, Financiero)', m.cc || '');
+            if (newCC === null) return;
+            const newCli = prompt('Cliente (para quién es el gasto) — actual: ' + (m.cli || ''), m.cli || '');
+            if (newCli === null) return;
+            const newProy = prompt('Proyecto (opcional) — actual: ' + (m.proy || ''), m.proy || '');
+            if (newProy === null) return;
+            CHECK_PENDING[idx] = {
+                action: 'modify',
+                f: newF, v: newV,
+                i: newI, en: newEn,
+                cc: newCC, cli: newCli, proy: newProy,
+                origF: m.f, origV: m.v
+            };
             renderCheckDiario();
         }
 
@@ -3225,10 +3246,13 @@
             const v = parseFloat(vStr);
             if (isNaN(v)) { alert('Monto inválido'); return; }
             const bn = prompt('B (Bancario) o N (No bancario)', 'B') || 'B';
+            const cc = prompt('Centro de Costo\n(Insights, Inspire, Ignite, Cuentas, Comercial, Top Management, Tecnología, Administración, Capital Humano, Estructura Operativa, Financiero)', '') || '';
+            const cli = prompt('Cliente (para quién es el gasto, opcional)', '') || '';
+            const proy = prompt('Proyecto (opcional)', '') || '';
             const key = 'new_' + (++CHECK_NEW_COUNTER);
             CHECK_PENDING[key] = {
                 action: 'add',
-                row: { f, emp, t, i, en, v, bn, eo: 'R' } // new rows entered as REAL (already happened)
+                row: { f, emp, t, i, en, v, bn, cc, cli, proy, eo: 'R' } // new rows entered as REAL (already happened)
             };
             renderCheckDiario();
         }
@@ -3262,15 +3286,38 @@
                     changes.push({ type: 'update', rowIndex: m._row, field: 'eo', value: 'R' });
                     localUpdates.push({ idx, patch: { eo: 'R' } });
                 } else if (p.action === 'modify') {
+                    const patch = { eo: 'R' };
                     if (p.f !== m.f) {
                         changes.push({ type: 'update', rowIndex: m._row, field: 'f', value: p.f });
+                        patch.f = p.f;
                     }
                     if (p.v !== m.v) {
                         changes.push({ type: 'update', rowIndex: m._row, field: 'v', value: p.v });
+                        patch.v = p.v;
+                    }
+                    if (p.i !== undefined && p.i !== m.i) {
+                        changes.push({ type: 'update', rowIndex: m._row, field: 'i', value: p.i });
+                        patch.i = p.i;
+                    }
+                    if (p.en !== undefined && p.en !== m.en) {
+                        changes.push({ type: 'update', rowIndex: m._row, field: 'en', value: p.en });
+                        patch.en = p.en;
+                    }
+                    if (p.cc !== undefined && p.cc !== (m.cc || '')) {
+                        changes.push({ type: 'update', rowIndex: m._row, field: 'cc', value: p.cc });
+                        patch.cc = p.cc;
+                    }
+                    if (p.cli !== undefined && p.cli !== (m.cli || '')) {
+                        changes.push({ type: 'update', rowIndex: m._row, field: 'cli', value: p.cli });
+                        patch.cli = p.cli;
+                    }
+                    if (p.proy !== undefined && p.proy !== (m.proy || '')) {
+                        changes.push({ type: 'update', rowIndex: m._row, field: 'proy', value: p.proy });
+                        patch.proy = p.proy;
                     }
                     // Modified movements also pass to REAL
                     changes.push({ type: 'update', rowIndex: m._row, field: 'eo', value: 'R' });
-                    localUpdates.push({ idx, patch: { f: p.f, v: p.v, eo: 'R' } });
+                    localUpdates.push({ idx, patch });
                 } else if (p.action === 'delete') {
                     changes.push({ type: 'delete', rowIndex: m._row });
                     localDeletes.push(idx);
@@ -4127,6 +4174,7 @@
             const tr = document.getElementById('bau_row_' + side + '_' + rowIdx);
             if (!tr) return;
 
+            const CC_OPTIONS = ['', 'Insights', 'Inspire', 'Ignite', 'Cuentas', 'Comercial', 'Top Management', 'Tecnología', 'Administración', 'Capital Humano', 'Estructura Operativa', 'Financiero'];
             const fields = [
                 { key: 'f', label: 'Fecha', type: 'date', val: item.f || '' },
                 { key: 'emp', label: 'Empresa', type: 'select', val: item.emp || 'TQN', opts: ['TQN', 'LMS'] },
@@ -4134,18 +4182,22 @@
                 { key: 't', label: 'Tipo', type: 'text', val: item.t || '' },
                 { key: 'i', label: 'Item', type: 'text', val: item.i === '(sin item)' ? '' : item.i || '' },
                 { key: 'en', label: 'Entidad', type: 'text', val: item.en || '' },
+                { key: 'cc', label: 'C. Costo', type: 'select', val: item.cc || '', opts: CC_OPTIONS },
+                { key: 'cli', label: 'Cliente', type: 'text', val: item.cli || '' },
+                { key: 'proy', label: 'Proyecto', type: 'text', val: item.proy || '' },
                 { key: 'd', label: 'Detalle', type: 'text', val: item.d || '' },
                 { key: 'v', label: 'Monto', type: 'number', val: Math.round(item.v) }
             ];
 
-            let formH = '<td colspan="7" style="padding:8px;background:#161b22;border:1px solid #58a6ff44;border-radius:6px">';
+            let formH = '<td colspan="8" style="padding:8px;background:#161b22;border:1px solid #58a6ff44;border-radius:6px">';
             formH += '<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:flex-end">';
             fields.forEach(f => {
                 formH += '<div style="display:flex;flex-direction:column;gap:2px">';
                 formH += '<label style="font-size:8px;color:#8b949e;text-transform:uppercase">' + f.label + '</label>';
                 if (f.type === 'select') {
-                    formH += '<select id="bauEd_' + f.key + '" style="width:70px;background:#0d1117;color:#e6edf3;border:1px solid #30363d;border-radius:3px;padding:3px;font-size:10px">';
-                    f.opts.forEach(o => { formH += '<option value="' + o + '"' + (o === f.val ? ' selected' : '') + '>' + o + '</option>'; });
+                    const selW = (f.key === 'cc') ? 130 : 70;
+                    formH += '<select id="bauEd_' + f.key + '" style="width:' + selW + 'px;background:#0d1117;color:#e6edf3;border:1px solid #30363d;border-radius:3px;padding:3px;font-size:10px">';
+                    f.opts.forEach(o => { formH += '<option value="' + o + '"' + (o === f.val ? ' selected' : '') + '>' + (o || '—') + '</option>'; });
                     formH += '</select>';
                 } else if (f.type === 'date') {
                     formH += '<input id="bauEd_' + f.key + '" type="date" value="' + f.val + '" style="width:120px;background:#0d1117;color:#e6edf3;border:1px solid #30363d;border-radius:3px;padding:3px;font-size:10px">';
@@ -4181,6 +4233,9 @@
             const newT = document.getElementById('bauEd_t')?.value || item.t;
             const newI = document.getElementById('bauEd_i')?.value || '';
             const newEn = document.getElementById('bauEd_en')?.value || '';
+            const newCC = document.getElementById('bauEd_cc')?.value || '';
+            const newCli = document.getElementById('bauEd_cli')?.value || '';
+            const newProy = document.getElementById('bauEd_proy')?.value || '';
             const newD = document.getElementById('bauEd_d')?.value || '';
             const newV = parseFloat(document.getElementById('bauEd_v')?.value) || 0;
 
@@ -4192,6 +4247,9 @@
             if (newT !== item.t) changes.push('tipo: ' + item.t + ' → ' + newT);
             if (newI !== (item.i === '(sin item)' ? '' : item.i)) changes.push('item: ' + item.i + ' → ' + (newI || '(vacío)'));
             if (newEn !== item.en) changes.push('entidad: ' + (item.en || '(vacío)') + ' → ' + (newEn || '(vacío)'));
+            if (newCC !== (item.cc || '')) changes.push('c.costo: ' + (item.cc || '(vacío)') + ' → ' + (newCC || '(vacío)'));
+            if (newCli !== (item.cli || '')) changes.push('cliente: ' + (item.cli || '(vacío)') + ' → ' + (newCli || '(vacío)'));
+            if (newProy !== (item.proy || '')) changes.push('proyecto: ' + (item.proy || '(vacío)') + ' → ' + (newProy || '(vacío)'));
             if (newD !== item.d) changes.push('detalle: ' + (item.d || '(vacío)') + ' → ' + (newD || '(vacío)'));
             if (newV !== item.v) changes.push('monto: ' + formatARS(item.v) + ' → ' + formatARS(newV));
 
@@ -4209,6 +4267,9 @@
             item.t = newT;
             item.i = newI || '(sin item)';
             item.en = newEn;
+            item.cc = newCC;
+            item.cli = newCli;
+            item.proy = newProy;
             item.d = newD;
             item.v = newV;
 
@@ -4220,6 +4281,9 @@
                 mov.t = newT;
                 mov.i = newI;
                 mov.en = newEn;
+                mov.cc = newCC;
+                mov.cli = newCli;
+                mov.proy = newProy;
                 mov.d = newD;
                 mov.v = newV;
             }
@@ -4241,6 +4305,9 @@
                 if (newT !== oldItem.t) batchChanges.push({ type: 'update', rowIndex: sheetRow, field: 't', value: newT });
                 if (newI !== (oldItem.i === '(sin item)' ? '' : oldItem.i)) batchChanges.push({ type: 'update', rowIndex: sheetRow, field: 'i', value: newI });
                 if (newEn !== oldItem.en) batchChanges.push({ type: 'update', rowIndex: sheetRow, field: 'en', value: newEn });
+                if (newCC !== (oldItem.cc || '')) batchChanges.push({ type: 'update', rowIndex: sheetRow, field: 'cc', value: newCC });
+                if (newCli !== (oldItem.cli || '')) batchChanges.push({ type: 'update', rowIndex: sheetRow, field: 'cli', value: newCli });
+                if (newProy !== (oldItem.proy || '')) batchChanges.push({ type: 'update', rowIndex: sheetRow, field: 'proy', value: newProy });
                 if (newD !== oldItem.d) batchChanges.push({ type: 'update', rowIndex: sheetRow, field: 'd', value: newD });
                 if (newV !== oldItem.v) batchChanges.push({ type: 'update', rowIndex: sheetRow, field: 'v', value: newV });
 

@@ -10,6 +10,7 @@ const SHEET_MOV = 'BD Movimientos';
 const SHEET_GC = 'Deuda GC';
 const SHEET_BD = 'Deuda Bancaria';
 const SHEET_NOM = 'Nómina';
+const SHEET_CC = 'Catálogo CC';
 
 // ---- GET (Read) ----
 function doGet(e) {
@@ -26,12 +27,15 @@ function doGet(e) {
       result = getDeudaBancaria(ss);
     } else if (action === 'nomina') {
       result = getNomina(ss);
+    } else if (action === 'catalogo_cc') {
+      result = getCatalogoCC(ss);
     } else if (action === 'all') {
       result = {
         mov: getMovimientos(ss),
         gc: getDeudaGC(ss),
         bd: getDeudaBancaria(ss),
         nom: getNomina(ss),
+        catCC: getCatalogoCC(ss),
         meta: { lastSync: new Date().toISOString(), source: 'Google Sheets' }
       };
     } else if (action === 'ping') {
@@ -91,6 +95,10 @@ function doPost(e) {
       result = updateNominaRow(ss, body.id, body.fields);
     } else if (action === 'seed_nomina') {
       result = seedNomina(ss, body.rows);
+    } else if (action === 'update_catalogo_cc') {
+      result = updateCatalogoCC(ss, body.rowIndex, body.field, body.value);
+    } else if (action === 'seed_catalogo_cc') {
+      result = seedCatalogoCC(ss, body.rows);
     } else {
       result = { error: 'Unknown action: ' + action };
     }
@@ -118,6 +126,12 @@ function getMovimientos(ss) {
   const headers = data[0].map(h => String(h).trim().toLowerCase());
 
   // Map columns by header name
+  // IMPORTANT: order matters — more specific matches must come BEFORE generic ones
+  // Schema:
+  //   en  ← "Entidad" or "Entidad / Cliente" (a quién le pagás / proveedor)
+  //   cli ← "Cliente" or "Cliente Final" (para quién es el gasto)
+  //   proy← "Proyecto" (proyecto del cliente)
+  //   cc  ← "Centro de Costo" (uno de los 11)
   const colMap = {};
   headers.forEach((h, i) => {
     if (h === 'fecha') colMap.f = i;
@@ -129,14 +143,18 @@ function getMovimientos(ss) {
     else if (h === 'marco') colMap.m = i;
     else if (h === 'detalle') colMap.d = i;
     else if (h === 'item') colMap.i = i;
-    else if (h.startsWith('entidad') || h.startsWith('cliente')) colMap.en = i;
+    // Entidad must match BEFORE generic 'cliente' check
+    else if (h === 'entidad' || h === 'entidad / cliente' || h === 'entidad/cliente' || h === 'proveedor') colMap.en = i;
+    // Cliente Final / Cliente — destinatario del valor (no proveedor)
+    else if (h === 'cliente' || h === 'cliente final' || h === 'cliente_final') colMap.cli = i;
+    else if (h === 'proyecto' || h === 'proyecto / iniciativa') colMap.proy = i;
     else if (h.includes('monto') && h.includes('orig') || h === 'movimiento_orig') colMap.v = i;
     else if (h === 'monto (k)' || h === 'movimiento') colMap.v_div = i;
     else if (h.startsWith('forma')) colMap.fp = i;
     else if (h === 'moneda') colMap.moneda = i;
     else if (h === 'monto_usd' || h === 'monto usd') colMap.vUSD = i;
     else if (h === 'tc' || h === 'tipo_cambio' || h === 'tipo cambio') colMap.tc = i;
-    else if (h === 'centro_costo' || h === 'centro de costo' || h === 'proyecto') colMap.cc = i;
+    else if (h === 'centro_costo' || h === 'centro de costo' || h === 'centro de costos') colMap.cc = i;
   });
 
   const rows = [];
@@ -184,7 +202,9 @@ function getMovimientos(ss) {
       monOrig: colMap.moneda !== undefined ? (String(row[colMap.moneda] || '').trim().toUpperCase() || 'ARS') : 'ARS',
       vUSD: colMap.vUSD !== undefined ? (Number(row[colMap.vUSD]) || undefined) : undefined,
       tcUsado: colMap.tc !== undefined ? (Number(row[colMap.tc]) || undefined) : undefined,
-      cc: colMap.cc !== undefined ? String(row[colMap.cc] || '').trim() : ''
+      cc: colMap.cc !== undefined ? String(row[colMap.cc] || '').trim() : '',
+      cli: colMap.cli !== undefined ? String(row[colMap.cli] || '').trim() : '',
+      proy: colMap.proy !== undefined ? String(row[colMap.proy] || '').trim() : ''
     });
   }
   return rows;
@@ -330,14 +350,18 @@ function getMovHeaders(ws) {
     else if (hl === 'marco') map.m = i;
     else if (hl === 'detalle') map.d = i;
     else if (hl === 'item') map.i = i;
-    else if (hl.startsWith('entidad') || hl.startsWith('cliente')) map.en = i;
+    // Entidad / proveedor
+    else if (hl === 'entidad' || hl === 'entidad / cliente' || hl === 'entidad/cliente' || hl === 'proveedor') map.en = i;
+    // Cliente final (destinatario del valor)
+    else if (hl === 'cliente' || hl === 'cliente final' || hl === 'cliente_final') map.cli = i;
+    else if (hl === 'proyecto' || hl === 'proyecto / iniciativa') map.proy = i;
     else if ((hl.includes('monto') && hl.includes('orig')) || hl === 'movimiento_orig') map.v = i;
     else if (hl === 'monto (k)' || hl === 'movimiento') map.v_div = i;
     else if (hl.startsWith('forma')) map.fp = i;
     else if (hl === 'moneda') map.moneda = i;
     else if (hl === 'monto_usd' || hl === 'monto usd') map.vUSD = i;
     else if (hl === 'tc' || hl === 'tipo_cambio' || hl === 'tipo cambio') map.tc = i;
-    else if (hl === 'centro_costo' || hl === 'centro de costo' || hl === 'proyecto') map.cc = i;
+    else if (hl === 'centro_costo' || hl === 'centro de costo' || hl === 'centro de costos') map.cc = i;
   });
   return { headers, map, count: headers.length };
 }
@@ -368,7 +392,7 @@ function updateMovimiento(ss, rowIndex, field, value) {
   }
 
   // Support all other movement fields
-  const directFields = { emp: 'emp', t: 't', i: 'i', en: 'en', d: 'd', cat: 'cat', m: 'm', bn: 'bn', fp: 'fp', moneda: 'moneda', vUSD: 'vUSD', tc: 'tc', cc: 'cc' };
+  const directFields = { emp: 'emp', t: 't', i: 'i', en: 'en', d: 'd', cat: 'cat', m: 'm', bn: 'bn', fp: 'fp', moneda: 'moneda', vUSD: 'vUSD', tc: 'tc', cc: 'cc', cli: 'cli', proy: 'proy' };
   if (directFields[field] !== undefined) {
     const colKey = directFields[field];
     if (map[colKey] !== undefined) {
@@ -411,6 +435,8 @@ function addMovimientos(ss, rows) {
     if (map.vUSD !== undefined) rowArr[map.vUSD] = mov.vUSD || '';
     if (map.tc !== undefined) rowArr[map.tc] = mov.tcUsado || '';
     if (map.cc !== undefined) rowArr[map.cc] = mov.cc || '';
+    if (map.cli !== undefined) rowArr[map.cli] = mov.cli || '';
+    if (map.proy !== undefined) rowArr[map.proy] = mov.proy || '';
 
     newData.push(rowArr);
     added++;
@@ -472,7 +498,8 @@ function updateGCEstado(ss, cuotaNum, estado) {
 // ============================================================
 
 // Full column list for BD Movimientos
-const MOV_ALL_HEADERS = ['Fecha','Estado','Empresa','B/N','Categoría','Tipo','Marco','Detalle','Item','Entidad / Cliente','Monto (K)','Monto Original','Forma Pago','Moneda','Monto USD','TC','Centro de Costo'];
+// IMPORTANT: 'Entidad' = a quién le pagás (proveedor); 'Cliente' = para quién es el gasto; 'Proyecto' = proyecto del cliente
+const MOV_ALL_HEADERS = ['Fecha','Estado','Empresa','B/N','Categoría','Tipo','Marco','Detalle','Item','Entidad','Monto (K)','Monto Original','Forma Pago','Moneda','Monto USD','TC','Centro de Costo','Cliente','Proyecto'];
 
 function seedMovimientos(ss, rows) {
   let ws = ss.getSheetByName(SHEET_MOV);
@@ -503,7 +530,9 @@ function seedMovimientos(ss, rows) {
       m.monOrig || 'ARS',
       m.vUSD || '',
       m.tcUsado || '',
-      m.cc || ''
+      m.cc || '',
+      m.cli || '',
+      m.proy || ''
     ]);
   });
 
@@ -534,7 +563,7 @@ function ensureStructure(ss) {
     const existingLower = existingHeaders.map(h => h.toLowerCase());
 
     MOV_ALL_HEADERS.forEach(header => {
-      // Check if this header already exists (case-insensitive, partial match)
+      // Check if this header already exists (case-insensitive, with common aliases)
       const hLower = header.toLowerCase();
       const exists = existingLower.some(eh =>
         eh === hLower ||
@@ -542,7 +571,11 @@ function ensureStructure(ss) {
         (hLower === 'moneda' && eh === 'moneda') ||
         (hLower === 'monto usd' && (eh === 'monto_usd' || eh === 'monto usd')) ||
         (hLower === 'tc' && (eh === 'tc' || eh === 'tipo_cambio' || eh === 'tipo cambio')) ||
-        (hLower === 'centro de costo' && (eh === 'centro_costo' || eh === 'centro de costo' || eh === 'proyecto'))
+        (hLower === 'centro de costo' && (eh === 'centro_costo' || eh === 'centro de costo' || eh === 'centro de costos')) ||
+        // Backwards compat: existing 'Entidad / Cliente' header satisfies the new 'Entidad' column
+        (hLower === 'entidad' && (eh === 'entidad' || eh === 'entidad / cliente' || eh === 'entidad/cliente' || eh === 'proveedor')) ||
+        (hLower === 'cliente' && (eh === 'cliente' || eh === 'cliente final' || eh === 'cliente_final')) ||
+        (hLower === 'proyecto' && eh === 'proyecto')
       );
 
       if (!exists) {
@@ -572,7 +605,23 @@ function ensureStructure(ss) {
     report.nomCreated = true;
   }
 
-  // 3) Ensure Deuda GC exists (just check)
+  // 3) Ensure Catálogo CC exists with the 11 cost centers precharged
+  let wsCC = ss.getSheetByName(SHEET_CC);
+  if (!wsCC) {
+    wsCC = ss.insertSheet(SHEET_CC);
+    wsCC.getRange(1, 1, 1, CC_HEADERS.length).setValues([CC_HEADERS]);
+    wsCC.getRange(1, 1, 1, CC_HEADERS.length).setFontWeight('bold').setBackground('#1f2937').setFontColor('#ffffff');
+    wsCC.setFrozenRows(1);
+    // Precarga del borrador
+    if (CC_SEED && CC_SEED.length > 0) {
+      wsCC.getRange(2, 1, CC_SEED.length, CC_HEADERS.length).setValues(CC_SEED);
+    }
+    for (let c = 1; c <= CC_HEADERS.length; c++) wsCC.autoResizeColumn(c);
+    report.ccCreated = true;
+    report.ccRows = CC_SEED.length;
+  }
+
+  // 4) Ensure Deuda GC exists (just check)
   report.deudaGC = !!ss.getSheetByName(SHEET_GC);
   report.deudaBD = !!ss.getSheetByName(SHEET_BD);
 
@@ -793,4 +842,129 @@ function seedNomina(ss, rows) {
   for (let c = 1; c <= NOM_HEADERS.length; c++) ws.autoResizeColumn(c);
 
   return { ok: true, rows: data.length - 1, sheet: SHEET_NOM };
+}
+
+// ============================================================
+// CATÁLOGO CC — Manual de Centros de Costo
+// ============================================================
+// Sirve como fuente de verdad y "manual de entendimiento" del modelo de costos.
+// Vive como pestaña aparte en el mismo Sheet, editable a mano por el CFO.
+// ============================================================
+
+const CC_HEADERS = ['Centro de Costo','Tipo','Descripción','Qué incluye','Qué NO incluye','Reglas de asignación','Ejemplos'];
+
+// Borrador inicial — el CFO lo edita y refina con el tiempo
+const CC_SEED = [
+  ['Insights', 'Vendible',
+   'Behavioral Science: investigación cuali y cuanti, paneles, herramientas de research y data',
+   'Estudios cualitativos y cuantitativos, paneles online, herramientas tipo Digimind/Onclusive, sentiment analysis, brand tracking',
+   'Producción audiovisual (Inspire), pauta paga (Ignite), fees comerciales (Cuentas)',
+   'Si el output al cliente es un insight, un dato o un análisis',
+   'Digimind, Onclusive, paneles cuanti, brand trackers'],
+  ['Inspire', 'Vendible',
+   'Lumos / Diseño / Audiovisual: producción de piezas gráficas, audiovisuales y branding',
+   'Diseño gráfico, video, edición, animación, branding visual, fotografía, post-producción, ilustración',
+   'Pauta paga (Ignite), research previo a la pieza (Insights)',
+   'Si el deliverable al cliente es una pieza visual o audiovisual',
+   'Tute Nogueira, Elena Ternogol, Julia Distefano, freelances de diseño/video'],
+  ['Ignite', 'Vendible',
+   'Growth / Paymedia / Prensa / Activaciones: todo lo que termina en un medio externo o evento',
+   'Pauta digital y tradicional, prensa, activaciones BTL, eventos, sponsoreos, performance media',
+   'Diseño de la pieza (Inspire), research previo (Insights)',
+   'Si el dinero termina en un medio, en prensa o en una activación',
+   'DUAL, Google Ads, Meta Ads, prensa, productoras de eventos'],
+  ['Cuentas', 'Vendible',
+   'AM / Negocio: gestión comercial de cuentas vivas',
+   'Account managers, atención al cliente, esfuerzo de retención y crecimiento de cuenta existente',
+   'Esfuerzo de venta nueva (Comercial), delivery del proyecto (otras unidades)',
+   'Si es trabajo de gestión sobre una cuenta ya existente',
+   'Sol Brinatti, Maria Azul Alvarez, Julian Cordoba Pivotto'],
+  ['Comercial', 'Vendible',
+   'MKT / Negocios: marketing propio + new business',
+   'Marketing propio de Taquion, materiales comerciales, eventos comerciales propios, esfuerzo de venta nueva, identidad de marca',
+   'Cuentas vivas (Cuentas), pauta de cliente (Ignite)',
+   'Si es para conseguir un cliente nuevo o promocionar Taquion al mercado',
+   'Diego Kupferberg, MKT propio, eventos de venta, Lorena Rinaldini'],
+  ['Top Management', 'Soporte',
+   'Socios / CEO / COO / CFO / CCO: el C-Suite y dirección estratégica',
+   'Socios, C-Level (CEO, COO, CFO, CCO), dirección estratégica, board fees, sueldos socios',
+   'Reportes a managers (van a su área respectiva)',
+   'Si es un rol C-Level o la propia dirección de la compañía',
+   'Sergio Doval, socios, dirección, sueldos C-Suite'],
+  ['Tecnología', 'Soporte',
+   'Tech: stack y herramientas tecnológicas internas',
+   'SaaS, infraestructura cloud, devops, herramientas internas, hardware corporativo, dominios, hosting',
+   'Software para entrega al cliente (va al CC del cliente)',
+   'Si es una herramienta de uso interno transversal',
+   'AWS, Notion, Slack, GitHub, Google Workspace, hardware'],
+  ['Administración', 'Soporte',
+   'Legales / Contabilidad / Impuestos: servicios profesionales administrativos',
+   'Estudios contables, legales, abogados, gestores, impuestos no bancarios, AFIP, IIBB, Ganancias, escribanos',
+   'Impuestos sobre saldos bancarios (Financiero)',
+   'Si es un servicio profesional administrativo o un impuesto general',
+   'Estudio EMA, DLA Piper, Yanina Ferrari, AFIP, ARBA'],
+  ['Capital Humano', 'Soporte',
+   'RRHH / Beneficios / Cargas sociales transversales',
+   'Cargas sociales, beneficios al empleado (prepaga, OSDE, Swiss Medical), capacitación, payroll outsourcing, búsquedas',
+   'Sueldos individuales (van al CC del empleado vía Nómina)',
+   'Si es un servicio o beneficio transversal del equipo',
+   'Swiss Medical, OSDE, Pagos Digitales, capacitaciones'],
+  ['Estructura Operativa', 'Soporte',
+   'Alquiler / servicios / maestranza / logística / Viáticos: costo fijo de operar',
+   'Alquiler oficina, expensas, luz, gas, internet, teléfono, limpieza, maestranza, mensajería, viáticos, taxis',
+   'Alquiler de equipo para un cliente puntual (va al CC del cliente)',
+   'Si es un costo fijo de mantener la oficina abierta o moverse',
+   'Bavio, Sucre, Edenor, Metrogas, Telecom oficina, Andreani, viáticos del equipo'],
+  ['Financiero', 'Soporte',
+   'Bancos / préstamos / impuestos bancarios / Deuda Privada',
+   'Intereses bancarios, comisiones, impuestos sobre saldos, mantenimiento de cuenta, préstamos bancarios, Deuda Privada (ex-socio Guido Comparada, mutuos)',
+   'Servicios contables (Administración)',
+   'Si es un costo o ingreso vinculado a un instrumento financiero o deuda',
+   'Galicia, Macro, Santander, BBVA, Ciudad, Bind, Mills, Guido Comparada']
+];
+
+function getCatalogoCC(ss) {
+  const ws = ss.getSheetByName(SHEET_CC);
+  if (!ws) return [];
+  const lastRow = ws.getLastRow();
+  if (lastRow < 2) return [];
+  const data = ws.getRange(2, 1, lastRow - 1, CC_HEADERS.length).getValues();
+  return data.map((row, idx) => ({
+    _row: idx + 2,
+    cc: String(row[0] || '').trim(),
+    tipo: String(row[1] || '').trim(),
+    desc: String(row[2] || '').trim(),
+    incluye: String(row[3] || '').trim(),
+    noIncluye: String(row[4] || '').trim(),
+    reglas: String(row[5] || '').trim(),
+    ejemplos: String(row[6] || '').trim()
+  })).filter(r => r.cc);
+}
+
+function updateCatalogoCC(ss, rowIndex, field, value) {
+  const ws = ss.getSheetByName(SHEET_CC);
+  if (!ws) return { error: 'Sheet ' + SHEET_CC + ' not found. Run ensure_structure first.' };
+  const fieldMap = { cc: 1, tipo: 2, desc: 3, incluye: 4, noIncluye: 5, reglas: 6, ejemplos: 7 };
+  const col = fieldMap[field];
+  if (!col) return { error: 'Unknown field: ' + field };
+  ws.getRange(rowIndex, col).setValue(value);
+  return { ok: true, row: rowIndex, field, value };
+}
+
+function seedCatalogoCC(ss, rows) {
+  let ws = ss.getSheetByName(SHEET_CC);
+  if (!ws) {
+    ws = ss.insertSheet(SHEET_CC);
+  } else {
+    ws.clear();
+  }
+  ws.getRange(1, 1, 1, CC_HEADERS.length).setValues([CC_HEADERS]);
+  ws.getRange(1, 1, 1, CC_HEADERS.length).setFontWeight('bold').setBackground('#1f2937').setFontColor('#ffffff');
+  ws.setFrozenRows(1);
+  const data = (rows && rows.length > 0 ? rows : CC_SEED);
+  if (data.length > 0) {
+    ws.getRange(2, 1, data.length, CC_HEADERS.length).setValues(data);
+  }
+  for (let c = 1; c <= CC_HEADERS.length; c++) ws.autoResizeColumn(c);
+  return { ok: true, rows: data.length, sheet: SHEET_CC };
 }
