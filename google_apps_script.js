@@ -285,51 +285,147 @@ function getDeudaGC(ss) {
 }
 
 function getDeudaBancaria(ss) {
+  // New structure (2026+): two stacked tables in "Deuda Bancaria" sheet
+  //   Table 1: CUOTAS PRESTAMOS BANCARIOS TAQUION  -> total cuota = capital + interés
+  //   Table 2: SOLO CAPITAL PRESTAMOS BANCARIOS TAQUION -> solo capital
+  // Each table: row0 title | row1 entidad headers | row2 CAPITAL TOMADO | row3 referencia | rowN schedule... | rowTotal
+  // Returns: { loans: [...], monthly: [...], bd: [...], bdl: [] }
+  //   loans: per-loan detail with full schedule
+  //   monthly: aggregated {mes, cuota, capital, interes} for all loans
+  //   bd: legacy array {mes, cap, int, total} for backward compat with renderCashflow etc.
+  //   bdl: empty array (LMS no longer tracked separately in this sheet)
+  const empty = { loans: [], monthly: [], bd: [], bdl: [], tqn: [], lms: [] };
   const ws = ss.getSheetByName(SHEET_BD);
-  if (!ws) return { tqn: [], lms: [] };
+  if (!ws) return empty;
 
   const lastRow = ws.getLastRow();
   const lastCol = ws.getLastColumn();
-  if (lastRow < 2) return { tqn: [], lms: [] };
+  if (lastRow < 5) return empty;
 
-  const data = ws.getRange(1, 1, lastRow, Math.min(lastCol, 12)).getValues();
+  const nCols = Math.max(lastCol, 7);
+  const data = ws.getRange(1, 1, lastRow, nCols).getValues();
 
-  const tqn = [];
-  const lms = [];
-  let currentSection = null;
-
+  // Locate table anchors
+  let t1Start = -1, t2Start = -1;
   for (let r = 0; r < data.length; r++) {
-    const cellA = String(data[r][0] || '').trim();
+    const cellA = String(data[r][0] || '').toUpperCase();
+    if (t1Start === -1 && cellA.indexOf('CUOTAS PRESTAMOS') >= 0) t1Start = r;
+    if (cellA.indexOf('SOLO CAPITAL') >= 0) { t2Start = r; break; }
+  }
+  if (t1Start === -1) return empty;
 
-    // Detect section headers
-    if (cellA.includes('TQN')) { currentSection = 'tqn'; continue; }
-    if (cellA.includes('LMS') || cellA.includes('LUMOS')) { currentSection = 'lms'; continue; }
-    if (cellA === 'Mes' || cellA === 'TOTAL' || cellA === '') continue;
-
-    // Parse data rows: Mes, Monto Cuota, ..., Estado (col K = index 10)
-    let mes = '';
-    if (data[r][0] instanceof Date) {
-      mes = Utilities.formatDate(data[r][0], Session.getScriptTimeZone(), 'yyyy-MM');
-    } else if (cellA.match(/^\d{4}-\d{2}/)) {
-      mes = cellA.slice(0, 7);
-    } else {
-      continue;
+  function parseMesCell(v) {
+    if (v instanceof Date) {
+      // The source sheet was built with DD as year offset (e.g. day=26 -> 2026)
+      const d = v.getDate();
+      const m = v.getMonth() + 1;
+      const year = (d >= 20 && d <= 40) ? 2000 + d : v.getFullYear();
+      return year + '-' + (m < 10 ? '0' + m : m);
     }
-
-    const monto = Number(data[r][1]) || 0;
-    const estadoCol = data[r][10] !== undefined ? String(data[r][10] || '').trim().toUpperCase() : '';
-    const pagada = estadoCol === 'PAGADA';
-
-    const entry = { mes, monto, pagada };
-
-    if (currentSection === 'lms') {
-      lms.push(entry);
-    } else {
-      tqn.push(entry); // Default to TQN
-    }
+    const s = String(v || '').trim();
+    const mx = s.match(/(\d{4})[-\/](\d{1,2})/);
+    if (mx) return mx[1] + '-' + (mx[2].length < 2 ? '0' + mx[2] : mx[2]);
+    return '';
   }
 
-  return { tqn, lms };
+  function parseNum(v) {
+    if (typeof v === 'number') return v;
+    if (v == null || v === '') return 0;
+    const s = String(v).replace(/[^\d,.\-]/g, '').replace(/\./g, '').replace(',', '.');
+    const n = parseFloat(s);
+    return isNaN(n) ? 0 : n;
+  }
+
+  function parseTable(startRow, maxCol) {
+    const entRow = data[startRow + 1] || [];
+    const capRow = data[startRow + 2] || [];
+    const refRow = data[startRow + 3] || [];
+    const loans = [];
+    const upper = Math.min(maxCol, nCols - 1);
+    for (let c = 1; c <= upper; c++) {
+      const ent = String(entRow[c] || '').trim();
+      if (!ent) continue;
+      loans.push({
+        col: c,
+        entidad: ent,
+        capital_tomado: parseNum(capRow[c]),
+        referencia: String(refRow[c] || '').trim(),
+        tna: 0
+      });
+    }
+    const schedule = [];
+    for (let r = startRow + 4; r < data.length; r++) {
+      const first = data[r][0];
+      if (first == null || first === '') {
+        // allow blank rows between tables to break
+        if (schedule.length > 0) break;
+        else continue;
+      }
+      if (typeof first === 'string' && first.toUpperCase().indexOf('TOTAL') >= 0) break;
+      const mes = parseMesCell(first);
+      if (!mes) continue;
+      const row = { mes: mes, vals: {} };
+      for (let i = 0; i < loans.length; i++) {
+        row.vals[loans[i].col] = parseNum(data[r][loans[i].col]);
+      }
+      schedule.push(row);
+    }
+    return { loans: loans, schedule: schedule };
+  }
+
+  const t1 = parseTable(t1Start, 5);
+  const t2 = t2Start >= 0 ? parseTable(t2Start, 5) : { loans: [], schedule: [] };
+
+  // Pull TNA from T2 title row (cells 2..5 contain "TNA 45%" etc)
+  if (t2Start >= 0) {
+    const tnaRow = data[t2Start] || [];
+    t1.loans.forEach(function(loan) {
+      for (let c = 1; c < nCols; c++) {
+        const raw = String(tnaRow[c] || '');
+        const m = raw.match(/TNA\s*([\d.,]+)/i);
+        if (m && c === loan.col) { loan.tna = parseFloat(m[1].replace(',', '.')) / 100; break; }
+      }
+    });
+    // Enrich referencia with more descriptive text from T2 (row t2Start+1)
+    const t2refRow = data[t2Start + 1] || [];
+    t1.loans.forEach(function(loan) {
+      const r2 = String(t2refRow[loan.col] || '').trim();
+      if (r2 && r2.length > (loan.referencia || '').length) loan.referencia = r2;
+    });
+  }
+
+  // Combine schedules per loan and aggregate monthly
+  const monthlyMap = {};
+  t1.loans.forEach(function(loan) {
+    loan.schedule = [];
+    let totCuota = 0, totCap = 0, totInt = 0;
+    t1.schedule.forEach(function(row) {
+      const cuota = row.vals[loan.col] || 0;
+      const t2row = t2.schedule.find(function(x) { return x.mes === row.mes; });
+      const capital = t2row ? (t2row.vals[loan.col] || 0) : 0;
+      const interes = Math.max(0, cuota - capital);
+      if (cuota > 0 || capital > 0) {
+        loan.schedule.push({ mes: row.mes, cuota: cuota, capital: capital, interes: interes });
+        totCuota += cuota; totCap += capital; totInt += interes;
+        if (!monthlyMap[row.mes]) monthlyMap[row.mes] = { mes: row.mes, cuota: 0, capital: 0, interes: 0 };
+        monthlyMap[row.mes].cuota += cuota;
+        monthlyMap[row.mes].capital += capital;
+        monthlyMap[row.mes].interes += interes;
+      }
+    });
+    loan.total_cuota = totCuota;
+    loan.total_capital = totCap;
+    loan.total_interes = totInt;
+  });
+
+  const monthly = Object.keys(monthlyMap).sort().map(function(k) { return monthlyMap[k]; });
+
+  // Legacy `bd` array: {mes, cap, int, total} for existing cashflow / KPI code
+  const bd = monthly.map(function(m) {
+    return { mes: m.mes, cap: m.capital, int: m.interes, total: m.cuota };
+  });
+
+  return { loans: t1.loans, monthly: monthly, bd: bd, bdl: [], tqn: bd, lms: [] };
 }
 
 // ============================================================

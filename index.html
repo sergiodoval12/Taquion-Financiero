@@ -731,12 +731,21 @@
 
                 <!-- SECTION: Deuda Bancaria -->
                 <div id="deudaSecBancaria" class="deuda-section">
+                    <div class="reference-banner">
+                        Préstamos bancarios Taquión — cuota mensual (capital + interés) y desglose de solo capital para trackear amortización.
+                    </div>
+
                     <div class="kpi-grid" id="deudaBancariaKPIs"></div>
 
-                    <h2>TQN - Calendario de Capital e Intereses</h2>
+                    <h2>Préstamos activos</h2>
+                    <div id="deudaBancariaLoansCards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-bottom:16px"></div>
+
+                    <h2>Calendario mensual consolidado</h2>
+                    <p style="font-size:11px;color:var(--tx2);margin-bottom:8px">Cuota mensual = Capital + Interés. Columna "Solo Capital" es lo que se amortiza del principal cada mes. La diferencia es el costo financiero del período.</p>
                     <table id="deudaBancariaTQNTable"></table>
 
-                    <h2>LMS - Pagos Mensuales</h2>
+                    <h2>Detalle por préstamo</h2>
+                    <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap" id="deudaBancariaLoanTabs"></div>
                     <table id="deudaBancariaLMSTable"></table>
 
                     <div class="chart-container">
@@ -1672,9 +1681,21 @@
                     DATA.gc_term = sheetData.gc;
                 }
 
-                // Update deuda bancaria if available
-                if (sheetData.bd && (sheetData.bd.tqn || sheetData.bd.lms)) {
+                // Update deuda bancaria if available (new structure: loans/monthly/bd/bdl)
+                if (sheetData.bd) {
                     DATA.bd_sheet = sheetData.bd;
+                    if (Array.isArray(sheetData.bd.bd) && sheetData.bd.bd.length > 0) {
+                        DATA.bd = sheetData.bd.bd.map(function(m) { return { mes: m.mes, cap: m.cap || 0, int: m.int || 0, total: m.total || 0 }; });
+                    }
+                    if (Array.isArray(sheetData.bd.bdl)) {
+                        DATA.bdl = sheetData.bd.bdl.map(function(m) { return { mes: m.mes, cap: m.cap || 0, int: m.int || 0, total: m.total || 0 }; });
+                    }
+                    if (Array.isArray(sheetData.bd.loans)) {
+                        DATA.bd_loans = sheetData.bd.loans;
+                    }
+                    if (Array.isArray(sheetData.bd.monthly)) {
+                        DATA.bd_monthly = sheetData.bd.monthly;
+                    }
                 }
 
                 SHEETS_CONFIG.lastSync = new Date().toISOString();
@@ -3165,6 +3186,18 @@
             const sinFacturaCount = pagosSinFactura.length;
             const sinFacturaMonto = pagosSinFactura.reduce((s, x) => s + (x.m.v || 0), 0);
 
+            // Cobranzas sin facturar: ingresos del rango cuya factura NO esté en OK
+            // Alerta para el CFO → ir a Cuentas / Administración a preguntar por qué no se facturó,
+            // porque si no hay factura, no se va a poder cobrar.
+            const cobranzasSinFactura = items.filter(x => {
+                const v = x.m.v || 0;
+                if (v <= 0) return false; // solo ingresos / cobranzas
+                const f = String(x.m.factura || '').trim().toUpperCase();
+                return f !== 'OK';
+            });
+            const cobSinFactCount = cobranzasSinFactura.length;
+            const cobSinFactMonto = cobranzasSinFactura.reduce((s, x) => s + (x.m.v || 0), 0);
+
             // KPIs
             const kpis = [
                 { lbl: 'Movimientos', val: items.length, color: '#58a6ff' },
@@ -3172,17 +3205,21 @@
                 { lbl: 'Egresos planificados', val: checkFmt(totEgr), color: '#f87171' },
                 { lbl: 'Neto', val: checkFmt(neto), color: neto >= 0 ? '#3fb950' : '#f87171' },
                 { lbl: 'Pagos sin factura', val: sinFacturaCount + (sinFacturaCount ? ' (' + checkFmt(sinFacturaMonto) + ')' : ''), color: sinFacturaCount > 0 ? '#fbbf24' : '#3fb950' },
+                { lbl: 'Cobranzas sin facturar', val: cobSinFactCount + (cobSinFactCount ? ' (' + checkFmt(cobSinFactMonto) + ')' : ''), color: cobSinFactCount > 0 ? '#fbbf24' : '#3fb950' },
                 { lbl: 'Cambios pendientes', val: pendingCount, color: pendingCount > 0 ? '#fbbf24' : '#8b949e' }
             ];
             document.getElementById('checkKPIs').innerHTML = kpis.map(k =>
                 '<div class="kpi-card"><div class="kpi-label">' + k.lbl + '</div><div class="kpi-value" style="color:' + k.color + '">' + k.val + '</div></div>'
             ).join('');
 
-            // Pending changes bar + Sin factura alert
+            // Pending changes bar + Sin factura alerts
             const pBar = document.getElementById('checkPendingBar');
             let pBarHtml = '';
             if (sinFacturaCount > 0) {
                 pBarHtml += '<div style="background:#f8717115;border:1px solid #f87171;border-radius:6px;padding:10px 14px;color:#f87171;font-size:11px;margin-bottom:8px"><strong>⚠️ ' + sinFacturaCount + ' pago(s) sin factura</strong> en este ' + (CHECK_STATE.mode === 'day' ? 'día' : 'rango') + ' (' + checkFmt(sinFacturaMonto) + '). No se debería pagar nada sin factura cargada como OK.</div>';
+            }
+            if (cobSinFactCount > 0) {
+                pBarHtml += '<div style="background:#fbbf2415;border:1px solid #fbbf24;border-radius:6px;padding:10px 14px;color:#fbbf24;font-size:11px;margin-bottom:8px"><strong>💸 ' + cobSinFactCount + ' cobranza(s) sin facturar</strong> en este ' + (CHECK_STATE.mode === 'day' ? 'día' : 'rango') + ' (' + checkFmt(cobSinFactMonto) + '). Si el cliente no recibe factura, no vas a poder cobrar — revisar con Cuentas / Administración por qué no se facturó.</div>';
             }
             if (pendingCount > 0) {
                 let confirmN = 0, modifyN = 0, deleteN = 0, addN = 0;
@@ -3232,16 +3269,16 @@
                     html += '<td style="padding:8px 10px;font-size:11px;color:#8b949e;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + (m.en || '').replace(/"/g, '&quot;') + '">' + (m.en || '-') + '</td>';
                     html += '<td style="padding:8px 10px;text-align:right;font-size:11px;font-weight:600;color:' + (isIng ? '#3fb950' : '#f87171') + '">' + checkFmt(showV) + '</td>';
                     html += '<td style="padding:8px 10px;text-align:center;font-size:10px;color:#8b949e">' + (m.bn || '-') + '</td>';
-                    // Factura badge — solo para egresos / pagos
+                    // Factura badge — aplica a pagos Y cobranzas
                     html += '<td style="padding:8px 10px;text-align:center">';
-                    if (isIng) {
-                        html += '<span style="font-size:9px;color:#484f58">—</span>';
-                    } else {
+                    {
                         const facStatus = String(m.factura || '').trim().toUpperCase();
                         if (facStatus === 'OK') {
                             html += '<button onclick="checkToggleFactura(' + idx + ')" title="Factura cargada — click para revertir" style="background:#23863620;border:1px solid #238636;color:#3fb950;padding:4px 10px;border-radius:3px;cursor:pointer;font-size:10px;font-weight:700">✓ OK</button>';
                         } else {
-                            html += '<button onclick="checkToggleFactura(' + idx + ')" title="Sin factura — click para marcar como OK" style="background:#f8717120;border:1px solid #f87171;color:#f87171;padding:4px 10px;border-radius:3px;cursor:pointer;font-size:10px;font-weight:700">⚠ Sin fac.</button>';
+                            const label = isIng ? '⚠ Sin facturar' : '⚠ Sin fac.';
+                            const tip = isIng ? 'Cobranza sin facturar — si no se emite factura, no se va a poder cobrar. Click para marcar OK.' : 'Sin factura — click para marcar como OK';
+                            html += '<button onclick="checkToggleFactura(' + idx + ')" title="' + tip + '" style="background:#fbbf2420;border:1px solid #fbbf24;color:#fbbf24;padding:4px 10px;border-radius:3px;cursor:pointer;font-size:10px;font-weight:700">' + label + '</button>';
                         }
                     }
                     html += '</td>';
@@ -3275,16 +3312,15 @@
                 html += '<td style="padding:8px 10px;font-size:11px;color:#8b949e">' + (r.en || '-') + '</td>';
                 html += '<td style="padding:8px 10px;text-align:right;font-size:11px;font-weight:600;color:' + (isIng ? '#3fb950' : '#f87171') + '">' + checkFmt(r.v) + '</td>';
                 html += '<td style="padding:8px 10px;text-align:center;font-size:10px;color:#8b949e">' + (r.bn || 'B') + '</td>';
-                // Factura badge para nuevos
+                // Factura badge para nuevos (aplica a cobranzas e ingresos)
                 html += '<td style="padding:8px 10px;text-align:center">';
-                if (isIng) {
-                    html += '<span style="font-size:9px;color:#484f58">—</span>';
-                } else {
+                {
                     const facStatus = String(r.factura || '').trim().toUpperCase();
                     if (facStatus === 'OK') {
                         html += '<span style="background:#23863620;border:1px solid #238636;color:#3fb950;padding:4px 10px;border-radius:3px;font-size:10px;font-weight:700">✓ OK</span>';
                     } else {
-                        html += '<span style="background:#f8717120;border:1px solid #f87171;color:#f87171;padding:4px 10px;border-radius:3px;font-size:10px;font-weight:700">⚠ Sin fac.</span>';
+                        const label = isIng ? '⚠ Sin facturar' : '⚠ Sin fac.';
+                        html += '<span style="background:#fbbf2420;border:1px solid #fbbf24;color:#fbbf24;padding:4px 10px;border-radius:3px;font-size:10px;font-weight:700">' + label + '</span>';
                     }
                 }
                 html += '</td>';
@@ -3298,14 +3334,26 @@
 
         function checkConfirm(idx) {
             const m = DATA.mov[idx];
-            if (m && (m.v || 0) < 0) {
+            if (m) {
+                const v = m.v || 0;
                 const fac = String(m.factura || '').trim().toUpperCase();
                 if (fac !== 'OK') {
-                    if (!confirm('⚠️ Este pago NO tiene factura cargada como OK.\n\n' +
-                                 (m.i || '') + ' · ' + (m.en || '') + '\n' +
-                                 checkFmt(m.v) + '\n\n' +
-                                 '¿Confirmás igual? (recomendado: cargar la factura primero con el botón ⚠ Sin fac.)')) {
-                        return;
+                    if (v < 0) {
+                        // Egreso: bloquear con warning
+                        if (!confirm('⚠️ Este pago NO tiene factura cargada como OK.\n\n' +
+                                     (m.i || '') + ' · ' + (m.en || '') + '\n' +
+                                     checkFmt(v) + '\n\n' +
+                                     '¿Confirmás igual? (recomendado: cargar la factura primero con el botón ⚠ Sin fac.)')) {
+                            return;
+                        }
+                    } else if (v > 0) {
+                        // Ingreso: alertar — si no hay factura, no se va a poder cobrar
+                        if (!confirm('💸 Esta cobranza NO tiene factura cargada como OK.\n\n' +
+                                     (m.i || '') + ' · ' + (m.en || '') + '\n' +
+                                     checkFmt(v) + '\n\n' +
+                                     'Si no se emite factura, no se va a poder cobrar. Te recomiendo hablar con Cuentas o Administración antes de confirmar. ¿Confirmás igual?')) {
+                            return;
+                        }
                     }
                 }
             }
@@ -3416,10 +3464,13 @@
             const cc = prompt('Centro de Costo\n(Insights, Inspire, Ignite, Cuentas, Comercial, Top Management, Tecnología, Administración, Capital Humano, Estructura Operativa, Financiero)', '') || '';
             const cli = prompt('Cliente (para quién es el gasto, opcional)', '') || '';
             const proy = prompt('Proyecto (opcional)', '') || '';
-            // Solo pedir factura si es egreso (pago)
+            // Factura: aplica a egresos (pago) e ingresos (cobranza)
             let factura = '';
-            if (v < 0) {
-                const facResp = prompt('¿La factura está cargada? (escribí OK si está cargada, dejá vacío si NO)', '');
+            if (v !== 0) {
+                const label = v < 0
+                    ? '¿La factura del proveedor está cargada? (OK si está cargada, vacío si NO)'
+                    : '¿La factura al cliente está emitida? (OK si ya se facturó, vacío si NO — sin factura no se cobra)';
+                const facResp = prompt(label, '');
                 factura = (facResp && facResp.trim().toUpperCase() === 'OK') ? 'OK' : '';
             }
             const key = 'new_' + (++CHECK_NEW_COUNTER);
@@ -3438,25 +3489,32 @@
                 return;
             }
 
-            // Pre-check: pagos que se van a confirmar/agregar SIN factura OK
-            const sinFactura = [];
+            // Pre-check: pagos Y cobranzas que se van a confirmar/agregar SIN factura OK
+            const pagosSF = [];
+            const cobranzasSF = [];
+            const checkRow = (v, i, en, fac) => {
+                if (String(fac || '').trim().toUpperCase() === 'OK') return;
+                if (v < 0) pagosSF.push((i || '') + ' · ' + (en || '') + ' · ' + checkFmt(v));
+                else if (v > 0) cobranzasSF.push((i || '') + ' · ' + (en || '') + ' · ' + checkFmt(v));
+            };
             Object.entries(CHECK_PENDING).forEach(([key, p]) => {
                 if (p.action === 'add') {
-                    if ((p.row.v || 0) < 0 && String(p.row.factura || '').trim().toUpperCase() !== 'OK') {
-                        sinFactura.push((p.row.i || '') + ' · ' + (p.row.en || '') + ' · ' + checkFmt(p.row.v));
-                    }
+                    checkRow(p.row.v || 0, p.row.i, p.row.en, p.row.factura);
                 } else if (p.action === 'confirm' || p.action === 'modify') {
                     const idx = parseInt(key, 10);
                     const m = DATA.mov[idx];
-                    if (m && (m.v || 0) < 0 && String(m.factura || '').trim().toUpperCase() !== 'OK') {
-                        sinFactura.push((m.i || '') + ' · ' + (m.en || '') + ' · ' + checkFmt(m.v));
-                    }
+                    if (m) checkRow(m.v || 0, m.i, m.en, m.factura);
                 }
             });
-            if (sinFactura.length > 0) {
-                const lista = sinFactura.slice(0, 8).join('\n• ');
-                const extra = sinFactura.length > 8 ? '\n... y ' + (sinFactura.length - 8) + ' más' : '';
-                if (!confirm('⚠️ ATENCIÓN: ' + sinFactura.length + ' pago(s) sin factura cargada como OK:\n\n• ' + lista + extra + '\n\n¿Querés impactar igual?')) return;
+            if (pagosSF.length > 0) {
+                const lista = pagosSF.slice(0, 8).join('\n• ');
+                const extra = pagosSF.length > 8 ? '\n... y ' + (pagosSF.length - 8) + ' más' : '';
+                if (!confirm('⚠️ ATENCIÓN: ' + pagosSF.length + ' pago(s) sin factura cargada como OK:\n\n• ' + lista + extra + '\n\n¿Querés impactar igual?')) return;
+            }
+            if (cobranzasSF.length > 0) {
+                const lista = cobranzasSF.slice(0, 8).join('\n• ');
+                const extra = cobranzasSF.length > 8 ? '\n... y ' + (cobranzasSF.length - 8) + ' más' : '';
+                if (!confirm('💸 ATENCIÓN: ' + cobranzasSF.length + ' cobranza(s) sin factura emitida:\n\n• ' + lista + extra + '\n\nSi no se emite factura al cliente, no se va a poder cobrar. Te recomiendo revisar con Cuentas / Administración antes de impactar. ¿Impactar igual?')) return;
             }
 
             if (!requireCFO('Impactar ' + pendingCount + ' cambio(s) en SOT')) return;
@@ -5309,48 +5367,30 @@
         }
 
         function renderDeudaBancaria() {
-            const bdTQN = DATA.bd || [];
-            const bdLMS = DATA.bdl || [];
+            // New structure: per-loan detail + aggregated monthly (capital+interés vs solo capital)
+            const loans = DATA.bd_loans || [];
+            const monthly = (DATA.bd_monthly && DATA.bd_monthly.length)
+                ? DATA.bd_monthly
+                : (DATA.bd || []).map(m => ({ mes: m.mes, cuota: (m.cap||0)+(m.int||0), capital: m.cap||0, interes: m.int||0 }));
             const hoy = new Date().toISOString().slice(0, 7);
 
             // Split paid vs pending
-            const paidTQN = bdTQN.filter(m => m.mes < hoy);
-            const pendTQN = bdTQN.filter(m => m.mes >= hoy);
-            const paidLMS = bdLMS.filter(m => m.mes < hoy);
-            const pendLMS = bdLMS.filter(m => m.mes >= hoy);
+            const paid = monthly.filter(m => m.mes < hoy);
+            const pend = monthly.filter(m => m.mes >= hoy);
+            const pendCuota = pend.reduce((s, m) => s + (m.cuota || 0), 0);
+            const pendCap = pend.reduce((s, m) => s + (m.capital || 0), 0);
+            const pendInt = pend.reduce((s, m) => s + (m.interes || 0), 0);
+            const paidCuota = paid.reduce((s, m) => s + (m.cuota || 0), 0);
 
-            const pendCapTQN = pendTQN.reduce((s, m) => s + (m.cap || 0), 0);
-            const pendIntTQN = pendTQN.reduce((s, m) => s + (m.int || 0), 0);
-            const paidCapTQN = paidTQN.reduce((s, m) => s + (m.cap || 0), 0);
-            const paidIntTQN = paidTQN.reduce((s, m) => s + (m.int || 0), 0);
-            const pendLMSTotal = pendLMS.reduce((s, m) => s + (m.total || 0), 0);
-            const paidLMSTotal = paidLMS.reduce((s, m) => s + (m.total || 0), 0);
+            const totalTomado = loans.reduce((s, l) => s + (l.capital_tomado || 0), 0);
 
-            // Próxima cuota
-            const proxTQN = pendTQN.length > 0 ? pendTQN[0] : null;
-            const proxLMS = pendLMS.length > 0 ? pendLMS[0] : null;
-
-            // LMS doesn't have cap/int split — treat total as capital
-            const pendCapLMS = pendLMS.reduce((s, m) => s + (m.cap || m.total || 0), 0);
-            const pendIntLMS = pendLMS.reduce((s, m) => s + (m.int || 0), 0);
-
-            const totalCapPend = pendCapTQN + pendCapLMS;
-            const totalIntPend = pendIntTQN + pendIntLMS;
-            const totalCuotas = pendTQN.length + pendLMS.length;
-
-            // Próximo mes = mes siguiente al actual
+            // Próximo mes (mes siguiente al actual)
             const proxDate = new Date();
             proxDate.setMonth(proxDate.getMonth() + 1);
             const proxMesStr = proxDate.toISOString().slice(0, 7);
             const mNamesB = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
             const proxMesLabel = mNamesB[proxDate.getMonth()] + ' ' + proxDate.getFullYear();
-
-            // Cuota mayo (próximo mes) — toda la deuda: bancaria + GC
-            const proxBancTQN = bdTQN.filter(m => m.mes === proxMesStr);
-            const proxBancLMS = bdLMS.filter(m => m.mes === proxMesStr);
-            const proxCapTQN = proxBancTQN.reduce((s, m) => s + (m.cap || 0), 0);
-            const proxIntTQN = proxBancTQN.reduce((s, m) => s + (m.int || 0), 0);
-            const proxTotalLMS = proxBancLMS.reduce((s, m) => s + (m.total || 0), 0);
+            const proxRow = monthly.find(m => m.mes === proxMesStr) || { cuota: 0, capital: 0, interes: 0 };
 
             // GC del próximo mes
             const gcTerm2 = DATA.gc_term || {};
@@ -5359,91 +5399,137 @@
             const proxGCCuotas = schedule2.filter(c => !c.pagada && (c.fecha || '').slice(0,7) === proxMesStr);
             const proxGCUSD = proxGCCuotas.reduce((s, c) => s + (c.usd || 0), 0);
             const proxGCARS = proxGCUSD * tc2;
-
-            const proxTotalDeuda = proxCapTQN + proxIntTQN + proxTotalLMS + proxGCARS;
+            const proxTotalDeuda = proxRow.cuota + proxGCARS;
 
             document.getElementById('deudaBancariaKPIs').innerHTML = `
                 <div class="kpi">
-                    <div class="kpi-label">TQN + LMS Capital Pendiente</div>
-                    <div class="kpi-value negative">${formatARS(totalCapPend)}</div>
-                    <div class="kpi-sub">TQN: ${formatARS(pendCapTQN)} · LMS: ${formatARS(pendCapLMS)} · ${totalCuotas} cuotas</div>
+                    <div class="kpi-label">Capital Tomado (Total)</div>
+                    <div class="kpi-value">${formatARS(totalTomado)}</div>
+                    <div class="kpi-sub">${loans.length} préstamos activos</div>
                 </div>
                 <div class="kpi">
-                    <div class="kpi-label">TQN + LMS Intereses Pendientes</div>
-                    <div class="kpi-value negative">${formatARS(totalIntPend)}</div>
-                    <div class="kpi-sub">TQN: ${formatARS(pendIntTQN)}${pendIntLMS > 0 ? ' · LMS: ' + formatARS(pendIntLMS) : ''}</div>
+                    <div class="kpi-label">Capital Pendiente Amortizar</div>
+                    <div class="kpi-value negative">${formatARS(pendCap)}</div>
+                    <div class="kpi-sub">${pend.length} cuotas restantes</div>
+                </div>
+                <div class="kpi">
+                    <div class="kpi-label">Intereses Pendientes</div>
+                    <div class="kpi-value negative">${formatARS(pendInt)}</div>
+                    <div class="kpi-sub">Costo financiero futuro</div>
+                </div>
+                <div class="kpi">
+                    <div class="kpi-label">Cuota Total Pendiente</div>
+                    <div class="kpi-value negative">${formatARS(pendCuota)}</div>
+                    <div class="kpi-sub">Cap + Int · Pagado: ${formatARS(paidCuota)}</div>
                 </div>
                 <div class="kpi" style="border-left:3px solid #f0883e">
                     <div class="kpi-label">Deuda ${proxMesLabel} (Toda)</div>
                     <div class="kpi-value negative">${formatARS(proxTotalDeuda)}</div>
-                    <div class="kpi-sub">Banc: ${formatARS(proxCapTQN + proxIntTQN + proxTotalLMS)}${proxGCARS > 0 ? ' · GC: ' + formatARS(proxGCARS) : ''}</div>
+                    <div class="kpi-sub">Banc: ${formatARS(proxRow.cuota)}${proxGCARS > 0 ? ' · GC: ' + formatARS(proxGCARS) : ''}</div>
                 </div>
             `;
 
-            // TQN Table - highlight pending vs paid
-            let html = '<tr><th>Mes</th><th class="text-right">Capital</th><th class="text-right">Intereses</th><th class="text-right">Total</th><th>Estado</th></tr>';
-            bdTQN.forEach(m => {
-                const total = (m.cap || 0) + (m.int || 0);
-                const isPaid = m.mes < hoy;
-                const rowClass = isPaid ? 'row-paid' : '';
-                const badge = isPaid ? '<span class="status-badge pagada">Pagada</span>' : '<span class="status-badge pendiente">Pendiente</span>';
-                html += `<tr class="${rowClass}">
-                    <td>${fmtMonthAR(m.mes)}</td>
-                    <td class="text-right amount negative">${formatARS(m.cap || 0)}</td>
-                    <td class="text-right amount negative">${formatARS(m.int || 0)}</td>
-                    <td class="text-right amount negative">${formatARS(total)}</td>
-                    <td>${badge}</td>
-                </tr>`;
-            });
-            // Add totals row
-            html += `<tr class="total-row">
-                <td><b>PENDIENTE</b></td>
-                <td class="text-right amount negative"><b>${formatARS(pendCapTQN)}</b></td>
-                <td class="text-right amount negative"><b>${formatARS(pendIntTQN)}</b></td>
-                <td class="text-right amount negative"><b>${formatARS(pendCapTQN + pendIntTQN)}</b></td>
-                <td><b>${pendTQN.length} cuotas</b></td>
-            </tr>`;
-            document.getElementById('deudaBancariaTQNTable').innerHTML = html;
+            // Loan cards
+            const cardsEl = document.getElementById('deudaBancariaLoansCards');
+            if (cardsEl) {
+                cardsEl.innerHTML = loans.map((l, idx) => {
+                    const pagado = (l.schedule || []).filter(s => s.mes < hoy).reduce((a, s) => a + (s.capital || 0), 0);
+                    const pendL = (l.schedule || []).filter(s => s.mes >= hoy);
+                    const pendCapL = pendL.reduce((a, s) => a + (s.capital || 0), 0);
+                    const pendIntL = pendL.reduce((a, s) => a + (s.interes || 0), 0);
+                    const pctPag = (l.capital_tomado > 0) ? (pagado / l.capital_tomado * 100) : 0;
+                    const tnaStr = l.tna > 0 ? (l.tna * 100).toFixed(0) + '%' : '—';
+                    return `<div style="background:#161b22;border:1px solid #30363d;border-radius:10px;padding:12px">
+                        <div style="font-weight:700;font-size:13px;color:#58a6ff;margin-bottom:4px">${l.entidad}</div>
+                        <div style="font-size:10px;color:var(--tx2);margin-bottom:8px;min-height:14px">${l.referencia || ''}</div>
+                        <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px"><span>Capital tomado</span><b>${formatARS(l.capital_tomado)}</b></div>
+                        <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px"><span>TNA</span><b>${tnaStr}</b></div>
+                        <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px"><span>Capital pend.</span><b class="negative">${formatARS(pendCapL)}</b></div>
+                        <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:6px"><span>Intereses pend.</span><b class="negative">${formatARS(pendIntL)}</b></div>
+                        <div style="background:#0d1117;border-radius:4px;height:6px;overflow:hidden">
+                            <div style="background:#34d399;height:100%;width:${pctPag.toFixed(1)}%"></div>
+                        </div>
+                        <div style="font-size:10px;color:var(--tx2);text-align:right;margin-top:3px">${pctPag.toFixed(0)}% amortizado</div>
+                    </div>`;
+                }).join('');
+            }
 
-            // LMS Table
-            html = '<tr><th>Mes</th><th class="text-right">Pago</th><th>Estado</th></tr>';
-            bdLMS.forEach(m => {
+            // Consolidated monthly table
+            let html = '<tr><th>Mes</th><th class="text-right">Cuota (Cap+Int)</th><th class="text-right">Solo Capital</th><th class="text-right">Interés</th><th>Estado</th></tr>';
+            monthly.forEach(m => {
                 const isPaid = m.mes < hoy;
                 const badge = isPaid ? '<span class="status-badge pagada">Pagada</span>' : '<span class="status-badge pendiente">Pendiente</span>';
                 html += `<tr class="${isPaid ? 'row-paid' : ''}">
                     <td>${fmtMonthAR(m.mes)}</td>
-                    <td class="text-right amount negative">${formatARS(m.total || 0)}</td>
+                    <td class="text-right amount negative">${formatARS(m.cuota || 0)}</td>
+                    <td class="text-right amount">${formatARS(m.capital || 0)}</td>
+                    <td class="text-right amount negative">${formatARS(m.interes || 0)}</td>
                     <td>${badge}</td>
                 </tr>`;
             });
-            document.getElementById('deudaBancariaLMSTable').innerHTML = html;
+            html += `<tr class="total-row">
+                <td><b>PENDIENTE</b></td>
+                <td class="text-right amount negative"><b>${formatARS(pendCuota)}</b></td>
+                <td class="text-right amount"><b>${formatARS(pendCap)}</b></td>
+                <td class="text-right amount negative"><b>${formatARS(pendInt)}</b></td>
+                <td><b>${pend.length} cuotas</b></td>
+            </tr>`;
+            document.getElementById('deudaBancariaTQNTable').innerHTML = html;
 
-            // Chart - only pending
+            // Loan tabs + per-loan detail table
+            if (typeof APP.deudaLoanIdx !== 'number' || APP.deudaLoanIdx >= loans.length) APP.deudaLoanIdx = 0;
+            const tabsEl = document.getElementById('deudaBancariaLoanTabs');
+            if (tabsEl) {
+                tabsEl.innerHTML = loans.map((l, i) => {
+                    const active = i === APP.deudaLoanIdx;
+                    const style = active
+                        ? 'font-weight:700;border-color:#58a6ff;color:#58a6ff'
+                        : '';
+                    return `<button class="secondary" style="${style}" onclick="deudaSelectLoan(${i})">${l.entidad}</button>`;
+                }).join('');
+            }
+            const sel = loans[APP.deudaLoanIdx];
+            const sched = sel && sel.schedule ? sel.schedule : [];
+            let dhtml = '<tr><th>Mes</th><th class="text-right">Cuota</th><th class="text-right">Capital</th><th class="text-right">Interés</th><th>Estado</th></tr>';
+            sched.forEach(s => {
+                const isPaid = s.mes < hoy;
+                const badge = isPaid ? '<span class="status-badge pagada">Pagada</span>' : '<span class="status-badge pendiente">Pendiente</span>';
+                dhtml += `<tr class="${isPaid ? 'row-paid' : ''}">
+                    <td>${fmtMonthAR(s.mes)}</td>
+                    <td class="text-right amount negative">${formatARS(s.cuota || 0)}</td>
+                    <td class="text-right amount">${formatARS(s.capital || 0)}</td>
+                    <td class="text-right amount negative">${formatARS(s.interes || 0)}</td>
+                    <td>${badge}</td>
+                </tr>`;
+            });
+            if (sel) {
+                dhtml += `<tr class="total-row">
+                    <td><b>TOTAL ${sel.entidad}</b></td>
+                    <td class="text-right amount negative"><b>${formatARS(sel.total_cuota || 0)}</b></td>
+                    <td class="text-right amount"><b>${formatARS(sel.total_capital || 0)}</b></td>
+                    <td class="text-right amount negative"><b>${formatARS(sel.total_interes || 0)}</b></td>
+                    <td></td>
+                </tr>`;
+            }
+            document.getElementById('deudaBancariaLMSTable').innerHTML = dhtml;
+
+            // Chart - cuotas pendientes stacked (solo capital + interés)
             const ctx = document.getElementById('deudaBancariaChart').getContext('2d');
             if (APP.charts.deudaBancaria) APP.charts.deudaBancaria.destroy();
 
             APP.charts.deudaBancaria = new Chart(ctx, {
                 type: 'bar',
                 data: {
-                    labels: pendTQN.map(m => fmtMonthAR(m.mes)),
+                    labels: pend.map(m => fmtMonthAR(m.mes)),
                     datasets: [
-                        {
-                            label: 'Capital Pendiente',
-                            data: pendTQN.map(m => m.cap || 0),
-                            backgroundColor: '#f87171'
-                        },
-                        {
-                            label: 'Intereses Pendientes',
-                            data: pendTQN.map(m => m.int || 0),
-                            backgroundColor: '#fb923c'
-                        }
+                        { label: 'Solo Capital', data: pend.map(m => m.capital || 0), backgroundColor: '#3b82f6' },
+                        { label: 'Intereses', data: pend.map(m => m.interes || 0), backgroundColor: '#fb923c' }
                     ]
                 },
                 options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
+                    responsive: true, maintainAspectRatio: false,
                     plugins: {
-                        title: { display: true, text: 'Cuotas Pendientes TQN', color: '#c9d1d9' },
+                        title: { display: true, text: 'Cuotas pendientes — Capital + Interés', color: '#c9d1d9' },
                         legend: { labels: { color: '#c9d1d9' } }
                     },
                     scales: {
@@ -5452,6 +5538,11 @@
                     }
                 }
             });
+        }
+
+        function deudaSelectLoan(i) {
+            APP.deudaLoanIdx = i;
+            renderDeudaBancaria();
         }
 
         function renderDeudaGC() {
