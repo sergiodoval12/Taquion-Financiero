@@ -1980,7 +1980,7 @@
             try {
                 const resp = await fetch(SHEETS_CONFIG.apiUrl, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
                     body: JSON.stringify(changes)
                 });
                 const result = await resp.json();
@@ -2000,7 +2000,7 @@
             try {
                 await fetch(SHEETS_CONFIG.apiUrl, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
                     body: JSON.stringify({ action: 'add_nomina', rows: [emp] })
                 });
             } catch (e) { console.log('Nomina push failed:', e.message); }
@@ -2011,7 +2011,7 @@
             try {
                 await fetch(SHEETS_CONFIG.apiUrl, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
                     body: JSON.stringify({ action: 'update_nomina', id, fields })
                 });
             } catch (e) { console.log('Nomina update failed:', e.message); }
@@ -2027,7 +2027,7 @@
             try {
                 const resp = await fetch(SHEETS_CONFIG.apiUrl, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
                     body: JSON.stringify({ action: 'seed_nomina', rows: NOMINA })
                 });
                 const result = await resp.json();
