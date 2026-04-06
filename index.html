@@ -744,8 +744,17 @@
                 <div style="display:flex;gap:8px;margin:16px 0;flex-wrap:wrap" id="deudaSubTabs">
                     <button class="secondary" onclick="deudaShowSection('bancaria')" id="deudaTabBancaria" style="font-weight:700;border-color:#58a6ff;color:#58a6ff">Deuda Bancaria</button>
                     <button class="secondary" onclick="deudaShowSection('gc')" id="deudaTabGC">Deuda GC</button>
+                    <button class="secondary" onclick="deudaShowSection('inversiones')" id="deudaTabInversiones" style="border-color:#34d399;color:#34d399">Inversiones SAFE</button>
                     <button class="secondary" onclick="deudaShowSection('simulador')" id="deudaTabSimulador" style="border-color:#fbbf24;color:#fbbf24">Simulador de Deuda</button>
                     <button class="secondary" onclick="deudaShowSection('auditoria')" id="deudaTabAuditoria" style="border-color:#f97316;color:#f97316">Auditoría</button>
+                </div>
+
+                <!-- SECTION: Inversiones SAFE -->
+                <div id="deudaSecInversiones" class="deuda-section" style="display:none">
+                    <div class="reference-banner" style="border-color:#34d399;color:#34d399">
+                        Aportes / SAFE notes de inversores externos. Detectado automáticamente desde BD Movimientos por nombre del inversor + categoría aporte/safe/mutuo.
+                    </div>
+                    <div id="inversionesSAFE" style="margin-top:14px"></div>
                 </div>
 
                 <!-- SECTION: Deuda Bancaria -->
@@ -1016,13 +1025,14 @@
                 <div style="display:flex;gap:12px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
                     <label style="font-size:11px;color:var(--tx2)">Período:</label>
                     <select id="compPeriodo" onchange="compPeriodoChanged()" style="background:#161b22;border:1px solid #30363d;color:#e6edf3;padding:4px 8px;border-radius:4px;font-size:11px">
+                        <option value="snapshot" selected>Snapshot (mes anterior + actual + próximo + YoY)</option>
                         <option value="all">Todo el historial</option>
                         <option value="mes">Por Mes</option>
                         <option value="2026">2026</option>
                         <option value="2025">2025</option>
                         <option value="2024">2024</option>
                         <option value="2026-Q1">2026 Q1 (Ene-Mar)</option>
-                        <option value="2026-Q2" selected>2026 Q2 (Abr-Jun)</option>
+                        <option value="2026-Q2">2026 Q2 (Abr-Jun)</option>
                         <option value="last6">Últimos 6 meses</option>
                         <option value="last3">Últimos 3 meses</option>
                         <option value="proyectado">Solo Proyectado</option>
@@ -1042,6 +1052,8 @@
                 </div>
 
                 <div class="kpi-grid" id="compKPIs"></div>
+                <div id="compAnualYoY" style="margin-bottom:18px"></div>
+                <div id="compSnapshot" style="margin-bottom:18px"></div>
 
                 <!-- Charts row -->
                 <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:18px">
@@ -1614,6 +1626,66 @@
         }
         function isIndustria(name) {
             return INDUSTRIAS_LIST.indexOf(String(name || '').trim()) >= 0;
+        }
+
+        // ========= INFLACIÓN INDEC (IPC mensual %) =========
+        // Variación mensual del Nivel General. Fuente: INDEC.
+        // 2026 son estimaciones (BCRA REM); reemplazar por reales cuando se publiquen.
+        const INDEC_MONTHLY = {
+            '2024-01': 20.6, '2024-02': 13.2, '2024-03': 11.0, '2024-04': 8.8,
+            '2024-05': 4.2,  '2024-06': 4.6,  '2024-07': 4.0,  '2024-08': 4.2,
+            '2024-09': 3.5,  '2024-10': 2.7,  '2024-11': 2.4,  '2024-12': 2.7,
+            '2025-01': 2.2,  '2025-02': 2.4,  '2025-03': 3.7,  '2025-04': 2.8,
+            '2025-05': 1.5,  '2025-06': 1.6,  '2025-07': 1.9,  '2025-08': 1.9,
+            '2025-09': 2.1,  '2025-10': 2.3,  '2025-11': 2.2,  '2025-12': 2.4,
+            '2026-01': 2.2,  '2026-02': 2.1,  '2026-03': 2.0,  '2026-04': 1.9,
+            '2026-05': 1.8,  '2026-06': 1.8,  '2026-07': 1.7,  '2026-08': 1.7,
+            '2026-09': 1.6,  '2026-10': 1.6,  '2026-11': 1.5,  '2026-12': 1.5
+        };
+        // Devuelve factor para llevar un valor de fromMonth a toMonth (toMonth >= fromMonth → factor > 1).
+        // Aplica IPC compuesto de los meses estrictamente posteriores a fromMonth, hasta toMonth inclusive.
+        function inflationFactor(fromMonth, toMonth) {
+            if (!fromMonth || !toMonth || fromMonth === toMonth) return 1;
+            const reverse = fromMonth > toMonth;
+            const a = reverse ? toMonth : fromMonth;
+            const b = reverse ? fromMonth : toMonth;
+            const keys = Object.keys(INDEC_MONTHLY).sort();
+            let f = 1;
+            for (const k of keys) {
+                if (k > a && k <= b) f *= (1 + INDEC_MONTHLY[k] / 100);
+            }
+            return reverse ? (1 / f) : f;
+        }
+        // Lleva un valor histórico de origMonth a pesos del targetMonth (default: mes actual).
+        function deflate(value, origMonth, targetMonth) {
+            if (!targetMonth) targetMonth = new Date().toISOString().slice(0, 7);
+            return (value || 0) * inflationFactor(origMonth, targetMonth);
+        }
+        // Helpers de quarters
+        function ymToQuarter(ym) {
+            if (!ym) return '';
+            const [y, m] = ym.split('-').map(Number);
+            return y + '-Q' + Math.ceil(m / 3);
+        }
+        function quarterMonths(qStr) {
+            // '2026-Q2' → ['2026-04','2026-05','2026-06']
+            const [y, q] = qStr.split('-Q').map(Number);
+            const start = (q - 1) * 3 + 1;
+            return [0, 1, 2].map(i => y + '-' + String(start + i).padStart(2, '0'));
+        }
+        function shiftQuarter(qStr, n) {
+            const [y, q] = qStr.split('-Q').map(Number);
+            let nq = q + n, ny = y;
+            while (nq > 4) { nq -= 4; ny += 1; }
+            while (nq < 1) { nq += 4; ny -= 1; }
+            return ny + '-Q' + nq;
+        }
+        function quarterMidMonth(qStr) {
+            const ms = quarterMonths(qStr);
+            return ms[1]; // mes del medio del trimestre
+        }
+        function currentQuarter() {
+            return ymToQuarter(new Date().toISOString().slice(0, 7));
         }
 
         // ========= CFO AUTHORIZATION =========
@@ -4243,23 +4315,38 @@
             const pendGC = (DATA.gc_term&&DATA.gc_term.resumen) ? DATA.gc_term.resumen.pendiente_usd : 0;
             const tcDash = MEP.rate;
 
+            // === Vista Trimestral comparativa ===
+            const curQDash = currentQuarter();
+            const qSeriesDash = [-1, 0, 1, 2, 3, 4].map(d => shiftQuarter(curQDash, d));
+            const targetMonthDash = new Date().toISOString().slice(0, 7);
+            // Build quick lookup from DATA.q (q.q is YYYY-MM of first month of quarter)
+            const qLookup = {};
+            (DATA.q || []).forEach(q => {
+                const qKey = ymToQuarter(q.q);
+                qLookup[qKey] = q;
+            });
+            function deflateQDash(value, qStr) {
+                return deflate(value, quarterMidMonth(qStr), targetMonthDash);
+            }
+            function yoyArrowDash(curVal, prevValDef) {
+                if (!prevValDef || prevValDef === 0) return '<span style="color:#8b949e">—</span>';
+                const pct = ((curVal - prevValDef) / Math.abs(prevValDef)) * 100;
+                const up = pct >= 0;
+                const color = up ? '#34d399' : '#f87171';
+                return `<span style="color:${color};font-size:10px;font-weight:700">${up?'▲':'▼'} ${Math.abs(pct).toFixed(0)}%</span>`;
+            }
+            function getQVal(q, metric) {
+                if (!q) return 0;
+                if (metric === 'ing') return (q.ib || 0) + (q.in || 0);
+                if (metric === 'egr') return (q.eb || 0) + (q.en_ || 0);
+                return ((q.ib || 0) + (q.in || 0)) + ((q.eb || 0) + (q.en_ || 0));
+            }
+
             document.getElementById('dashboardKPIs').innerHTML = `
-                <div class="kpi" style="border-left:3px solid ${saldoOp >= 0 ? 'var(--gn)' : 'var(--rd)'}">
+                <div class="kpi" style="border-left:3px solid ${saldoOp >= 0 ? 'var(--gn)' : 'var(--rd)'};grid-column:span 2">
                     <div class="kpi-label">Saldo Operación Proyectado</div>
                     <div class="kpi-value ${saldoOp >= 0 ? 'positive' : 'negative'}">${formatARS(saldoOp)}</div>
                     <div class="kpi-sub">${formatARS(saldoOp / opMonths)}/mes | Sin aportes ni deuda</div>
-                </div>
-                <div class="kpi">
-                    <div class="kpi-label">Ingresos (Último Trim.)</div>
-                    <div class="kpi-value positive">${formatARS(totalIncome)}</div>
-                </div>
-                <div class="kpi">
-                    <div class="kpi-label">Gastos (Último Trim.)</div>
-                    <div class="kpi-value negative">${formatARS(totalExpense)}</div>
-                </div>
-                <div class="kpi">
-                    <div class="kpi-label">Flujo Neto (Último Trim.)</div>
-                    <div class="kpi-value ${getValueClass(netFlow)}">${formatARS(netFlow)}</div>
                 </div>
                 <div class="kpi">
                     <div class="kpi-label">Deuda Bancaria Pendiente</div>
@@ -4270,6 +4357,27 @@
                     <div class="kpi-label">Deuda GC Pendiente</div>
                     <div class="kpi-value negative">${formatUSD(pendGC)}</div>
                     <div class="kpi-sub">≈ ${formatARS(pendGC * tcDash)}</div>
+                </div>
+                <div style="grid-column:1/-1;background:#0d1117;border:1px solid #30363d;border-radius:10px;padding:14px">
+                    <div style="font-size:12px;color:var(--tx2);margin-bottom:8px">Vista Trimestral · ARS deflado al ${targetMonthDash} (INDEC) · YoY vs mismo Q año anterior</div>
+                    <div style="overflow-x:auto"><table style="width:100%;font-size:11px;border-collapse:collapse">
+                        <tr style="border-bottom:1px solid #30363d"><th style="text-align:left;padding:6px"></th>${qSeriesDash.map(q => `<th style="text-align:right;padding:6px;${q===curQDash?'background:#161b22;color:#58a6ff':''}">${q}${q===curQDash?' (actual)':''}</th>`).join('')}</tr>
+                        ${[['ing','Ingresos','positive'],['egr','Egresos','negative'],['net','Neto',null]].map(([metric, label]) => {
+                            return `<tr style="border-bottom:1px solid #21262d"><td style="padding:6px;font-weight:600">${label}</td>${qSeriesDash.map(q => {
+                                const qData = qLookup[q];
+                                const val = getQVal(qData, metric);
+                                const prevQ = shiftQuarter(q, -4);
+                                const prevData = qLookup[prevQ];
+                                const prevRaw = getQVal(prevData, metric);
+                                const prevDef = deflateQDash(prevRaw, prevQ);
+                                const cls = metric === 'net' ? (val >= 0 ? 'positive' : 'negative') : (metric === 'ing' ? 'positive' : 'negative');
+                                return `<td style="text-align:right;padding:6px;${q===curQDash?'background:#161b22':''}">
+                                    <div class="${cls}" style="font-weight:700">${formatARS(val)}</div>
+                                    <div style="font-size:9px">${yoyArrowDash(metric==='egr'?Math.abs(val):val, metric==='egr'?Math.abs(prevDef):prevDef)} <span style="color:#6e7681">vs ${formatARS(prevDef)}</span></div>
+                                </td>`;
+                            }).join('')}</tr>`;
+                        }).join('')}
+                    </table></div>
                 </div>
             `;
 
@@ -4861,6 +4969,14 @@
             const ccSoporteIngTotals = {}; // CCs soporte que generan ingreso (raro, p.ej. Estructura)
             const ingSinTagTotal = { v: 0, n: 0 };
             const egrSinTagTotal = { v: 0, n: 0 };
+            // === Quarterly aggregations (current Q + prior year same Q for YoY) ===
+            // qBAU[q] = { ing, egr }
+            // qCC[q][cc] = { ing, egr, n }
+            // qInd[q][industria] = { v, n }
+            const qBAU = {};
+            const qCC = {};
+            const qSop = {};
+            const qInd = {};
 
             mov.forEach((m, movIdx) => {
                 // === REGLA #1: excluir todo lo que sea CC=Financiero ===
@@ -4879,6 +4995,10 @@
                 const v = m.v || 0;
                 if (v >= 0) monthlyBAU[mes].ing += v;
                 else monthlyBAU[mes].egr += v;
+                // Quarterly bucket
+                const qKey = ymToQuarter(mes);
+                if (!qBAU[qKey]) qBAU[qKey] = { ing: 0, egr: 0, _mes: mes };
+                if (v >= 0) qBAU[qKey].ing += v; else qBAU[qKey].egr += v;
 
                 // Store detail with mov index for direct editing
                 if (!BAU_DETAIL[mes]) BAU_DETAIL[mes] = { ingresos: [], egresos: [], totalIng: 0, totalEgr: 0 };
@@ -4891,9 +5011,15 @@
                     if (isIndustria(cc)) {
                         if (!indTotals[cc]) indTotals[cc] = { v: 0, n: 0 };
                         indTotals[cc].v += v; indTotals[cc].n += 1;
+                        if (!qInd[qKey]) qInd[qKey] = {};
+                        if (!qInd[qKey][cc]) qInd[qKey][cc] = { v: 0, n: 0, _mes: mes };
+                        qInd[qKey][cc].v += v; qInd[qKey][cc].n += 1;
                     } else if (CC_VENDIBLES.indexOf(cc) >= 0) {
                         if (!ccTotals[cc]) ccTotals[cc] = { v: 0, n: 0, ing: 0, egr: 0 };
                         ccTotals[cc].ing += v; ccTotals[cc].n += 1;
+                        if (!qCC[qKey]) qCC[qKey] = {};
+                        if (!qCC[qKey][cc]) qCC[qKey][cc] = { ing: 0, egr: 0, n: 0, _mes: mes };
+                        qCC[qKey][cc].ing += v; qCC[qKey][cc].n += 1;
                     } else if (CC_SOPORTE.indexOf(cc) >= 0) {
                         if (!ccSoporteIngTotals[cc]) ccSoporteIngTotals[cc] = { v: 0, n: 0 };
                         ccSoporteIngTotals[cc].v += v; ccSoporteIngTotals[cc].n += 1;
@@ -4907,75 +5033,122 @@
                     if (CC_VENDIBLES.indexOf(cc) >= 0) {
                         if (!ccTotals[cc]) ccTotals[cc] = { v: 0, n: 0, ing: 0, egr: 0 };
                         ccTotals[cc].egr += v; ccTotals[cc].n += 1;
+                        if (!qCC[qKey]) qCC[qKey] = {};
+                        if (!qCC[qKey][cc]) qCC[qKey][cc] = { ing: 0, egr: 0, n: 0, _mes: mes };
+                        qCC[qKey][cc].egr += v; qCC[qKey][cc].n += 1;
                     } else if (CC_SOPORTE.indexOf(cc) >= 0) {
                         if (!ccSoporteTotals[cc]) ccSoporteTotals[cc] = { v: 0, n: 0 };
                         ccSoporteTotals[cc].v += v; ccSoporteTotals[cc].n += 1;
+                        if (!qSop[qKey]) qSop[qKey] = {};
+                        if (!qSop[qKey][cc]) qSop[qKey][cc] = { v: 0, n: 0, _mes: mes };
+                        qSop[qKey][cc].v += v; qSop[qKey][cc].n += 1;
                     } else {
                         egrSinTagTotal.v += v; egrSinTagTotal.n += 1;
                     }
                 }
             });
 
-            // === Render: KPIs + breakdown by CC vendible + breakdown by Industria ===
-            const totalIngBAU = Object.values(monthlyBAU).reduce((s, d) => s + d.ing, 0);
-            const totalEgrBAU = Object.values(monthlyBAU).reduce((s, d) => s + d.egr, 0);
-            const netBAU = totalIngBAU + totalEgrBAU;
+            // === Render: Vista trimestral (Q-1, Q, Q+1..Q+4) con YoY deflado ===
+            const curQ = currentQuarter();
+            const qSeries = [-1, 0, 1, 2, 3, 4].map(d => shiftQuarter(curQ, d));
+            const targetMonth = new Date().toISOString().slice(0, 7);
+            // Helper: deflate a quarter total (using mid-month of source quarter to current month)
+            function deflateQ(value, qStr) {
+                return deflate(value, quarterMidMonth(qStr), targetMonth);
+            }
+            function yoyArrow(curVal, prevValDeflated) {
+                if (!prevValDeflated || prevValDeflated === 0) return '<span style="color:#8b949e">—</span>';
+                const pct = ((curVal - prevValDeflated) / Math.abs(prevValDeflated)) * 100;
+                const up = pct >= 0;
+                const color = up ? '#34d399' : '#f87171';
+                const arrow = up ? '▲' : '▼';
+                return `<span style="color:${color};font-size:10px;font-weight:700">${arrow} ${Math.abs(pct).toFixed(0)}%</span>`;
+            }
             const opKPIsEl = document.getElementById('operacionKPIs');
             if (opKPIsEl) {
-                opKPIsEl.innerHTML = `
-                    <div class="kpi"><div class="kpi-label">Ingresos BAU (acumulado)</div><div class="kpi-value positive">${formatARS(totalIngBAU)}</div><div class="kpi-sub">${Object.values(BAU_DETAIL).reduce((s,d)=>s+d.ingresos.length,0)} movs</div></div>
-                    <div class="kpi"><div class="kpi-label">Egresos BAU (acumulado)</div><div class="kpi-value negative">${formatARS(totalEgrBAU)}</div><div class="kpi-sub">${Object.values(BAU_DETAIL).reduce((s,d)=>s+d.egresos.length,0)} movs</div></div>
-                    <div class="kpi"><div class="kpi-label">Neto BAU</div><div class="kpi-value ${netBAU>=0?'positive':'negative'}">${formatARS(netBAU)}</div><div class="kpi-sub">Sin Financiero</div></div>
-                `;
+                opKPIsEl.innerHTML = `<div style="grid-column:1/-1;background:#0d1117;border:1px solid #30363d;border-radius:10px;padding:14px">
+                    <div style="font-size:12px;color:var(--tx2);margin-bottom:8px">Vista Trimestral BAU · ARS deflado al ${targetMonth} (INDEC) · YoY vs mismo Q año anterior</div>
+                    <div style="overflow-x:auto"><table style="width:100%;font-size:11px;border-collapse:collapse">
+                        <tr style="border-bottom:1px solid #30363d"><th style="text-align:left;padding:6px"></th>${qSeries.map(q => `<th style="text-align:right;padding:6px;${q===curQ?'background:#161b22;color:#58a6ff':''}">${q}${q===curQ?' (actual)':''}</th>`).join('')}</tr>
+                        ${['ing','egr','net'].map(metric => {
+                            const labels = { ing: 'Ingresos', egr: 'Egresos', net: 'Neto' };
+                            const colors = { ing: 'positive', egr: 'negative', net: '' };
+                            return `<tr style="border-bottom:1px solid #21262d"><td style="padding:6px;font-weight:600">${labels[metric]}</td>${qSeries.map(q => {
+                                const d = qBAU[q] || { ing: 0, egr: 0 };
+                                const val = metric === 'net' ? (d.ing + d.egr) : d[metric];
+                                const prevQ = shiftQuarter(q, -4);
+                                const dPrev = qBAU[prevQ] || { ing: 0, egr: 0 };
+                                const prevRaw = metric === 'net' ? (dPrev.ing + dPrev.egr) : dPrev[metric];
+                                const prevDef = deflateQ(prevRaw, prevQ);
+                                const cls = metric === 'net' ? (val >= 0 ? 'positive' : 'negative') : colors[metric];
+                                return `<td style="text-align:right;padding:6px;${q===curQ?'background:#161b22':''}">
+                                    <div class="${cls}" style="font-weight:700">${formatARS(val)}</div>
+                                    <div style="font-size:9px">${yoyArrow(val, prevDef)} <span style="color:#6e7681">vs ${formatARS(prevDef)}</span></div>
+                                </td>`;
+                            }).join('')}</tr>`;
+                        }).join('')}
+                    </table></div>
+                </div>`;
             }
 
-            // Vendibles cards (revenue centers)
+            // === Vendibles cards: comparativa Q actual vs Q-1 vs YoY (deflado) ===
+            const prevQ = shiftQuarter(curQ, -1);
+            const yoyQ = shiftQuarter(curQ, -4);
             const vendCards = document.getElementById('opVendiblesCards');
             if (vendCards) {
-                const totalEgrVend = CC_VENDIBLES.reduce((s,c)=>s + (ccTotals[c]?.egr || 0), 0);
                 vendCards.innerHTML = CC_VENDIBLES.map(cc => {
-                    const d = ccTotals[cc] || { ing: 0, egr: 0, n: 0 };
-                    const margen = d.ing + d.egr; // egr es neg
-                    const pctEgr = totalEgrVend !== 0 ? (Math.abs(d.egr) / Math.abs(totalEgrVend) * 100) : 0;
+                    const cur = (qCC[curQ] && qCC[curQ][cc]) || { ing: 0, egr: 0, n: 0 };
+                    const yoy = (qCC[yoyQ] && qCC[yoyQ][cc]) || { ing: 0, egr: 0, n: 0 };
+                    const yoyEgrDef = deflateQ(yoy.egr, yoyQ);
+                    const yoyIngDef = deflateQ(yoy.ing, yoyQ);
+                    const margenCur = cur.ing + cur.egr;
                     return `<div style="background:#0d1117;border:1px solid #30363d;border-left:3px solid ${CC_COLORS[cc]};border-radius:8px;padding:10px">
-                        <div style="font-weight:700;color:${CC_COLORS[cc]};font-size:12px;margin-bottom:6px">${cc}</div>
-                        <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--tx2)"><span>Ingresos</span><b class="positive">${formatARS(d.ing)}</b></div>
-                        <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--tx2)"><span>Egresos</span><b class="negative">${formatARS(d.egr)}</b></div>
-                        <div style="display:flex;justify-content:space-between;font-size:11px;border-top:1px solid #30363d;padding-top:4px;margin-top:4px"><span><b>Margen</b></span><b class="${margen>=0?'positive':'negative'}">${formatARS(margen)}</b></div>
-                        <div style="font-size:9px;color:var(--tx2);margin-top:3px">${d.n} movs · ${pctEgr.toFixed(0)}% del egreso vendible</div>
+                        <div style="font-weight:700;color:${CC_COLORS[cc]};font-size:12px;margin-bottom:6px">${cc} <span style="font-size:9px;color:var(--tx2);font-weight:400">${curQ}</span></div>
+                        <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--tx2)"><span>Ingresos</span><b class="positive">${formatARS(cur.ing)}</b></div>
+                        <div style="font-size:9px;text-align:right;margin-bottom:2px">${yoyArrow(cur.ing, yoyIngDef)} vs ${formatARS(yoyIngDef)}</div>
+                        <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--tx2)"><span>Egresos</span><b class="negative">${formatARS(cur.egr)}</b></div>
+                        <div style="font-size:9px;text-align:right;margin-bottom:2px">${yoyArrow(Math.abs(cur.egr), Math.abs(yoyEgrDef))} vs ${formatARS(yoyEgrDef)}</div>
+                        <div style="display:flex;justify-content:space-between;font-size:11px;border-top:1px solid #30363d;padding-top:4px;margin-top:4px"><span><b>Margen</b></span><b class="${margenCur>=0?'positive':'negative'}">${formatARS(margenCur)}</b></div>
+                        <div style="font-size:9px;color:var(--tx2);margin-top:3px">${cur.n} movs en ${curQ}</div>
                     </div>`;
                 }).join('');
             }
 
-            // Soporte cards (cost centers, sin Financiero)
+            // === Soporte (Egresos) cards: comparativa Q actual vs YoY deflado ===
             const sopCards = document.getElementById('opSoporteCards');
             if (sopCards) {
                 const visibles = CC_SOPORTE.filter(c => CC_NO_BAU.indexOf(c) < 0);
                 sopCards.innerHTML = visibles.map(cc => {
-                    const d = ccSoporteTotals[cc] || { v: 0, n: 0 };
+                    const cur = (qSop[curQ] && qSop[curQ][cc]) || { v: 0, n: 0 };
+                    const yoy = (qSop[yoyQ] && qSop[yoyQ][cc]) || { v: 0, n: 0 };
+                    const yoyDef = deflateQ(yoy.v, yoyQ);
                     return `<div style="background:#0d1117;border:1px solid #30363d;border-left:3px solid ${CC_COLORS[cc]};border-radius:8px;padding:10px">
-                        <div style="font-weight:700;color:${CC_COLORS[cc]};font-size:11px;margin-bottom:6px">${cc}</div>
-                        <div class="negative" style="font-size:14px;font-weight:700">${formatARS(d.v)}</div>
-                        <div style="font-size:9px;color:var(--tx2);margin-top:3px">${d.n} movs</div>
+                        <div style="font-weight:700;color:${CC_COLORS[cc]};font-size:11px;margin-bottom:6px">${cc} <span style="font-size:9px;color:var(--tx2);font-weight:400">${curQ}</span></div>
+                        <div class="negative" style="font-size:14px;font-weight:700">${formatARS(cur.v)}</div>
+                        <div style="font-size:9px;margin-top:3px">${yoyArrow(Math.abs(cur.v), Math.abs(yoyDef))} <span style="color:var(--tx2)">vs ${formatARS(yoyDef)}</span></div>
+                        <div style="font-size:9px;color:var(--tx2);margin-top:2px">${cur.n} movs</div>
                     </div>`;
                 }).join('');
             }
 
-            // Industrias cards (verticales de ingreso)
+            // === Industrias cards: comparativa Q actual vs YoY deflado ===
             const indCards = document.getElementById('opIndustriasCards');
             if (indCards) {
-                const totalInd = INDUSTRIAS_LIST.reduce((s,i)=>s + (indTotals[i]?.v || 0), 0);
+                const totalIndCur = INDUSTRIAS_LIST.reduce((s,i)=> s + ((qInd[curQ] && qInd[curQ][i]?.v) || 0), 0);
                 indCards.innerHTML = INDUSTRIAS_LIST.map(ind => {
-                    const d = indTotals[ind] || { v: 0, n: 0 };
-                    const pct = totalInd > 0 ? (d.v / totalInd * 100) : 0;
+                    const cur = (qInd[curQ] && qInd[curQ][ind]) || { v: 0, n: 0 };
+                    const yoy = (qInd[yoyQ] && qInd[yoyQ][ind]) || { v: 0, n: 0 };
+                    const yoyDef = deflateQ(yoy.v, yoyQ);
+                    const pct = totalIndCur > 0 ? (cur.v / totalIndCur * 100) : 0;
                     const color = INDUSTRIA_COLORS[ind] || '#58a6ff';
                     return `<div style="background:#0d1117;border:1px solid #30363d;border-left:3px solid ${color};border-radius:8px;padding:10px">
-                        <div style="font-weight:700;color:${color};font-size:11px;margin-bottom:6px">${ind}</div>
-                        <div class="positive" style="font-size:14px;font-weight:700">${formatARS(d.v)}</div>
+                        <div style="font-weight:700;color:${color};font-size:11px;margin-bottom:6px">${ind} <span style="font-size:9px;color:var(--tx2);font-weight:400">${curQ}</span></div>
+                        <div class="positive" style="font-size:14px;font-weight:700">${formatARS(cur.v)}</div>
+                        <div style="font-size:9px;margin-top:3px">${yoyArrow(cur.v, yoyDef)} <span style="color:var(--tx2)">vs ${formatARS(yoyDef)}</span></div>
                         <div style="background:#161b22;height:4px;border-radius:2px;margin-top:4px;overflow:hidden">
                             <div style="background:${color};height:100%;width:${pct.toFixed(1)}%"></div>
                         </div>
-                        <div style="font-size:9px;color:var(--tx2);margin-top:3px">${d.n} movs · ${pct.toFixed(0)}% del ingreso vertical</div>
+                        <div style="font-size:9px;color:var(--tx2);margin-top:3px">${cur.n} movs · ${pct.toFixed(0)}% del Q</div>
                     </div>`;
                 }).join('');
                 // Untagged warning
@@ -5112,15 +5285,29 @@
         }
 
         function renderDeudaConsolidadaKPIs() {
-            const bdTQN = DATA.bd || [];
-            const bdLMS = DATA.bdl || [];
             const hoyStr = new Date().toISOString().slice(0, 7); // 'YYYY-MM'
+            // PRIMARY SOURCE: DATA.mov (SOT). Sum cuotas futuras de Préstamos Bancarios.
+            const movPrestamos = (DATA.mov || []).filter(m =>
+                m.t === 'Préstamos Bancarios' && m.f && m.f >= hoyStr + '-01'
+            );
+            const pendBancariaSOT = movPrestamos.reduce((s, m) => s + Math.abs(m.v || 0), 0);
+            const cuotasBancariaSOT = movPrestamos.length;
+
+            // Cross-check: bd_monthly (parsed from sheet "Deuda Bancaria")
+            const bdMonthly = DATA.bd_monthly && DATA.bd_monthly.length
+                ? DATA.bd_monthly
+                : (DATA.bd || []).map(m => ({ mes: m.mes, cuota: (m.cap||0)+(m.int||0), capital: m.cap||0, interes: m.int||0 }));
+            const pendMonthly = bdMonthly.filter(m => m.mes >= hoyStr);
+            const pendCapTQN = pendMonthly.reduce((s, m) => s + (m.capital || 0), 0);
+            const pendIntTQN = pendMonthly.reduce((s, m) => s + (m.interes || 0), 0);
+            const pendCuotaSheet = pendMonthly.reduce((s, m) => s + (m.cuota || 0), 0);
+            // Use the larger of (mov SOT, sheet schedule) — protects against parser losing rows
+            const pendBancariaTotal = Math.max(pendBancariaSOT, pendCuotaSheet);
+            const pendLMSTotal = 0;
+            const pendLMS = [];
+            // mantener referencias legacy
+            const bdTQN = DATA.bd || [];
             const pendTQN = bdTQN.filter(m => m.mes >= hoyStr);
-            const pendLMS = bdLMS.filter(m => m.mes >= hoyStr);
-            const pendCapTQN = pendTQN.reduce((s, m) => s + (m.cap || 0), 0);
-            const pendIntTQN = pendTQN.reduce((s, m) => s + (m.int || 0), 0);
-            const pendLMSTotal = pendLMS.reduce((s, m) => s + (m.total || 0), 0);
-            const pendLMSCap = pendLMS.reduce((s, m) => s + (m.cap || m.total || 0), 0);
 
             // GC: recalculate from schedule — use pagada flag + dynamic cross-check with DATA.mov
             const gcTerm = DATA.gc_term || {};
@@ -5140,16 +5327,20 @@
             const gcPendUSD = gcPendientes.reduce((s, c) => s + (c.usd || 0), 0);
             const gcPendARS = gcPendUSD * tc;
 
-            // Cuota mes en curso: todo lo que vence ESTE mes entre las 3 deudas
-            const cuotaMesTQN = bdTQN.filter(m => m.mes === hoyStr);
-            const cuotaMesLMS = bdLMS.filter(m => m.mes === hoyStr);
+            // Cuota mes en curso: SOT primero (DATA.mov), fallback al schedule
+            const movMesPrestamos = (DATA.mov || []).filter(m =>
+                m.t === 'Préstamos Bancarios' && m.f && m.f.slice(0, 7) === hoyStr
+            );
+            const mesTotalBancariaSOT = movMesPrestamos.reduce((s, m) => s + Math.abs(m.v || 0), 0);
+            const cuotaMesSheet = bdMonthly.filter(m => m.mes === hoyStr);
+            const mesCapTQN = cuotaMesSheet.reduce((s, m) => s + (m.capital || 0), 0);
+            const mesIntTQN = cuotaMesSheet.reduce((s, m) => s + (m.interes || 0), 0);
+            const mesTotalSheet = mesCapTQN + mesIntTQN;
+            const mesTotalTQN = Math.max(mesTotalBancariaSOT, mesTotalSheet);
+            const mesTotalLMS = 0;
             const cuotaMesGC = gcPendientes.filter(c => (c.fecha || '').slice(0,7) === hoyStr);
-            const mesCapTQN = cuotaMesTQN.reduce((s, m) => s + (m.cap || 0), 0);
-            const mesIntTQN = cuotaMesTQN.reduce((s, m) => s + (m.int || 0), 0);
-            const mesTotalTQN = mesCapTQN + mesIntTQN;
-            const mesTotalLMS = cuotaMesLMS.reduce((s, m) => s + (m.total || 0), 0);
             const mesTotalGC = cuotaMesGC.reduce((s, c) => s + ((c.usd || 0) * tc), 0);
-            const mesTotalDeuda = mesTotalTQN + mesTotalLMS + mesTotalGC;
+            const mesTotalDeuda = mesTotalTQN + mesTotalGC;
 
             const mNames = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
             const [hoyY, hoyM] = hoyStr.split('-');
@@ -5159,12 +5350,12 @@
                 <div class="kpi" style="border-left:3px solid #f0883e">
                     <div class="kpi-label">Egreso Deuda ${mesLabel}</div>
                     <div class="kpi-value negative">${formatARS(mesTotalDeuda)}</div>
-                    <div class="kpi-sub">Banc: ${formatARS(mesTotalTQN + mesTotalLMS)} · GC: ${formatARS(mesTotalGC)}</div>
+                    <div class="kpi-sub">Banc: ${formatARS(mesTotalTQN)} · GC: ${formatARS(mesTotalGC)}</div>
                 </div>
                 <div class="kpi">
-                    <div class="kpi-label">Saldo Deuda TQN + LMS con Intereses</div>
-                    <div class="kpi-value negative">${formatARS(pendCapTQN + pendIntTQN + pendLMSTotal)}</div>
-                    <div class="kpi-sub">Cap: ${formatARS(pendCapTQN + pendLMSTotal)} · Int: ${formatARS(pendIntTQN)} · ${pendTQN.length + pendLMS.length} cuotas</div>
+                    <div class="kpi-label">Saldo Deuda Bancaria (Cuotas Pendientes)</div>
+                    <div class="kpi-value negative">${formatARS(pendBancariaTotal)}</div>
+                    <div class="kpi-sub">SOT: ${formatARS(pendBancariaSOT)} · Sheet: ${formatARS(pendCuotaSheet)} · ${cuotasBancariaSOT} cuotas</div>
                 </div>
                 <div class="kpi">
                     <div class="kpi-label">Saldo Deuda GC</div>
@@ -5172,6 +5363,92 @@
                     <div class="kpi-sub">≈ ${formatARS(gcPendARS)} · TC ${tc.toLocaleString('es-AR')} · ${gcPendientes.length} cuotas</div>
                 </div>
             `;
+
+            // === INVERSIONES SAFE (renderInversionesSAFE inline) ===
+            renderInversionesSAFE();
+        }
+
+        // ========= INVERSIONES SAFE =========
+        // Detecta aportes / SAFE notes en DATA.mov por nombre y los agrupa por inversor
+        function renderInversionesSAFE() {
+            const el = document.getElementById('inversionesSAFE');
+            if (!el) return;
+            const tc = parseFloat(document.getElementById('tcUSD')?.value) || MEP.rate;
+            // Buscar movimientos clasificables como aporte/SAFE de los 3 inversores
+            const inversores = [
+                { key: 'lajst', label: 'Diego Lajst', color: '#a78bfa', regex: /lajst/i },
+                { key: 'pascual', label: 'Gonzalo Pascual Merlo', color: '#34d399', regex: /pascual\s*merlo|pascual/i },
+                { key: 'natale', label: 'Guillermo Natale', color: '#fbbf24', regex: /natale/i }
+            ];
+            const movs = (DATA.mov || []).filter(m => {
+                if (!m || m.bn !== 'B') return false;
+                const cat = String(m.c || '').toLowerCase();
+                const tipo = String(m.t || '').toLowerCase();
+                const obs = String(m.o || '').toLowerCase();
+                const ent = String(m.i || '').toLowerCase();
+                const det = String(m.d || '').toLowerCase();
+                const haystack = cat + ' ' + tipo + ' ' + obs + ' ' + ent + ' ' + det;
+                const isAporte = /aporte|safe|mutuo|inversor/i.test(haystack);
+                if (!isAporte) return false;
+                return inversores.some(inv => inv.regex.test(haystack));
+            });
+
+            const grouped = {};
+            inversores.forEach(inv => { grouped[inv.key] = { ...inv, items: [], totalARS: 0, totalUSD: 0 }; });
+
+            movs.forEach(m => {
+                const haystack = (String(m.c||'')+' '+String(m.t||'')+' '+String(m.o||'')+' '+String(m.i||'')+' '+String(m.d||'')).toLowerCase();
+                const inv = inversores.find(i => i.regex.test(haystack));
+                if (!inv) return;
+                const valARS = Math.abs(m.v || 0);
+                const valUSD = m.moneda === 'USD' ? Math.abs(m.mo || 0) : (m.tc ? valARS / m.tc : valARS / tc);
+                grouped[inv.key].items.push({ fecha: m.f, ars: valARS, usd: valUSD, moneda: m.moneda || 'ARS', estado: m.eo, obs: m.o || m.d || '' });
+                grouped[inv.key].totalARS += valARS;
+                grouped[inv.key].totalUSD += valUSD;
+            });
+
+            const totalARS = Object.values(grouped).reduce((s, g) => s + g.totalARS, 0);
+            const totalUSD = Object.values(grouped).reduce((s, g) => s + g.totalUSD, 0);
+
+            let html = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:14px">`;
+            Object.values(grouped).forEach(g => {
+                html += `<div style="background:#161b22;border:1px solid #30363d;border-left:3px solid ${g.color};border-radius:10px;padding:12px">
+                    <div style="font-size:12px;font-weight:700;color:${g.color};margin-bottom:6px">${g.label}</div>
+                    <div style="font-size:18px;font-weight:700;color:#34d399">${formatARS(g.totalARS)}</div>
+                    <div style="font-size:11px;color:var(--tx2);margin-top:2px">≈ ${formatUSD(g.totalUSD)} · ${g.items.length} aportes</div>
+                </div>`;
+            });
+            html += `<div style="background:#0d1117;border:1px solid #30363d;border-radius:10px;padding:12px;display:flex;flex-direction:column;justify-content:center">
+                <div style="font-size:11px;color:var(--tx2);margin-bottom:4px">TOTAL INVERSIONES</div>
+                <div style="font-size:20px;font-weight:700;color:#34d399">${formatARS(totalARS)}</div>
+                <div style="font-size:11px;color:var(--tx2);margin-top:2px">≈ ${formatUSD(totalUSD)}</div>
+            </div>`;
+            html += `</div>`;
+
+            // Detalle expandible por inversor
+            html += `<div style="background:#0d1117;border:1px solid #30363d;border-radius:8px;overflow:hidden">
+                <table style="width:100%;font-size:11px"><thead>
+                    <tr style="background:#161b22"><th style="text-align:left;padding:8px">Inversor</th><th style="text-align:left">Fecha</th><th style="text-align:right">Monto ARS</th><th style="text-align:right">Monto USD</th><th style="text-align:left">Estado</th><th style="text-align:left">Obs</th></tr>
+                </thead><tbody>`;
+            Object.values(grouped).forEach(g => {
+                g.items.sort((a, b) => (a.fecha || '').localeCompare(b.fecha || ''));
+                g.items.forEach((it, i) => {
+                    html += `<tr style="border-top:1px solid #21262d">
+                        <td style="padding:6px 8px;color:${g.color};font-weight:${i===0?700:400}">${i===0?g.label:''}</td>
+                        <td>${it.fecha || ''}</td>
+                        <td style="text-align:right;color:#34d399">${formatARS(it.ars)}</td>
+                        <td style="text-align:right;color:var(--tx2)">${formatUSD(it.usd)}</td>
+                        <td><span class="status-badge ${it.estado === 'R' ? 'pagada' : 'pendiente'}">${it.estado === 'R' ? 'Real' : 'Proyectado'}</span></td>
+                        <td style="color:var(--tx2);max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(it.obs||'').replace(/"/g,'&quot;')}">${(it.obs||'').slice(0,60)}</td>
+                    </tr>`;
+                });
+                if (g.items.length === 0) {
+                    html += `<tr style="border-top:1px solid #21262d"><td style="padding:6px 8px;color:${g.color};font-weight:700">${g.label}</td><td colspan="5" style="color:var(--tx2);font-style:italic">Sin aportes detectados en BD Movimientos</td></tr>`;
+                }
+            });
+            html += `</tbody></table></div>`;
+
+            el.innerHTML = html;
         }
 
         // Build list of active credits grouped by bank from movements
@@ -7753,11 +8030,23 @@
             const incInv = document.getElementById('compIncInv')?.checked;
             const mov = DATA.mov || [];
 
+            // Snapshot months: prior, current, next, same-month-prior-year
+            const _today = new Date('2026-04-04');
+            const _curMes = _today.toISOString().slice(0,7);
+            const _prevD = new Date(_today); _prevD.setMonth(_prevD.getMonth()-1);
+            const _nextD = new Date(_today); _nextD.setMonth(_nextD.getMonth()+1);
+            const _yoyD  = new Date(_today); _yoyD.setFullYear(_yoyD.getFullYear()-1);
+            const _prevMes = _prevD.toISOString().slice(0,7);
+            const _nextMes = _nextD.toISOString().slice(0,7);
+            const _yoyMes  = _yoyD.toISOString().slice(0,7);
+            const _snapMonths = new Set([_prevMes, _curMes, _nextMes, _yoyMes]);
+
             // Period filter
             function inPeriod(f) {
                 if (!f) return false;
                 const mes = f.slice(0, 7);
                 const yr = f.slice(0, 4);
+                if (periodo === 'snapshot') return _snapMonths.has(mes);
                 if (periodo === 'all') return true;
                 if (periodo.startsWith('month:')) return mes === periodo.slice(6);
                 if (periodo === '2026' || periodo === '2025' || periodo === '2024') return yr === periodo;
@@ -7818,6 +8107,83 @@
             // Excluded indicator
             const exEl = document.getElementById('compExcluded');
             if (exEl) exEl.textContent = COMP_EXCLUDED.size > 0 ? COMP_EXCLUDED.size + ' items excluidos' : '';
+
+            // === ANNUAL YoY SUMMARY (inflation-weighted) ===
+            try {
+                const curYear = _curMes.slice(0,4);
+                const prevYear = String(parseInt(curYear)-1);
+                const targetMonth = _curMes;
+                const yrAgg = (yr) => {
+                    const ms = mov.filter(m => {
+                        if (!m.f || m.f.slice(0,4) !== yr) return false;
+                        if (empresa !== 'all' && m.emp !== empresa) return false;
+                        const cls = getClass(m);
+                        if (cls === 'deuda' && !incDeuda) return false;
+                        if (cls === 'potencial' && !incPot) return false;
+                        if (cls === 'inversion' && !incInv) return false;
+                        if (COMP_EXCLUDED.has(compItemKey(m))) return false;
+                        return true;
+                    });
+                    let ing = 0, egr = 0;
+                    ms.forEach(m => {
+                        const mm = m.f.slice(0,7);
+                        const v = (typeof deflate === 'function') ? deflate(m.v, mm, targetMonth) : m.v;
+                        if (v >= 0) ing += v; else egr += v;
+                    });
+                    return { ing, egr, neto: ing+egr, margen: ing ? (ing+egr)/ing*100 : 0 };
+                };
+                const cur = yrAgg(curYear);
+                const prv = yrAgg(prevYear);
+                const arrow = (a, b) => {
+                    if (!b) return '<span style="color:var(--tx2)">—</span>';
+                    const pct = ((a-b)/Math.abs(b))*100;
+                    const up = pct >= 0;
+                    return '<span style="color:'+(up?'#34d399':'#f87171')+';font-size:11px">'+(up?'▲':'▼')+' '+Math.abs(pct).toFixed(1)+'%</span>';
+                };
+                document.getElementById('compAnualYoY').innerHTML =
+                    '<div class="card"><div class="card-title">Resumen Anual ' + curYear + ' vs ' + prevYear + ' <span style="font-size:10px;color:var(--tx2);font-weight:400">(ponderado por inflación, valores en pesos de '+targetMonth+')</span></div>'
+                    + '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:8px">'
+                    + '<div class="kpi"><div class="kpi-label">Ingresos '+curYear+'</div><div class="kpi-value positive">'+formatARS(cur.ing)+'</div><div class="kpi-sub">'+prevYear+': '+formatARS(prv.ing)+' '+arrow(cur.ing, prv.ing)+'</div></div>'
+                    + '<div class="kpi"><div class="kpi-label">Egresos '+curYear+'</div><div class="kpi-value negative">'+formatARS(cur.egr)+'</div><div class="kpi-sub">'+prevYear+': '+formatARS(prv.egr)+' '+arrow(Math.abs(cur.egr), Math.abs(prv.egr))+'</div></div>'
+                    + '<div class="kpi" style="border-left:3px solid '+(cur.neto>=0?'var(--gn)':'var(--rd)')+'"><div class="kpi-label">Saldo Neto '+curYear+'</div><div class="kpi-value '+(cur.neto>=0?'positive':'negative')+'">'+formatARS(cur.neto)+'</div><div class="kpi-sub">'+prevYear+': '+formatARS(prv.neto)+' '+arrow(cur.neto, prv.neto)+'</div></div>'
+                    + '<div class="kpi"><div class="kpi-label">Margen '+curYear+'</div><div class="kpi-value" style="color:'+(cur.margen>=0?'#34d399':'#f87171')+'">'+cur.margen.toFixed(1)+'%</div><div class="kpi-sub">'+prevYear+': '+prv.margen.toFixed(1)+'% '+arrow(cur.margen, prv.margen)+'</div></div>'
+                    + '</div></div>';
+            } catch(e) { console.warn('compAnualYoY err', e); document.getElementById('compAnualYoY').innerHTML=''; }
+
+            // === SNAPSHOT BREAKDOWN (when in snapshot mode) ===
+            try {
+                if (periodo === 'snapshot') {
+                    const snapCols = [
+                        { key: _prevMes, label: 'Mes Anterior' },
+                        { key: _curMes,  label: 'Mes Actual' },
+                        { key: _nextMes, label: 'Mes Próximo' },
+                        { key: _yoyMes,  label: 'YoY (mismo mes año ant.)', deflate: true }
+                    ];
+                    const cells = snapCols.map(col => {
+                        const ms = active.filter(m => (m.f||'').slice(0,7) === col.key);
+                        let ing = 0, egr = 0;
+                        ms.forEach(m => {
+                            let v = m.v;
+                            if (col.deflate && typeof deflate === 'function') v = deflate(v, col.key, _curMes);
+                            if (v >= 0) ing += v; else egr += v;
+                        });
+                        const net = ing + egr;
+                        const mg = ing ? (net/ing*100) : 0;
+                        return { col, ing, egr, net, mg };
+                    });
+                    const html = '<div class="card"><div class="card-title">Snapshot por Mes <span style="font-size:10px;color:var(--tx2);font-weight:400">(YoY ponderado por inflación a '+_curMes+')</span></div>'
+                        + '<div style="display:grid;grid-template-columns:repeat('+snapCols.length+',1fr);gap:10px;margin-top:8px">'
+                        + cells.map(c => '<div class="kpi"><div class="kpi-label">'+c.col.label+' <span style="color:var(--tx2)">'+c.col.key+'</span></div>'
+                            + '<div style="font-size:12px;color:#34d399">+'+formatARS(c.ing)+'</div>'
+                            + '<div style="font-size:12px;color:#f87171">'+formatARS(c.egr)+'</div>'
+                            + '<div style="font-size:14px;font-weight:600;color:'+(c.net>=0?'#34d399':'#f87171')+';margin-top:4px">'+formatARS(c.net)+'</div>'
+                            + '<div class="kpi-sub">Margen '+c.mg.toFixed(1)+'%</div></div>').join('')
+                        + '</div></div>';
+                    document.getElementById('compSnapshot').innerHTML = html;
+                } else {
+                    document.getElementById('compSnapshot').innerHTML = '';
+                }
+            } catch(e) { console.warn('compSnapshot err', e); document.getElementById('compSnapshot').innerHTML=''; }
 
             // === INGRESOS BY CLIENT (using 'en' field, fallback to 'i') ===
             // EXCLUDE capital injections — aportes/mutuos are NOT client income

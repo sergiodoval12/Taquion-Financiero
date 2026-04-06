@@ -322,9 +322,26 @@ function getDeudaBancaria(ss) {
       const year = (d >= 20 && d <= 40) ? 2000 + d : v.getFullYear();
       return year + '-' + (m < 10 ? '0' + m : m);
     }
+    if (typeof v === 'number') {
+      // Excel serial date
+      if (v > 30000 && v < 80000) {
+        const epoch = new Date(Date.UTC(1899, 11, 30));
+        const dt = new Date(epoch.getTime() + v * 86400000);
+        const m = dt.getUTCMonth() + 1;
+        return dt.getUTCFullYear() + '-' + (m < 10 ? '0' + m : m);
+      }
+      return '';
+    }
     const s = String(v || '').trim();
     const mx = s.match(/(\d{4})[-\/](\d{1,2})/);
     if (mx) return mx[1] + '-' + (mx[2].length < 2 ? '0' + mx[2] : mx[2]);
+    // dd/mm/yyyy
+    const mx2 = s.match(/(\d{1,2})[-\/](\d{1,2})[-\/](\d{4})/);
+    if (mx2) return mx2[3] + '-' + (mx2[2].length < 2 ? '0' + mx2[2] : mx2[2]);
+    // "Abril 2026" / "abr 2026"
+    const meses = {ene:'01',feb:'02',mar:'03',abr:'04',may:'05',jun:'06',jul:'07',ago:'08',sep:'09',oct:'10',nov:'11',dic:'12'};
+    const mx3 = s.toLowerCase().match(/(ene|feb|mar|abr|may|jun|jul|ago|sep|oct|nov|dic)[a-z]*\s+(\d{4})/);
+    if (mx3) return mx3[2] + '-' + meses[mx3[1]];
     return '';
   }
 
@@ -354,14 +371,23 @@ function getDeudaBancaria(ss) {
       });
     }
     const schedule = [];
+    let blanks = 0;
     for (let r = startRow + 4; r < data.length; r++) {
       const first = data[r][0];
-      if (first == null || first === '') {
-        // allow blank rows between tables to break
-        if (schedule.length > 0) break;
-        else continue;
+      // Stop only on the next table's title rows
+      if (typeof first === 'string') {
+        const fu = first.toUpperCase();
+        if (fu.indexOf('TOTAL') >= 0) break;
+        if (fu.indexOf('CUOTAS PRESTAMOS') >= 0) break;
+        if (fu.indexOf('SOLO CAPITAL') >= 0) break;
       }
-      if (typeof first === 'string' && first.toUpperCase().indexOf('TOTAL') >= 0) break;
+      if (first == null || first === '') {
+        blanks++;
+        // Allow up to 4 consecutive blank rows inside the schedule before breaking
+        if (blanks >= 4 && schedule.length > 0) break;
+        continue;
+      }
+      blanks = 0;
       const mes = parseMesCell(first);
       if (!mes) continue;
       const row = { mes: mes, vals: {} };
