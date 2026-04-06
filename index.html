@@ -1706,6 +1706,7 @@
                 const details = [];
                 if (r.movColumns && r.movColumns.length > 0) details.push('Columnas agregadas a Movimientos: ' + r.movColumns.join(', '));
                 if (r.nomCreated) details.push('Pestaña Nómina creada');
+                if (r.ccCreated) details.push('Pestaña Catálogo CC creada con ' + (r.ccRows || 0) + ' centros precargados');
                 if (details.length > 0) msg += ' ' + details.join(' · ');
                 else msg += ' Todo en orden.';
                 sheetsSyncStatus(msg, '#34d399');
