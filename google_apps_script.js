@@ -124,6 +124,10 @@ function getMovimientos(ss) {
 
   const data = ws.getRange(1, 1, lastRow, lastCol).getValues();
   const headers = data[0].map(h => String(h).trim().toLowerCase());
+  // FIX timezone: usar la zona horaria de la SHEET, no del SCRIPT.
+  // Si no usamos esto, los Date "10/04 00:00 BA" se formatean en el TZ del script
+  // (ej. America/Los_Angeles) y caen al d\u00eda anterior (off-by-one).
+  const tz = ss.getSpreadsheetTimeZone() || 'America/Argentina/Buenos_Aires';
 
   // Map columns by header name
   // IMPORTANT: order matters — more specific matches must come BEFORE generic ones
@@ -166,7 +170,7 @@ function getMovimientos(ss) {
     // Parse fecha
     let fecha = '';
     if (row[colMap.f] instanceof Date) {
-      fecha = Utilities.formatDate(row[colMap.f], Session.getScriptTimeZone(), 'yyyy-MM-dd');
+      fecha = Utilities.formatDate(row[colMap.f], tz, 'yyyy-MM-dd');
     } else if (row[colMap.f]) {
       fecha = String(row[colMap.f]).slice(0, 10);
     }
@@ -219,6 +223,7 @@ function getDeudaGC(ss) {
   if (lastRow < 2) return { schedule: [], orig: {}, resumen: {} };
 
   const data = ws.getRange(1, 1, lastRow, Math.min(lastCol, 10)).getValues();
+  const tz = ss.getSpreadsheetTimeZone() || 'America/Argentina/Buenos_Aires';
 
   // Parse original composition (rows 3-11 area)
   const orig = {};
@@ -258,7 +263,7 @@ function getDeudaGC(ss) {
       // This is a schedule row: #, Fecha, USD, ARS, Destino, Tipo, Estado
       let fecha = '';
       if (data[r][1] instanceof Date) {
-        fecha = Utilities.formatDate(data[r][1], Session.getScriptTimeZone(), 'yyyy-MM-dd');
+        fecha = Utilities.formatDate(data[r][1], tz, 'yyyy-MM-dd');
       } else {
         fecha = String(data[r][1] || '').slice(0, 10);
       }
@@ -815,6 +820,7 @@ function getNomina(ss) {
 
   const data = ws.getRange(1, 1, lastRow, ws.getLastColumn()).getValues();
   const { map } = getNomHeaders(ws);
+  const tz = ss.getSpreadsheetTimeZone() || 'America/Argentina/Buenos_Aires';
 
   const rows = [];
   for (let r = 1; r < data.length; r++) {
@@ -826,7 +832,7 @@ function getNomina(ss) {
     let fechaIng = '';
     if (map.fechaIngreso !== undefined && row[map.fechaIngreso]) {
       if (row[map.fechaIngreso] instanceof Date) {
-        fechaIng = Utilities.formatDate(row[map.fechaIngreso], Session.getScriptTimeZone(), 'yyyy-MM-dd');
+        fechaIng = Utilities.formatDate(row[map.fechaIngreso], tz, 'yyyy-MM-dd');
       } else {
         fechaIng = String(row[map.fechaIngreso]).slice(0, 10);
       }
@@ -834,7 +840,7 @@ function getNomina(ss) {
     let fechaBaja = '';
     if (map.fechaBaja !== undefined && row[map.fechaBaja]) {
       if (row[map.fechaBaja] instanceof Date) {
-        fechaBaja = Utilities.formatDate(row[map.fechaBaja], Session.getScriptTimeZone(), 'yyyy-MM-dd');
+        fechaBaja = Utilities.formatDate(row[map.fechaBaja], tz, 'yyyy-MM-dd');
       } else {
         fechaBaja = String(row[map.fechaBaja]).slice(0, 10);
       }

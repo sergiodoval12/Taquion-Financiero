@@ -1710,7 +1710,7 @@
 
         // ========= GOOGLE SHEETS SYNC =========
         const SHEETS_CONFIG = {
-            apiUrl: 'https://script.google.com/macros/s/AKfycbxIqYCsX3468HPx6s8tVNWxc95oAZHTCePLfEdqxWwJZ4b0d4jpY0VWbkDTM9UOK8cf_w/exec',
+            apiUrl: 'https://script.google.com/macros/s/AKfycbxklSF2cOZhquW-d4qbAdyIVMJz1SWC7azpKe--E0hD9cATKxhVSblzTVBGHQilBHBv5A/exec',
             enabled: true,
             lastSync: null,
             syncing: false,
@@ -2126,6 +2126,22 @@
                     }
                 }
                 if (!m.monOrig) m.monOrig = 'ARS';
+
+                // === SIDE classification (Categoría del SOT como fuente de verdad) ===
+                // m.side = 'I' (ingreso) | 'E' (egreso) — independiente del signo de m.v
+                // Esto cubre los casos de filas con monto 0 (ej: ABL Lumos) y arregla
+                // automáticamente filas mal cargadas con signo invertido en el SOT.
+                const catLower = (m.cat || '').toString().trim().toLowerCase();
+                if (catLower.indexOf('ingr') === 0) {
+                    m.side = 'I';
+                    if (m.v < 0) m.v = -m.v; // sign-correct
+                } else if (catLower.indexOf('egr') === 0) {
+                    m.side = 'E';
+                    if (m.v > 0) m.v = -m.v; // sign-correct
+                } else {
+                    // Fallback al signo cuando no hay categoría
+                    m.side = (m.v >= 0) ? 'I' : 'E';
+                }
 
                 // Backfill new SOT columns (Centro de Costo, Cliente, Proyecto, Factura)
                 if (m.cc === undefined || m.cc === null) m.cc = '';
@@ -4993,18 +5009,19 @@
                 if (!mes) return;
                 if (!monthlyBAU[mes]) monthlyBAU[mes] = { ing: 0, egr: 0, real: m.eo === 'R' };
                 const v = m.v || 0;
-                if (v >= 0) monthlyBAU[mes].ing += v;
-                else monthlyBAU[mes].egr += v;
+                const _isIng = (m.side === 'I');
+                if (_isIng) monthlyBAU[mes].ing += Math.abs(v);
+                else monthlyBAU[mes].egr += -Math.abs(v);
                 // Quarterly bucket
                 const qKey = ymToQuarter(mes);
                 if (!qBAU[qKey]) qBAU[qKey] = { ing: 0, egr: 0, _mes: mes };
-                if (v >= 0) qBAU[qKey].ing += v; else qBAU[qKey].egr += v;
+                if (_isIng) qBAU[qKey].ing += Math.abs(v); else qBAU[qKey].egr += -Math.abs(v);
 
                 // Store detail with mov index for direct editing
                 if (!BAU_DETAIL[mes]) BAU_DETAIL[mes] = { ingresos: [], egresos: [], totalIng: 0, totalEgr: 0 };
                 const cc = String(m.cc || '').trim();
-                const rec = { t: m.t, i: it || '(sin item)', en: m.en || '', d: m.d || '', v: v, f: m.f, emp: m.emp, bn: m.bn, eo: m.eo, cc: cc, cli: m.cli || '', proy: m.proy || '', movIdx: movIdx };
-                if (v >= 0) {
+                const rec = { t: m.t, i: it || '(sin item)', en: m.en || '', d: m.d || '', v: v, f: m.f, emp: m.emp, bn: m.bn, eo: m.eo, cc: cc, cli: m.cli || '', proy: m.proy || '', movIdx: movIdx, side: m.side };
+                if (_isIng) {
                     BAU_DETAIL[mes].ingresos.push(rec);
                     BAU_DETAIL[mes].totalIng += v;
                     // Aggregate ingresos by industria (usa CC si está taggeado como industria, si no usa cliente)
@@ -8090,16 +8107,16 @@
             const active = filtered.filter(m => !COMP_EXCLUDED.has(compItemKey(m)));
             const excluded = filtered.filter(m => COMP_EXCLUDED.has(compItemKey(m)));
 
-            // KPIs
-            const totalIng = active.filter(m => m.v >= 0).reduce((s, m) => s + m.v, 0);
-            const totalEgr = active.filter(m => m.v < 0).reduce((s, m) => s + m.v, 0);
+            // KPIs (uso m.side como SOT para clasificación; m.v solo para sumar plata)
+            const totalIng = active.filter(m => m.side === 'I').reduce((s, m) => s + m.v, 0);
+            const totalEgr = active.filter(m => m.side === 'E').reduce((s, m) => s + m.v, 0);
             const neto = totalIng + totalEgr;
             const months = new Set(active.map(m => (m.f || '').slice(0, 7)));
             const avgMensual = months.size > 0 ? neto / months.size : 0;
 
             document.getElementById('compKPIs').innerHTML = `
-                <div class="kpi"><div class="kpi-label">Ingresos</div><div class="kpi-value positive">${formatARS(totalIng)}</div><div class="kpi-sub">${active.filter(m=>m.v>=0).length} movimientos</div></div>
-                <div class="kpi"><div class="kpi-label">Egresos</div><div class="kpi-value negative">${formatARS(totalEgr)}</div><div class="kpi-sub">${active.filter(m=>m.v<0).length} movimientos</div></div>
+                <div class="kpi"><div class="kpi-label">Ingresos</div><div class="kpi-value positive">${formatARS(totalIng)}</div><div class="kpi-sub">${active.filter(m=>m.side==='I').length} movimientos</div></div>
+                <div class="kpi"><div class="kpi-label">Egresos</div><div class="kpi-value negative">${formatARS(totalEgr)}</div><div class="kpi-sub">${active.filter(m=>m.side==='E').length} movimientos</div></div>
                 <div class="kpi" style="border-left:3px solid ${neto>=0?'var(--gn)':'var(--rd)'}"><div class="kpi-label">Saldo Neto</div><div class="kpi-value ${neto>=0?'positive':'negative'}">${formatARS(neto)}</div><div class="kpi-sub">Promedio ${formatARS(avgMensual)}/mes</div></div>
                 <div class="kpi"><div class="kpi-label">Margen</div><div class="kpi-value" style="color:${neto>=0?'#34d399':'#f87171'}">${totalIng ? ((neto/totalIng)*100).toFixed(1) : 0}%</div><div class="kpi-sub">${months.size} meses | ${active.length} mov</div></div>
             `;
@@ -8128,7 +8145,8 @@
                     ms.forEach(m => {
                         const mm = m.f.slice(0,7);
                         const v = (typeof deflate === 'function') ? deflate(m.v, mm, targetMonth) : m.v;
-                        if (v >= 0) ing += v; else egr += v;
+                        if (m.side === 'I') ing += Math.abs(v);
+                        else if (m.side === 'E') egr += -Math.abs(v);
                     });
                     return { ing, egr, neto: ing+egr, margen: ing ? (ing+egr)/ing*100 : 0 };
                 };
@@ -8165,7 +8183,8 @@
                         ms.forEach(m => {
                             let v = m.v;
                             if (col.deflate && typeof deflate === 'function') v = deflate(v, col.key, _curMes);
-                            if (v >= 0) ing += v; else egr += v;
+                            if (m.side === 'I') ing += Math.abs(v);
+                            else if (m.side === 'E') egr += -Math.abs(v);
                         });
                         const net = ing + egr;
                         const mg = ing ? (net/ing*100) : 0;
@@ -8188,7 +8207,7 @@
             // === INGRESOS BY CLIENT (using 'en' field, fallback to 'i') ===
             // EXCLUDE capital injections — aportes/mutuos are NOT client income
             const ingByClient = {};
-            active.filter(m => m.v > 0 && !isCapitalInjection(m)).forEach(m => {
+            active.filter(m => m.side === 'I' && m.v > 0 && !isCapitalInjection(m)).forEach(m => {
                 // Use entidad for cobranza, item for others
                 let key = m.en || m.i || '(sin nombre)';
                 if (key.length > 60) key = key.slice(0, 57) + '...';
@@ -8201,7 +8220,7 @@
 
             // === EGRESOS BY CATEGORY (using 'i' for grouping, 'en' for detail) ===
             const egrByCat = {};
-            active.filter(m => m.v < 0).forEach(m => {
+            active.filter(m => m.side === 'E').forEach(m => {
                 // Smart category: use 'i' (item) as main category, but group similar
                 let cat = m.i || m.t || '(sin categoría)';
                 // Group generic "Proveedores" by entidad
