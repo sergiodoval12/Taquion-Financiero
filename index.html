@@ -1546,8 +1546,32 @@
             apiUrl: 'https://script.google.com/macros/s/AKfycbw5zMg7kUKVTM-Yly8poeeCpgVrTSF0CEtDlcXaCqQcboFNYIlZ2S-gCk_zzInj6rOsgA/exec',
             enabled: true,
             lastSync: null,
-            syncing: false
+            syncing: false,
+            autoPullStaleSeconds: 30,    // Auto-pull if last sync older than this
+            autoPullInFlight: null,       // Promise of in-flight auto-pull (dedupe)
+            initialPullDone: false        // First-load pull guard
         };
+
+        // Auto-pull from SOT if data is stale or never synced. Called on every page nav.
+        // Returns a Promise that resolves when the pull is done (or immediately if not needed).
+        async function autoPullIfStale(opts) {
+            opts = opts || {};
+            if (!SHEETS_CONFIG.enabled || !SHEETS_CONFIG.apiUrl) return;
+            if (SHEETS_CONFIG.syncing) return SHEETS_CONFIG.autoPullInFlight;
+            // Dedupe: if a pull is already running, await it
+            if (SHEETS_CONFIG.autoPullInFlight) return SHEETS_CONFIG.autoPullInFlight;
+            // Skip if recently synced (unless force=true)
+            if (!opts.force && SHEETS_CONFIG.lastSync) {
+                const ageMs = Date.now() - new Date(SHEETS_CONFIG.lastSync).getTime();
+                if (ageMs < SHEETS_CONFIG.autoPullStaleSeconds * 1000) return;
+            }
+            SHEETS_CONFIG.autoPullInFlight = (async () => {
+                try { await sheetsPullData(); }
+                catch (e) { console.warn('autoPull error:', e); }
+                finally { SHEETS_CONFIG.autoPullInFlight = null; }
+            })();
+            return SHEETS_CONFIG.autoPullInFlight;
+        }
 
         // Initialize from localStorage
         (function() {
@@ -1615,11 +1639,21 @@
                 }
 
                 SHEETS_CONFIG.lastSync = new Date().toISOString();
-                // Refresh current page
+                // Refresh current page (universal switch)
                 const page = APP.currentPage || 'dashboard';
-                if (page === 'dashboard') renderDashboard();
-                else if (page === 'operacion') renderOperacion();
-                else if (page === 'deuda') renderDeuda();
+                try {
+                    if (page === 'dashboard') renderDashboard();
+                    else if (page === 'operacion') renderOperacion();
+                    else if (page === 'deuda') renderDeuda();
+                    else if (page === 'bancarizado') renderBancarizado();
+                    else if (page === 'composicion') renderComposicion();
+                    else if (page === 'semanal') renderSemanal();
+                    else if (page === 'whatif') renderWhatIf();
+                    else if (page === 'movimientos') renderMovimientos();
+                    else if (page === 'nomina') renderNomina();
+                    else if (page === 'auditoria') renderAuditoria();
+                    else if (page === 'checkDay') renderCheckDiario();
+                } catch (e) { console.warn('post-pull render error:', e); }
             } catch (err) {
                 sheetsSyncStatus('❌ Error al sincronizar: ' + err.message, '#f87171');
             }
@@ -2083,6 +2117,12 @@
             const titles = { dashboard:'Dashboard', operacion:'Operación BAU', deuda:'Deuda', composicion:'Composición', bancarizado:'B/N Splits', semanal:'Semanal 45d', whatif:'Sandbox', carga:'Carga', movimientos:'Movimientos', nomina:'Nómina', auditoria:'Auditoría SOT', checkDay:'Check Diario / Semanal' };
             const mpt = document.getElementById('mobilePageTitle');
             if (mpt) mpt.textContent = titles[pageId] || pageId;
+
+            // Auto-pull from SOT before rendering. Forces a refresh on the very first
+            // navigation of the session, then debounces by autoPullStaleSeconds.
+            const forcePull = !SHEETS_CONFIG.initialPullDone;
+            SHEETS_CONFIG.initialPullDone = true;
+            autoPullIfStale({ force: forcePull });
 
             // Render page-specific content
             setTimeout(() => {
