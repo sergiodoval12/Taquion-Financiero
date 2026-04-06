@@ -1623,6 +1623,7 @@
                 // Update DATA.mov with sheet data (preserving _row for writes)
                 if (sheetData.mov && sheetData.mov.length > 0) {
                     DATA.mov = sheetData.mov;
+                    normalizeMovs(DATA.mov); // Apply aliases + recategorizations
                     sheetsSyncStatus('✅ Datos sincronizados: ' + sheetData.mov.length + ' movimientos', '#34d399');
                 } else {
                     sheetsSyncStatus('⚠ Sheet sin movimientos. ¿Necesitás hacer Carga Inicial?', '#fbbf24');
@@ -1913,37 +1914,42 @@
             m.int = realInt;
         });
 
-        // Recategorize Santander refinanciación (tipo Proveedores → Préstamos Bancarios)
-        // Fix USD-denominated movements loaded as raw USD values (should be ARS equivalent)
-        // Add 'monOrig' field: 'USD' or 'ARS' to track original currency
-        (DATA.mov || []).forEach(m => {
-            const it = (m.i || '').toLowerCase();
-            const en = (m.en || '').toLowerCase();
-            if (it === 'santander' && en.includes('refinanc')) {
-                m.t = 'Préstamos Bancarios';
-            }
-            // Detect USD-denominated movements loaded with raw USD values
-            // Pattern: entidad mentions U$ or USD and value is suspiciously low (< 500,000 ARS for aportes that say U$X0.000)
-            if (en.includes('u$') || en.includes('usd')) {
-                // Extract USD amount from entidad text to verify
-                const usdMatch = en.match(/u\$\s*([\d.,]+)/i);
-                if (usdMatch) {
-                    const usdAmount = parseFloat(usdMatch[1].replace(/\./g, '').replace(',', '.'));
-                    // If value ≈ USD amount (not yet converted), flag and convert
-                    // Heuristic: if v is within 2x of the stated USD amount, it's stored as USD
-                    if (usdAmount > 0 && Math.abs(m.v) > 0 && Math.abs(m.v) <= usdAmount * 2) {
-                        m.monOrig = 'USD';
-                        m.vUSD = m.v;  // Store original USD value
-                        m.v = Math.round(m.v * 1250);  // Convert to ARS at reference rate (will update when MEP loads)
-                    } else {
-                        // Value already looks like ARS (much larger than USD amount)
-                        m.monOrig = 'ARS';
+        // Universal mov normalizer — apply on initial load AND after every sheetsPullData
+        // 1. Backfill m.e ← m.emp (legacy alias used across renderers)
+        // 2. Recategorize Santander refinanciación → Préstamos Bancarios
+        // 3. Detect USD-denominated movements loaded as raw USD values
+        function normalizeMovs(arr) {
+            (arr || []).forEach(m => {
+                // Field aliases — keep both .e and .emp populated for compatibility
+                if (!m.e && m.emp) m.e = m.emp;
+                if (!m.emp && m.e) m.emp = m.e;
+
+                const it = (m.i || '').toLowerCase();
+                const en = (m.en || '').toLowerCase();
+                if (it === 'santander' && en.includes('refinanc')) {
+                    m.t = 'Préstamos Bancarios';
+                }
+                // Detect USD-denominated movements loaded with raw USD values
+                if (en.includes('u$') || en.includes('usd')) {
+                    const usdMatch = en.match(/u\$\s*([\d.,]+)/i);
+                    if (usdMatch) {
+                        const usdAmount = parseFloat(usdMatch[1].replace(/\./g, '').replace(',', '.'));
+                        if (usdAmount > 0 && Math.abs(m.v) > 0 && Math.abs(m.v) <= usdAmount * 2) {
+                            if (m.monOrig !== 'USD') {
+                                m.monOrig = 'USD';
+                                m.vUSD = m.v;
+                                m.v = Math.round(m.v * 1250);
+                            }
+                        } else if (!m.monOrig) {
+                            m.monOrig = 'ARS';
+                        }
                     }
                 }
-            }
-            // Default: ARS
-            if (!m.monOrig) m.monOrig = 'ARS';
-        });
+                if (!m.monOrig) m.monOrig = 'ARS';
+            });
+        }
+
+        normalizeMovs(DATA.mov);
 
         // === DÓLAR MEP ===
         const MEP = {
@@ -7897,56 +7903,72 @@
         }
 
 
+        // Internal: build the movimientos table HTML from a list of (movement, originalIdx) pairs
+        function _renderMovimientosRows(rows) {
+            let html = '<tr><th>Fecha</th><th>Empresa</th><th>Tipo</th><th>Item</th><th>Entidad / Cliente</th><th>Estado</th><th>B/N</th><th class="text-right">Monto</th></tr>';
+            rows.forEach(({ m }) => {
+                if (m._deleted) return;
+                const monto = m.v || 0;
+                const empresa = m.emp || m.e || '-';
+                const banc = m.bn || '-';
+                const estado = (m.eo === 'R') ? '<span style="color:#3fb950;font-size:10px;font-weight:600">REAL</span>'
+                              : (m.eo === 'P') ? '<span style="color:#fbbf24;font-size:10px;font-weight:600">PROY</span>'
+                              : '<span style="color:#8b949e">' + (m.eo || '-') + '</span>';
+                const empColor = empresa === 'TQN' ? '#58a6ff' : (empresa === 'LMS' ? '#a371f7' : '#8b949e');
+                const empBg    = empresa === 'TQN' ? '#1f6feb20' : (empresa === 'LMS' ? '#a371f720' : '#30363d');
+                html += '<tr>'
+                    + '<td>' + (m.f || '-') + '</td>'
+                    + '<td><span style="background:' + empBg + ';color:' + empColor + ';padding:2px 6px;border-radius:3px;font-size:9px;font-weight:600">' + empresa + '</span></td>'
+                    + '<td>' + (m.t || '-') + '</td>'
+                    + '<td>' + (m.i || '-') + '</td>'
+                    + '<td><span class="small" title="' + ((m.en || '').replace(/"/g, '&quot;')) + '">' + (m.en || '-') + '</span></td>'
+                    + '<td>' + estado + '</td>'
+                    + '<td style="text-align:center">' + banc + '</td>'
+                    + '<td class="text-right amount ' + getValueClass(monto) + '">' + formatARS(monto) + '</td>'
+                    + '</tr>';
+            });
+            return html;
+        }
+
+        let MOV_SORT_DESC = true; // newest first by default
+
         function renderMovimientos() {
             const movements = DATA.mov || [];
-            let html = '<tr><th>Fecha</th><th>Empresa</th><th>Tipo</th><th>Banc.</th><th class="text-right">Monto</th><th>Descripción</th></tr>';
-
-            movements.forEach(m => {
-                const banc = m.Bancarizado ? 'Sí' : 'No';
-                const monto = m.Movimiento_Orig || 0;
-                html += `<tr>
-                    <td>${m.Fecha}</td>
-                    <td>${m.Empresa}</td>
-                    <td>${m.Tipo}</td>
-                    <td>${banc}</td>
-                    <td class="text-right amount ${getValueClass(monto)}">${formatARS(monto)}</td>
-                    <td><span class="small">${m.Concepto || ''}</span></td>
-                </tr>`;
+            const rows = movements.map((m, idx) => ({ m, idx })).filter(r => !r.m._deleted);
+            // Sort by date
+            rows.sort((a, b) => {
+                const fa = a.m.f || '', fb = b.m.f || '';
+                return MOV_SORT_DESC ? fb.localeCompare(fa) : fa.localeCompare(fb);
             });
-
-            document.getElementById('movimientosTable').innerHTML = html;
+            document.getElementById('movimientosTable').innerHTML = _renderMovimientosRows(rows);
+            const cnt = document.getElementById('movimientosCount');
+            if (cnt) cnt.textContent = rows.length + ' movimientos';
         }
 
         function filterMovimientos() {
-            const searchTerm = document.getElementById('searchMovimientos').value.toLowerCase();
+            const searchTerm = (document.getElementById('searchMovimientos')?.value || '').toLowerCase();
             const movements = DATA.mov || [];
-
-            let html = '<tr><th>Fecha</th><th>Empresa</th><th>Tipo</th><th>Banc.</th><th class="text-right">Monto</th><th>Descripción</th></tr>';
-
-            movements.filter(m => {
-                const concepto = (m.Concepto || '').toLowerCase();
-                const tipo = (m.Tipo || '').toLowerCase();
-                return concepto.includes(searchTerm) || tipo.includes(searchTerm);
-            }).forEach(m => {
-                const banc = m.Bancarizado ? 'Sí' : 'No';
-                const monto = m.Movimiento_Orig || 0;
-                html += `<tr>
-                    <td>${m.Fecha}</td>
-                    <td>${m.Empresa}</td>
-                    <td>${m.Tipo}</td>
-                    <td>${banc}</td>
-                    <td class="text-right amount ${getValueClass(monto)}">${formatARS(monto)}</td>
-                    <td><span class="small">${m.Concepto || ''}</span></td>
-                </tr>`;
+            const rows = movements
+                .map((m, idx) => ({ m, idx }))
+                .filter(r => !r.m._deleted)
+                .filter(r => {
+                    if (!searchTerm) return true;
+                    const m = r.m;
+                    const hay = [m.t, m.i, m.en, m.d, m.cat, m.emp, m.e, m.f].map(x => (x || '').toString().toLowerCase()).join(' ');
+                    return hay.includes(searchTerm);
+                });
+            rows.sort((a, b) => {
+                const fa = a.m.f || '', fb = b.m.f || '';
+                return MOV_SORT_DESC ? fb.localeCompare(fa) : fa.localeCompare(fb);
             });
-
-            document.getElementById('movimientosTable').innerHTML = html;
+            document.getElementById('movimientosTable').innerHTML = _renderMovimientosRows(rows);
+            const cnt = document.getElementById('movimientosCount');
+            if (cnt) cnt.textContent = rows.length + ' movimientos';
         }
 
         function sortMovimientosByDate() {
-            const movements = DATA.mov || [];
-            movements.sort((a, b) => new Date(a.Fecha) - new Date(b.Fecha));
-            renderMovimientos();
+            MOV_SORT_DESC = !MOV_SORT_DESC;
+            filterMovimientos();
         }
 
         // Initialize app on load
