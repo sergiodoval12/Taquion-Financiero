@@ -34,6 +34,17 @@
             height: 100vh;
             left: 0;
             top: 0;
+            display: flex;
+            flex-direction: column;
+        }
+        .sidebar .sync-panel {
+            margin-top: auto;
+            padding: 12px;
+            border-top: 1px solid #30363d;
+            background: #0d1117;
+            margin-left: -20px;
+            margin-right: -20px;
+            margin-bottom: -20px;
         }
 
         .main {
@@ -454,11 +465,7 @@
             /* Login screen */
             #loginScreen > div { padding: 32px 24px; }
 
-            /* Sidebar sync panel */
-            .sidebar [style*="position:absolute;bottom:0"] {
-                position: relative !important;
-                margin-top: 16px;
-            }
+            /* Sidebar sync panel — handled by .sync-panel flexbox now */
         }
 
         @media (max-width: 480px) {
@@ -631,7 +638,7 @@
                 <div class="nav-item" onclick="showPage('movimientos')">Movimientos</div>
             </div>
 
-            <div style="position:absolute;bottom:0;left:0;right:0;padding:12px;border-top:1px solid #30363d;background:#0d1117">
+            <div class="sync-panel">
                 <div style="font-size:10px;font-weight:600;color:#8b949e;margin-bottom:6px">GOOGLE SHEETS SOT</div>
                 <div style="display:flex;gap:4px;margin-bottom:6px">
                     <button onclick="sheetsConfigureUrl()" style="flex:1;font-size:9px;padding:4px;background:#30363d;color:#c9d1d9;border:1px solid #484f58;border-radius:3px;cursor:pointer" title="Configurar URL del Sheet">⚙ Config</button>
