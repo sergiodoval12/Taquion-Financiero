@@ -625,6 +625,7 @@
 
             <div class="nav-section">
                 <div class="nav-section-title">Operaciones</div>
+                <div class="nav-item" onclick="showPage('checkDay')">Check Diario / Semanal</div>
                 <div class="nav-item" onclick="showPage('auditoria')">Auditoría SOT</div>
                 <div class="nav-item" onclick="showPage('carga')">Carga de Datos</div>
                 <div class="nav-item" onclick="showPage('movimientos')">Movimientos</div>
@@ -1457,6 +1458,52 @@
                 </div>
             </div>
 
+            <!-- ============ CHECK DIARIO / SEMANAL ============ -->
+            <div id="checkDay" class="page">
+                <h1>Check Diario / Semanal</h1>
+                <div class="reference-banner">Validación día por día (o semana) de los movimientos planificados · Confirmá, modificá, eliminá o agregá no planificados · Al impactar, los cambios se escriben en la SOT y los confirmados pasan de Planificado → Real</div>
+
+                <!-- Controls -->
+                <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
+                    <div style="display:flex;gap:4px;background:#161b22;border:1px solid #30363d;border-radius:6px;padding:3px">
+                        <button id="checkModeDayBtn" onclick="checkSetMode('day')" style="background:#fbbf24;color:#0d1117;border:none;padding:6px 14px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:600">📅 Día</button>
+                        <button id="checkModeWeekBtn" onclick="checkSetMode('week')" style="background:none;color:#8b949e;border:none;padding:6px 14px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:600">📆 Semana</button>
+                    </div>
+                    <input type="date" id="checkDate" onchange="renderCheckDiario()" style="background:#161b22;border:1px solid #30363d;color:#e6edf3;padding:6px 10px;border-radius:4px;font-size:11px">
+                    <button onclick="checkNavDate(-1)" style="background:#161b22;border:1px solid #30363d;color:#e6edf3;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:11px">◀</button>
+                    <button onclick="checkNavDate(1)" style="background:#161b22;border:1px solid #30363d;color:#e6edf3;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:11px">▶</button>
+                    <button onclick="checkGoToday()" style="background:#161b22;border:1px solid #30363d;color:#e6edf3;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:11px">Hoy</button>
+                    <select id="checkEmpresa" onchange="renderCheckDiario()" style="background:#161b22;border:1px solid #30363d;color:#e6edf3;padding:6px 10px;border-radius:4px;font-size:11px">
+                        <option value="all">Todas las empresas</option>
+                        <option value="TQN">TQN</option>
+                        <option value="LMS">LMS</option>
+                    </select>
+                    <span style="flex:1"></span>
+                    <button onclick="checkAddNew()" style="background:#1f6feb20;border:1px solid #1f6feb;color:#58a6ff;padding:6px 12px;border-radius:5px;cursor:pointer;font-size:10px;font-weight:600">+ Agregar no planificado</button>
+                    <button onclick="checkConfirmAllVisible()" style="background:#23863620;border:1px solid #238636;color:#3fb950;padding:6px 12px;border-radius:5px;cursor:pointer;font-size:10px;font-weight:600">✓ Confirmar todos visibles</button>
+                </div>
+
+                <!-- KPIs -->
+                <div id="checkKPIs" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:16px"></div>
+
+                <!-- Pending changes summary -->
+                <div id="checkPendingBar" style="margin-bottom:16px"></div>
+
+                <!-- Movements table -->
+                <div class="card">
+                    <div class="card-title">Movimientos planificados <span id="checkCount" style="font-size:10px;color:#8b949e;font-weight:400"></span></div>
+                    <div style="overflow-x:auto">
+                        <table id="checkTable" style="min-width:1100px"></table>
+                    </div>
+                </div>
+
+                <!-- Impact button -->
+                <div style="margin-top:20px;display:flex;justify-content:flex-end;gap:10px">
+                    <button onclick="checkClearPending()" style="background:none;border:1px solid #30363d;color:#8b949e;padding:10px 18px;border-radius:6px;cursor:pointer;font-size:11px">Descartar cambios</button>
+                    <button onclick="checkApplyChanges()" style="background:linear-gradient(135deg,#fbbf24,#f97316);border:none;color:#0d1117;padding:12px 24px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;box-shadow:0 4px 12px rgba(251,191,36,0.3)">⚡ Impactar cambios en SOT</button>
+                </div>
+            </div>
+
         </div>
     </div>
 
@@ -2033,7 +2080,7 @@
 
             // Mobile: close sidebar and update title
             document.querySelector('.sidebar')?.classList.remove('open');
-            const titles = { dashboard:'Dashboard', operacion:'Operación BAU', deuda:'Deuda', composicion:'Composición', bancarizado:'B/N Splits', semanal:'Semanal 45d', whatif:'Sandbox', carga:'Carga', movimientos:'Movimientos', nomina:'Nómina', auditoria:'Auditoría SOT' };
+            const titles = { dashboard:'Dashboard', operacion:'Operación BAU', deuda:'Deuda', composicion:'Composición', bancarizado:'B/N Splits', semanal:'Semanal 45d', whatif:'Sandbox', carga:'Carga', movimientos:'Movimientos', nomina:'Nómina', auditoria:'Auditoría SOT', checkDay:'Check Diario / Semanal' };
             const mpt = document.getElementById('mobilePageTitle');
             if (mpt) mpt.textContent = titles[pageId] || pageId;
 
@@ -2049,6 +2096,7 @@
                 else if (pageId === 'movimientos') renderMovimientos();
                 else if (pageId === 'nomina') renderNomina();
                 else if (pageId === 'auditoria') renderAuditoria();
+                else if (pageId === 'checkDay') renderCheckDiario();
             }, 100);
         }
 
@@ -2861,6 +2909,354 @@
             a.href = URL.createObjectURL(blob);
             a.download = 'auditoria_sot_' + new Date().toISOString().slice(0,10) + '.csv';
             a.click();
+        }
+
+        // ===================== CHECK DIARIO / SEMANAL =====================
+        // CHECK_PENDING: { [movIdx]: { action:'confirm'|'modify'|'delete', f?, v?, ... } }
+        // For new (non-planned), use synthetic key 'new_<n>' with action:'add' and full row data
+        let CHECK_STATE = { mode: 'day', date: null };
+        let CHECK_PENDING = {};
+        let CHECK_NEW_COUNTER = 0;
+
+        function checkInitDate() {
+            if (!CHECK_STATE.date) {
+                const d = new Date();
+                const yyyy = d.getFullYear();
+                const mm = String(d.getMonth() + 1).padStart(2, '0');
+                const dd = String(d.getDate()).padStart(2, '0');
+                CHECK_STATE.date = yyyy + '-' + mm + '-' + dd;
+            }
+        }
+
+        function checkSetMode(m) {
+            CHECK_STATE.mode = m;
+            document.getElementById('checkModeDayBtn').style.background = m === 'day' ? '#fbbf24' : 'none';
+            document.getElementById('checkModeDayBtn').style.color = m === 'day' ? '#0d1117' : '#8b949e';
+            document.getElementById('checkModeWeekBtn').style.background = m === 'week' ? '#fbbf24' : 'none';
+            document.getElementById('checkModeWeekBtn').style.color = m === 'week' ? '#0d1117' : '#8b949e';
+            renderCheckDiario();
+        }
+
+        function checkNavDate(delta) {
+            const inp = document.getElementById('checkDate');
+            const d = new Date(inp.value + 'T12:00:00');
+            const step = CHECK_STATE.mode === 'week' ? 7 : 1;
+            d.setDate(d.getDate() + delta * step);
+            const yyyy = d.getFullYear();
+            const mm = String(d.getMonth() + 1).padStart(2, '0');
+            const dd = String(d.getDate()).padStart(2, '0');
+            CHECK_STATE.date = yyyy + '-' + mm + '-' + dd;
+            inp.value = CHECK_STATE.date;
+            renderCheckDiario();
+        }
+
+        function checkGoToday() {
+            const d = new Date();
+            const yyyy = d.getFullYear();
+            const mm = String(d.getMonth() + 1).padStart(2, '0');
+            const dd = String(d.getDate()).padStart(2, '0');
+            CHECK_STATE.date = yyyy + '-' + mm + '-' + dd;
+            document.getElementById('checkDate').value = CHECK_STATE.date;
+            renderCheckDiario();
+        }
+
+        function checkGetWeekRange(dateStr) {
+            // Returns [mondayStr, sundayStr] for the week containing dateStr (local time)
+            const d = new Date(dateStr + 'T12:00:00');
+            const day = d.getDay(); // 0=Sun, 1=Mon
+            const diffToMon = day === 0 ? -6 : 1 - day;
+            const mon = new Date(d);
+            mon.setDate(d.getDate() + diffToMon);
+            const sun = new Date(mon);
+            sun.setDate(mon.getDate() + 6);
+            const fmt = x => x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0');
+            return [fmt(mon), fmt(sun)];
+        }
+
+        function checkGetMovementsInRange() {
+            const movs = DATA.mov || [];
+            const empFilter = document.getElementById('checkEmpresa')?.value || 'all';
+            let from, to;
+            if (CHECK_STATE.mode === 'day') {
+                from = to = CHECK_STATE.date;
+            } else {
+                [from, to] = checkGetWeekRange(CHECK_STATE.date);
+            }
+            const result = [];
+            movs.forEach((m, idx) => {
+                if (m._deleted) return;
+                if (!m.f || m.f < from || m.f > to) return;
+                // Only Planificados — Reales already happened
+                if ((m.eo || '').toUpperCase() !== 'P') return;
+                if (empFilter !== 'all' && m.e !== empFilter) return;
+                result.push({ idx, m });
+            });
+            // Sort by date asc, then by abs amount desc
+            result.sort((a, b) => {
+                if (a.m.f !== b.m.f) return a.m.f.localeCompare(b.m.f);
+                return Math.abs(b.m.v || 0) - Math.abs(a.m.v || 0);
+            });
+            return result;
+        }
+
+        function checkFmt(n) {
+            const a = Math.abs(n || 0);
+            const sign = (n || 0) < 0 ? '-' : '';
+            if (a >= 1e6) return sign + '$' + (a / 1e6).toFixed(2) + 'M';
+            if (a >= 1e3) return sign + '$' + (a / 1e3).toFixed(0) + 'K';
+            return sign + '$' + a.toFixed(0);
+        }
+
+        function renderCheckDiario() {
+            checkInitDate();
+            const inp = document.getElementById('checkDate');
+            if (inp && !inp.value) inp.value = CHECK_STATE.date;
+
+            const items = checkGetMovementsInRange();
+            const totIng = items.filter(x => (x.m.v || 0) > 0).reduce((s, x) => s + x.m.v, 0);
+            const totEgr = items.filter(x => (x.m.v || 0) < 0).reduce((s, x) => s + x.m.v, 0);
+            const neto = totIng + totEgr;
+            const pendingCount = Object.keys(CHECK_PENDING).length;
+
+            // KPIs
+            const kpis = [
+                { lbl: 'Movimientos', val: items.length, color: '#58a6ff' },
+                { lbl: 'Ingresos planificados', val: checkFmt(totIng), color: '#3fb950' },
+                { lbl: 'Egresos planificados', val: checkFmt(totEgr), color: '#f87171' },
+                { lbl: 'Neto', val: checkFmt(neto), color: neto >= 0 ? '#3fb950' : '#f87171' },
+                { lbl: 'Cambios pendientes', val: pendingCount, color: pendingCount > 0 ? '#fbbf24' : '#8b949e' }
+            ];
+            document.getElementById('checkKPIs').innerHTML = kpis.map(k =>
+                '<div class="kpi-card"><div class="kpi-label">' + k.lbl + '</div><div class="kpi-value" style="color:' + k.color + '">' + k.val + '</div></div>'
+            ).join('');
+
+            // Pending changes bar
+            const pBar = document.getElementById('checkPendingBar');
+            if (pendingCount > 0) {
+                let confirmN = 0, modifyN = 0, deleteN = 0, addN = 0;
+                Object.values(CHECK_PENDING).forEach(p => {
+                    if (p.action === 'confirm') confirmN++;
+                    else if (p.action === 'modify') modifyN++;
+                    else if (p.action === 'delete') deleteN++;
+                    else if (p.action === 'add') addN++;
+                });
+                pBar.innerHTML = '<div style="background:#fbbf2410;border:1px solid #fbbf24;border-radius:6px;padding:10px 14px;color:#fbbf24;font-size:11px"><strong>' + pendingCount + ' cambio(s) pendiente(s):</strong> ' + confirmN + ' confirmar · ' + modifyN + ' modificar · ' + deleteN + ' eliminar · ' + addN + ' agregar</div>';
+            } else {
+                pBar.innerHTML = '';
+            }
+
+            // Movement count + range label
+            let rangeLabel;
+            if (CHECK_STATE.mode === 'day') {
+                rangeLabel = CHECK_STATE.date;
+            } else {
+                const [from, to] = checkGetWeekRange(CHECK_STATE.date);
+                rangeLabel = from + ' → ' + to;
+            }
+            document.getElementById('checkCount').textContent = '· ' + rangeLabel + ' · ' + items.length + ' planificados';
+
+            // Build table
+            let html = '<thead><tr style="background:#161b22"><th style="text-align:left;padding:8px 10px;font-size:10px;color:#8b949e">Fecha</th><th style="text-align:left;padding:8px 10px;font-size:10px;color:#8b949e">Emp</th><th style="text-align:left;padding:8px 10px;font-size:10px;color:#8b949e">Tipo</th><th style="text-align:left;padding:8px 10px;font-size:10px;color:#8b949e">Item</th><th style="text-align:left;padding:8px 10px;font-size:10px;color:#8b949e">Entidad</th><th style="text-align:right;padding:8px 10px;font-size:10px;color:#8b949e">Monto</th><th style="text-align:center;padding:8px 10px;font-size:10px;color:#8b949e">B/N</th><th style="text-align:center;padding:8px 10px;font-size:10px;color:#8b949e;width:240px">Acciones</th></tr></thead><tbody>';
+
+            if (items.length === 0) {
+                html += '<tr><td colspan="8" style="text-align:center;padding:24px;color:#8b949e">No hay movimientos planificados en este ' + (CHECK_STATE.mode === 'day' ? 'día' : 'semana') + '.</td></tr>';
+            } else {
+                items.forEach(({ idx, m }) => {
+                    const pend = CHECK_PENDING[idx];
+                    let rowBg = '';
+                    let badge = '';
+                    if (pend) {
+                        if (pend.action === 'confirm') { rowBg = 'background:#23863615'; badge = '<span style="color:#3fb950;font-size:10px;font-weight:600">✓ CONFIRMADO</span>'; }
+                        else if (pend.action === 'modify') { rowBg = 'background:#fbbf2415'; badge = '<span style="color:#fbbf24;font-size:10px;font-weight:600">✎ MODIFICADO</span>'; }
+                        else if (pend.action === 'delete') { rowBg = 'background:#f8717115'; badge = '<span style="color:#f87171;font-size:10px;font-weight:600;text-decoration:line-through">🗑 ELIMINADO</span>'; }
+                    }
+                    const showF = (pend && pend.f) || m.f;
+                    const showV = (pend && pend.v !== undefined) ? pend.v : m.v;
+                    const isIng = (showV || 0) > 0;
+                    html += '<tr style="border-top:1px solid #21262d;' + rowBg + '">';
+                    html += '<td style="padding:8px 10px;font-size:11px">' + showF + '</td>';
+                    html += '<td style="padding:8px 10px;font-size:11px"><span style="background:' + (m.e === 'TQN' ? '#1f6feb20' : '#a371f720') + ';color:' + (m.e === 'TQN' ? '#58a6ff' : '#a371f7') + ';padding:2px 6px;border-radius:3px;font-size:9px;font-weight:600">' + (m.e || '-') + '</span></td>';
+                    html += '<td style="padding:8px 10px;font-size:11px;color:#c9d1d9">' + (m.t || '-') + '</td>';
+                    html += '<td style="padding:8px 10px;font-size:11px;color:#c9d1d9">' + (m.i || '-') + '</td>';
+                    html += '<td style="padding:8px 10px;font-size:11px;color:#8b949e;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + (m.en || '').replace(/"/g, '&quot;') + '">' + (m.en || '-') + '</td>';
+                    html += '<td style="padding:8px 10px;text-align:right;font-size:11px;font-weight:600;color:' + (isIng ? '#3fb950' : '#f87171') + '">' + checkFmt(showV) + '</td>';
+                    html += '<td style="padding:8px 10px;text-align:center;font-size:10px;color:#8b949e">' + (m.bn || '-') + '</td>';
+                    html += '<td style="padding:8px 10px;text-align:center">';
+                    if (badge) {
+                        html += badge + ' <button onclick="checkRevert(' + idx + ')" style="background:none;border:none;color:#8b949e;cursor:pointer;font-size:10px;margin-left:6px" title="Deshacer">↶</button>';
+                    } else {
+                        html += '<button onclick="checkConfirm(' + idx + ')" title="Confirmar (P→R)" style="background:#23863620;border:1px solid #238636;color:#3fb950;padding:4px 8px;border-radius:3px;cursor:pointer;font-size:10px;margin:0 2px">✓</button>';
+                        html += '<button onclick="checkModify(' + idx + ')" title="Modificar monto/fecha" style="background:#fbbf2420;border:1px solid #fbbf24;color:#fbbf24;padding:4px 8px;border-radius:3px;cursor:pointer;font-size:10px;margin:0 2px">✎</button>';
+                        html += '<button onclick="checkDelete(' + idx + ')" title="Eliminar" style="background:#f8717120;border:1px solid #f87171;color:#f87171;padding:4px 8px;border-radius:3px;cursor:pointer;font-size:10px;margin:0 2px">🗑</button>';
+                    }
+                    html += '</td></tr>';
+                });
+            }
+
+            // Render new (non-planned) added rows for this view
+            Object.entries(CHECK_PENDING).forEach(([k, p]) => {
+                if (p.action !== 'add') return;
+                const r = p.row;
+                // only show if it falls in the current visible range
+                let from, to;
+                if (CHECK_STATE.mode === 'day') { from = to = CHECK_STATE.date; }
+                else { [from, to] = checkGetWeekRange(CHECK_STATE.date); }
+                if (!r.f || r.f < from || r.f > to) return;
+                const isIng = (r.v || 0) > 0;
+                html += '<tr style="border-top:1px solid #21262d;background:#1f6feb15">';
+                html += '<td style="padding:8px 10px;font-size:11px">' + r.f + '</td>';
+                html += '<td style="padding:8px 10px;font-size:11px"><span style="background:' + (r.emp === 'TQN' ? '#1f6feb20' : '#a371f720') + ';color:' + (r.emp === 'TQN' ? '#58a6ff' : '#a371f7') + ';padding:2px 6px;border-radius:3px;font-size:9px;font-weight:600">' + r.emp + '</span></td>';
+                html += '<td style="padding:8px 10px;font-size:11px;color:#c9d1d9">' + (r.t || '-') + '</td>';
+                html += '<td style="padding:8px 10px;font-size:11px;color:#c9d1d9">' + (r.i || '-') + '</td>';
+                html += '<td style="padding:8px 10px;font-size:11px;color:#8b949e">' + (r.en || '-') + '</td>';
+                html += '<td style="padding:8px 10px;text-align:right;font-size:11px;font-weight:600;color:' + (isIng ? '#3fb950' : '#f87171') + '">' + checkFmt(r.v) + '</td>';
+                html += '<td style="padding:8px 10px;text-align:center;font-size:10px;color:#8b949e">' + (r.bn || 'B') + '</td>';
+                html += '<td style="padding:8px 10px;text-align:center"><span style="color:#58a6ff;font-size:10px;font-weight:600">+ NUEVO (REAL)</span> <button onclick="checkRevert(\'' + k + '\')" style="background:none;border:none;color:#8b949e;cursor:pointer;font-size:10px;margin-left:6px" title="Quitar">↶</button></td>';
+                html += '</tr>';
+            });
+
+            html += '</tbody>';
+            document.getElementById('checkTable').innerHTML = html;
+        }
+
+        function checkConfirm(idx) {
+            CHECK_PENDING[idx] = { action: 'confirm' };
+            renderCheckDiario();
+        }
+
+        function checkConfirmAllVisible() {
+            const items = checkGetMovementsInRange();
+            items.forEach(({ idx }) => {
+                if (!CHECK_PENDING[idx]) CHECK_PENDING[idx] = { action: 'confirm' };
+            });
+            renderCheckDiario();
+        }
+
+        function checkModify(idx) {
+            const m = DATA.mov[idx];
+            if (!m) return;
+            const newF = prompt('Nueva fecha (YYYY-MM-DD) — actual: ' + m.f, m.f);
+            if (newF === null) return;
+            const newVStr = prompt('Nuevo monto (positivo=ingreso, negativo=egreso) — actual: ' + m.v, m.v);
+            if (newVStr === null) return;
+            const newV = parseFloat(newVStr);
+            if (isNaN(newV)) { alert('Monto inválido'); return; }
+            CHECK_PENDING[idx] = { action: 'modify', f: newF, v: newV, origF: m.f, origV: m.v };
+            renderCheckDiario();
+        }
+
+        function checkDelete(idx) {
+            if (!confirm('¿Eliminar este movimiento del SOT?')) return;
+            CHECK_PENDING[idx] = { action: 'delete' };
+            renderCheckDiario();
+        }
+
+        function checkRevert(key) {
+            delete CHECK_PENDING[key];
+            renderCheckDiario();
+        }
+
+        function checkClearPending() {
+            if (Object.keys(CHECK_PENDING).length === 0) return;
+            if (!confirm('¿Descartar todos los cambios pendientes?')) return;
+            CHECK_PENDING = {};
+            renderCheckDiario();
+        }
+
+        function checkAddNew() {
+            const f = prompt('Fecha (YYYY-MM-DD)', CHECK_STATE.date);
+            if (!f) return;
+            const emp = prompt('Empresa (TQN o LMS)', 'TQN');
+            if (!emp) return;
+            const t = prompt('Tipo (ej: Cobranzas, Sueldos, Proveedores, etc.)', '');
+            if (t === null) return;
+            const i = prompt('Item', '');
+            if (i === null) return;
+            const en = prompt('Entidad / Detalle', '');
+            if (en === null) return;
+            const vStr = prompt('Monto (positivo=ingreso, negativo=egreso)', '');
+            if (vStr === null) return;
+            const v = parseFloat(vStr);
+            if (isNaN(v)) { alert('Monto inválido'); return; }
+            const bn = prompt('B (Bancario) o N (No bancario)', 'B') || 'B';
+            const key = 'new_' + (++CHECK_NEW_COUNTER);
+            CHECK_PENDING[key] = {
+                action: 'add',
+                row: { f, emp, t, i, en, v, bn, eo: 'R' } // new rows entered as REAL (already happened)
+            };
+            renderCheckDiario();
+        }
+
+        async function checkApplyChanges() {
+            const pendingCount = Object.keys(CHECK_PENDING).length;
+            if (pendingCount === 0) { alert('No hay cambios pendientes para impactar.'); return; }
+            if (!SHEETS_CONFIG.enabled || !SHEETS_CONFIG.apiUrl) {
+                alert('Sheets no está configurado. Configurá la sincronización en Carga de Datos primero.');
+                return;
+            }
+            if (!requireCFO('Impactar ' + pendingCount + ' cambio(s) en SOT')) return;
+            if (!confirm('Vas a impactar ' + pendingCount + ' cambio(s) directamente en la SOT (Google Sheets). ¿Confirmás?')) return;
+
+            // Build batch payload
+            const changes = [];
+            const localUpdates = []; // {idx, patch} to apply after success
+            const localDeletes = []; // idx
+            const localAdds = [];    // {row}
+
+            Object.entries(CHECK_PENDING).forEach(([key, p]) => {
+                if (p.action === 'add') {
+                    changes.push({ type: 'add', row: p.row });
+                    localAdds.push(p.row);
+                    return;
+                }
+                const idx = parseInt(key, 10);
+                const m = DATA.mov[idx];
+                if (!m || !m._row) return;
+                if (p.action === 'confirm') {
+                    changes.push({ type: 'update', rowIndex: m._row, field: 'eo', value: 'R' });
+                    localUpdates.push({ idx, patch: { eo: 'R' } });
+                } else if (p.action === 'modify') {
+                    if (p.f !== m.f) {
+                        changes.push({ type: 'update', rowIndex: m._row, field: 'f', value: p.f });
+                    }
+                    if (p.v !== m.v) {
+                        changes.push({ type: 'update', rowIndex: m._row, field: 'v', value: p.v });
+                    }
+                    // Modified movements also pass to REAL
+                    changes.push({ type: 'update', rowIndex: m._row, field: 'eo', value: 'R' });
+                    localUpdates.push({ idx, patch: { f: p.f, v: p.v, eo: 'R' } });
+                } else if (p.action === 'delete') {
+                    changes.push({ type: 'delete', rowIndex: m._row });
+                    localDeletes.push(idx);
+                }
+            });
+
+            if (changes.length === 0) { alert('No hay cambios válidos para impactar.'); return; }
+
+            const result = await sheetsPushChanges({ action: 'batch_update', changes: changes });
+            if (!result || !result.ok && result.error) {
+                alert('Error al impactar cambios: ' + (result?.error || 'desconocido'));
+                return;
+            }
+
+            // Apply locally
+            localUpdates.forEach(({ idx, patch }) => {
+                Object.assign(DATA.mov[idx], patch);
+            });
+            localDeletes.forEach(idx => {
+                DATA.mov[idx]._deleted = true;
+            });
+            localAdds.forEach(r => {
+                DATA.mov.push({
+                    f: r.f, e: r.emp, emp: r.emp, t: r.t, i: r.i, en: r.en, v: r.v, bn: r.bn, eo: r.eo || 'R'
+                });
+            });
+
+            CHECK_PENDING = {};
+            alert('✅ ' + (result.applied || changes.length) + ' cambio(s) impactados en SOT correctamente.');
+            renderCheckDiario();
+            // Refresh dashboard if visible
+            if (document.getElementById('dashboard')?.classList.contains('active')) renderDashboard();
         }
 
         function renderAuditoria() {
