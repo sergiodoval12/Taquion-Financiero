@@ -621,7 +621,7 @@
                 <div class="nav-section-title">Análisis</div>
                 <div class="nav-item" onclick="showPage('composicion')">Composición</div>
                 <div class="nav-item" onclick="showPage('bancarizado')">B / N Splits</div>
-                <div class="nav-item" onclick="showPage('semanal')">Semanal 45d</div>
+                <div class="nav-item" onclick="showPage('semanal')">Semanal</div>
                 <div class="nav-item" onclick="showPage('whatif')">Sandbox</div>
             </div>
 
@@ -1097,8 +1097,8 @@
 
             <!-- SEMANAL PAGE -->
             <div id="semanal" class="page">
-                <h1>Vista Semanal — Próximos 45 días</h1>
-                <div class="reference-banner">Semana a semana desde hoy (04/04/2026) hasta 19/05/2026 | Egresos desglosados: Operativos + Fee's + Deuda</div>
+                <h1 id="semanalTitle">Vista Semanal</h1>
+                <div class="reference-banner" id="semanalBanner">Cargando…</div>
 
                 <div class="kpi-grid" id="semanalKPIs"></div>
 
@@ -2368,7 +2368,7 @@
 
             // Mobile: close sidebar and update title
             document.querySelector('.sidebar')?.classList.remove('open');
-            const titles = { dashboard:'Dashboard', operacion:'Operación BAU', deuda:'Deuda', composicion:'Composición', bancarizado:'B/N Splits', semanal:'Semanal 45d', whatif:'Sandbox', carga:'Carga', movimientos:'Movimientos', nomina:'Nómina', auditoria:'Auditoría SOT', checkDay:'Check Diario / Semanal' };
+            const titles = { dashboard:'Dashboard', operacion:'Operación BAU', deuda:'Deuda', composicion:'Composición', bancarizado:'B/N Splits', semanal:'Semanal', whatif:'Sandbox', carga:'Carga', movimientos:'Movimientos', nomina:'Nómina', auditoria:'Auditoría SOT', checkDay:'Check Diario / Semanal' };
             const mpt = document.getElementById('mobilePageTitle');
             if (mpt) mpt.textContent = titles[pageId] || pageId;
 
@@ -8472,11 +8472,51 @@
         }
 
         function renderSemanal() {
-            const hoy = new Date('2026-04-04');
-            const fin = new Date(hoy);
-            fin.setDate(fin.getDate() + 45);
-            const hoyStr = '2026-04-04';
-            const finStr = fin.toISOString().slice(0, 10);
+            // ─────────────────────────────────────────────────────────────
+            // CORTE SEMANAL COMPLETO (no estricto a 45 días)
+            // El CFO mira semanas Lun→Dom completas. Arrancamos en el LUNES
+            // de la semana actual (incluso si hoy es miércoles), y terminamos
+            // en el DOMINGO de la semana que contiene hoy+45 días. Eso garantiza
+            // semanas enteras y siempre cubre al menos los próximos 45 días.
+            // ─────────────────────────────────────────────────────────────
+            const todayStr = (typeof TODAY_STR !== 'undefined' && TODAY_STR) ? TODAY_STR : new Date().toISOString().slice(0, 10);
+
+            // Helper: construir un Date "limpio" desde YYYY-MM-DD evitando TZ off-by-one
+            function _ymdToDate(s) {
+                const p = s.split('-');
+                return new Date(parseInt(p[0]), parseInt(p[1]) - 1, parseInt(p[2]));
+            }
+            function _dateToYmd(d) {
+                const m = ('0' + (d.getMonth() + 1)).slice(-2);
+                const day = ('0' + d.getDate()).slice(-2);
+                return d.getFullYear() + '-' + m + '-' + day;
+            }
+            // Lunes de la semana que contiene la fecha
+            function _mondayOf(d) {
+                const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+                const dow = x.getDay(); // 0=Dom, 1=Lun, ... 6=Sab
+                const diff = (dow === 0 ? -6 : 1 - dow);
+                x.setDate(x.getDate() + diff);
+                return x;
+            }
+            // Domingo de la semana que contiene la fecha
+            function _sundayOf(d) {
+                const lun = _mondayOf(d);
+                lun.setDate(lun.getDate() + 6);
+                return lun;
+            }
+
+            const today = _ymdToDate(todayStr);
+            const startD = _mondayOf(today);              // lunes de esta semana
+            const target = new Date(today);
+            target.setDate(target.getDate() + 45);
+            const endD = _sundayOf(target);               // domingo de la semana que contiene hoy+45
+
+            const hoy = today;                            // referencia para banners
+            const hoyStr = _dateToYmd(startD);            // INICIO real (lunes de esta semana)
+            const finStr = _dateToYmd(endD);              // FIN real (domingo extendido)
+            const totalDias = Math.round((endD - startD) / 86400000) + 1;
+            const totalSemanas = Math.round(totalDias / 7);
 
             // Helper: is this a fee/commission deduction on collections?
             function isFeeDeduction(m) {
@@ -8565,11 +8605,17 @@
                 if (s < worstSaldo) { worstSaldo = s; worstWeek = w; }
             });
 
+            // Título + banner dinámicos
+            const _ttl = document.getElementById('semanalTitle');
+            const _bnr = document.getElementById('semanalBanner');
+            if (_ttl) _ttl.textContent = 'Vista Semanal — Próximas ' + totalSemanas + ' semanas';
+            if (_bnr) _bnr.textContent = 'Semanas completas Lun→Dom desde ' + fmtDateAR(hoyStr) + ' hasta ' + fmtDateAR(finStr) + ' (' + totalDias + ' días, hoy ' + fmtDateAR(todayStr) + ') | Egresos desglosados: Operativos + Fee\'s + Deuda';
+
             document.getElementById('semanalKPIs').innerHTML = `
                 <div class="kpi" style="border-left:3px solid ${saldo45 >= 0 ? 'var(--gn)' : 'var(--rd)'}">
-                    <div class="kpi-label">Saldo Próximos 45 días</div>
+                    <div class="kpi-label">Saldo ${totalSemanas} semanas</div>
                     <div class="kpi-value ${saldo45 >= 0 ? 'positive' : 'negative'}">${formatARS(saldo45)}</div>
-                    <div class="kpi-sub">${mov45.length} movimientos en ${weekKeys.length} semanas</div>
+                    <div class="kpi-sub">${mov45.length} mov · ${fmtDateAR(hoyStr)} → ${fmtDateAR(finStr)}</div>
                 </div>
                 <div class="kpi">
                     <div class="kpi-label">Ingresos Brutos</div>
