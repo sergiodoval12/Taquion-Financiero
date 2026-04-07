@@ -2074,12 +2074,14 @@
         // Fuente: "RES EJEC Semanal B 24-25-26", semana 2026-14 (30 Mar) = última REAL
         const CAJA = {
             descubiertoAprobado: 175948095,    // $175.9M - Galicia + Macro TQN + Santander + BBVA
-            saldoFinalReal: -115351999,        // Saldo Final semana 2026-14 (-$115.3M)
-            saldoConDescReal: 60596096,        // Saldo + Descubierto disponible ($60.6M)
+            saldoFinalReal: -115351999,        // Saldo Final semana 2026-14 (-$115.3M) [legacy]
+            saldoConDescReal: 60596096,        // Saldo + Descubierto disponible [legacy]
             semanaReal: '2026-03-30',
-            // EN CURSO (semana 2026-15, Apr 6):
-            saldoEnCurso: -65654846,           // Saldo Final en curso (-$65.7M)
-            saldoEnCursoConDesc: 110293249,    // Con descubierto ($110.3M)
+            // EN CURSO (semana del lun 6/4) — actualizado por el CFO al 6/4/2026:
+            // Saldo bancario REAL al inicio de la semana = -$142.778.000
+            // Solo BANCARIZADO. Forward-roll desde acá usando solo movs con bn='B'.
+            saldoEnCurso: -142778000,          // Saldo bancario hoy (-$142.778M)
+            saldoEnCursoConDesc: 33170095,     // -142.778.000 + 175.948.095 = 33.170.095 disponible
             semanaEnCurso: '2026-04-06'
         };
 
@@ -8536,8 +8538,15 @@
                 return m.t === 'Préstamos Bancarios' || item.includes('devolucion a gc') || item.includes('devolución a gc');
             }
 
-            // Get movements in range
-            const mov45 = (DATA.mov || []).filter(m => m.f >= hoyStr && m.f <= finStr);
+            // Get movements in range — SOLO BANCARIZADO (bn='B')
+            // Los no bancarizados (N) no tocan caja, así que quedan fuera del forward-roll
+            // y de toda esta vista. La realidad de la caja se mide en bancarizado.
+            const mov45 = (DATA.mov || []).filter(m => {
+                if (!m.f || m.f < hoyStr || m.f > finStr) return false;
+                if (m._deleted) return false;
+                const bn = String(m.bn || '').trim().toUpperCase();
+                return bn === 'B';
+            });
 
             // Group by week (Monday start) — usa parsing local-safe
             function getWeekKey(dateStr) {
@@ -8600,6 +8609,42 @@
 
             const weekKeys = Object.keys(weeks).sort();
 
+            // ─── SALDO BANCARIO INICIAL (ancla fija desde CAJA) ──────────
+            // El CFO quiere ver dónde está parado en caja, no sólo el delta.
+            // ANCLA: CAJA.saldoEnCurso es el saldo bancario al INICIO de la semana
+            // actual (lun 06/04 en el ejemplo). La app no calcula nada hacia atrás
+            // — toma este valor como la realidad de hoy y forward-roll.
+            // La semana de contexto previa (30/3-5/4) sólo muestra movimientos
+            // históricos para referencia, NO entra en el cumulativo.
+            const startCash = (typeof CAJA !== 'undefined' && CAJA && typeof CAJA.saldoEnCurso === 'number') ? CAJA.saldoEnCurso : 0;
+            const startCashFecha = (typeof CAJA !== 'undefined' && CAJA && CAJA.semanaEnCurso) ? CAJA.semanaEnCurso : '';
+            // Lunes de la semana del ancla — desde acá empezamos a forward-rollear
+            const _startMon = startCashFecha ? _mondayOf(_ymdToDate(startCashFecha)) : _mondayOf(today);
+            const anchorWeekKey = _dateToYmd(_startMon);
+            const descubiertoTotal = (typeof CAJA !== 'undefined' && CAJA && typeof CAJA.descubiertoAprobado === 'number') ? CAJA.descubiertoAprobado : 0;
+            // Lunes de la semana del ancla (no de hoy) — así el cumulativo arranca
+            // siempre desde donde el CFO ancló el saldo, aunque no haya actualizado.
+            const currentWeekKey = anchorWeekKey;
+
+            // Pre-compute saldo final de cada semana (sólo desde la semana del ancla en adelante)
+            const saldoFinalPorSemana = {};
+            {
+                let cum = startCash;
+                weekKeys.forEach(w => {
+                    if (w < currentWeekKey) {
+                        saldoFinalPorSemana[w] = null; // contexto previo al ancla, no acumular
+                        return;
+                    }
+                    cum += weeks[w].ing + weeks[w].egr;
+                    saldoFinalPorSemana[w] = cum;
+                });
+            }
+            const saldoFinalPeriodo = (function() {
+                const proyecciones = weekKeys.filter(w => saldoFinalPorSemana[w] !== null).map(w => saldoFinalPorSemana[w]);
+                return proyecciones.length ? proyecciones[proyecciones.length - 1] : startCash;
+            })();
+            const saldoFinalConDesc = saldoFinalPeriodo + descubiertoTotal;
+
             // KPIs - separate operational from total
             const totalIng = weekKeys.reduce((s, w) => s + weeks[w].ing, 0);
             const totalEgr = weekKeys.reduce((s, w) => s + weeks[w].egr, 0);
@@ -8608,44 +8653,52 @@
             const totalDeuda = weekKeys.reduce((s, w) => s + weeks[w].deuda, 0);
             const saldo45 = totalIng + totalEgr;
 
-            // Find worst week
-            let worstWeek = null, worstSaldo = Infinity;
+            // Find worst week (sobre el saldo BANCARIO acumulado, no sobre el delta)
+            let worstWeek = null, worstSaldoCash = Infinity;
             weekKeys.forEach(w => {
-                const s = weeks[w].ing + weeks[w].egr;
-                if (s < worstSaldo) { worstSaldo = s; worstWeek = w; }
+                if (saldoFinalPorSemana[w] === null) return; // skip contexto
+                if (saldoFinalPorSemana[w] < worstSaldoCash) {
+                    worstSaldoCash = saldoFinalPorSemana[w];
+                    worstWeek = w;
+                }
             });
 
             // Título + banner dinámicos
             const _ttl = document.getElementById('semanalTitle');
             const _bnr = document.getElementById('semanalBanner');
             if (_ttl) _ttl.textContent = 'Vista Semanal — Próximas ' + totalSemanas + ' semanas';
-            if (_bnr) _bnr.textContent = 'Semanas completas Lun→Dom desde ' + fmtDateAR(hoyStr) + ' hasta ' + fmtDateAR(finStr) + ' (' + totalDias + ' días, hoy ' + fmtDateAR(todayStr) + ') | Egresos desglosados: Operativos + Fee\'s + Deuda';
+            if (_bnr) {
+                const _ancla = startCashFecha ? fmtDateAR(startCashFecha) : fmtDateAR(currentWeekKey);
+                _bnr.innerHTML = 'Semanas completas Lun→Dom desde <b>' + fmtDateAR(hoyStr) + '</b> hasta <b>' + fmtDateAR(finStr) + '</b> (' + totalDias + ' días, hoy ' + fmtDateAR(todayStr) + ')<br>'
+                    + '<span style="font-size:11px;color:var(--tx2)">⚓ Ancla: saldo bancario <b>' + formatARS(startCash) + '</b> al inicio de la semana del <b>' + _ancla + '</b> · forward-roll · </span>'
+                    + '<span style="font-size:10px;background:#1f6feb20;color:#58a6ff;padding:2px 6px;border-radius:3px;font-weight:700;margin-left:4px">SOLO BANCARIZADO (B)</span>';
+            }
 
             document.getElementById('semanalKPIs').innerHTML = `
-                <div class="kpi" style="border-left:3px solid ${saldo45 >= 0 ? 'var(--gn)' : 'var(--rd)'}">
-                    <div class="kpi-label">Saldo ${totalSemanas} semanas</div>
-                    <div class="kpi-value ${saldo45 >= 0 ? 'positive' : 'negative'}">${formatARS(saldo45)}</div>
-                    <div class="kpi-sub">${mov45.length} mov · ${fmtDateAR(hoyStr)} → ${fmtDateAR(finStr)}</div>
+                <div class="kpi" style="border-left:3px solid ${startCash >= 0 ? 'var(--gn)' : 'var(--rd)'}">
+                    <div class="kpi-label">💰 Saldo Bancario HOY</div>
+                    <div class="kpi-value ${startCash >= 0 ? 'positive' : 'negative'}">${formatARS(startCash)}</div>
+                    <div class="kpi-sub">Inicio semana ${fmtDateAR(currentWeekKey)} · fuente: SOT Caja</div>
                 </div>
-                <div class="kpi">
-                    <div class="kpi-label">Ingresos Brutos</div>
-                    <div class="kpi-value positive">${formatARS(totalIng)}</div>
-                    <div class="kpi-sub">Fee's: ${formatARS(totalFees)}</div>
-                </div>
-                <div class="kpi">
-                    <div class="kpi-label">Egresos Operativos</div>
-                    <div class="kpi-value negative">${formatARS(totalEgrOp)}</div>
-                    <div class="kpi-sub" style="font-size:9px">Sin fee's ni deuda</div>
+                <div class="kpi" style="border-left:3px solid ${saldoFinalPeriodo >= 0 ? 'var(--gn)' : 'var(--rd)'}">
+                    <div class="kpi-label">📍 Saldo Proyectado al ${fmtDateAR(finStr)}</div>
+                    <div class="kpi-value ${saldoFinalPeriodo >= 0 ? 'positive' : 'negative'}">${formatARS(saldoFinalPeriodo)}</div>
+                    <div class="kpi-sub">Δ ${formatARS(saldoFinalPeriodo - startCash)} en ${totalSemanas - 1} semanas proyectadas</div>
                 </div>
                 <div class="kpi" style="border-left:3px solid #a78bfa">
-                    <div class="kpi-label">Deuda (GC + Bancaria)</div>
-                    <div class="kpi-value negative">${formatARS(totalDeuda)}</div>
-                    <div class="kpi-sub">Incluido en egresos totales</div>
+                    <div class="kpi-label">Con Descubierto Aprobado</div>
+                    <div class="kpi-value ${saldoFinalConDesc >= 0 ? 'positive' : 'negative'}">${formatARS(saldoFinalConDesc)}</div>
+                    <div class="kpi-sub">Disponible total al final del período</div>
+                </div>
+                <div class="kpi">
+                    <div class="kpi-label">Ingresos / Egresos Op</div>
+                    <div class="kpi-value" style="font-size:15px"><span class="positive">${formatARS(totalIng)}</span><br><span class="negative">${formatARS(totalEgrOp)}</span></div>
+                    <div class="kpi-sub">Fee's ${formatARS(totalFees)} · Deuda ${formatARS(totalDeuda)}</div>
                 </div>
                 ${worstWeek ? `<div class="kpi" style="border-left:3px solid var(--rd)">
-                    <div class="kpi-label">Semana más comprometida</div>
-                    <div class="kpi-value negative">${formatARS(worstSaldo)}</div>
-                    <div class="kpi-sub">Semana del ${fmtDateAR(worstWeek)}</div>
+                    <div class="kpi-label">⚠️ Semana más comprometida</div>
+                    <div class="kpi-value negative">${formatARS(worstSaldoCash)}</div>
+                    <div class="kpi-sub">Saldo bancario al cierre semana del ${fmtDateAR(worstWeek)}</div>
                 </div>` : ''}
             `;
 
@@ -8660,12 +8713,12 @@
                     return fmtDateAR(w).slice(0,5) + ' — ' + fmtDateAR(_dateToYmd(end)).slice(0,5);
                 });
 
-                // Cumulative saldo
-                let cumSaldo = 0;
-                const cumData = weekKeys.map(w => {
-                    cumSaldo += weeks[w].ing + weeks[w].egr;
-                    return cumSaldo;
-                });
+                // Saldo bancario acumulado: arranca en startCash desde la semana actual.
+                // La semana de contexto (anterior) NO acumula → null para que el chart la salte.
+                const cumData = weekKeys.map(w => saldoFinalPorSemana[w]);
+                // Línea horizontal con descubierto aprobado (referencia): startCash + descubierto
+                // sólo desde la semana actual en adelante
+                const lineDesc = weekKeys.map(w => (saldoFinalPorSemana[w] === null) ? null : (saldoFinalPorSemana[w] + descubiertoTotal));
 
                 APP.charts.semanal = new Chart(ctx, {
                     type: 'bar',
@@ -8701,16 +8754,31 @@
                                 order: 3
                             },
                             {
-                                label: 'Saldo Acumulado',
+                                label: '💰 Saldo Bancario',
                                 type: 'line',
                                 data: cumData,
                                 borderColor: '#fbbf24',
                                 borderWidth: 3,
                                 tension: 0.3,
                                 pointRadius: 6,
-                                pointBackgroundColor: cumData.map(v => v >= 0 ? '#34d399' : '#f87171'),
+                                pointBackgroundColor: cumData.map(v => v == null ? 'transparent' : (v >= 0 ? '#34d399' : '#f87171')),
                                 pointBorderColor: '#fbbf24',
                                 pointBorderWidth: 2,
+                                spanGaps: false,
+                                order: 1,
+                                yAxisID: 'y1'
+                            },
+                            {
+                                label: '+ Descubierto Aprobado',
+                                type: 'line',
+                                data: lineDesc,
+                                borderColor: '#a78bfa',
+                                borderWidth: 2,
+                                borderDash: [5, 4],
+                                tension: 0.3,
+                                pointRadius: 3,
+                                pointBackgroundColor: '#a78bfa',
+                                spanGaps: false,
                                 order: 1,
                                 yAxisID: 'y1'
                             }
@@ -8747,19 +8815,27 @@
                 endDate.setDate(endDate.getDate() + 6);
                 const saldo = d.ing + d.egr;
                 const saldoCls = saldo >= 0 ? 'positive' : 'negative';
+                const isContext = (wk < currentWeekKey);
+                const saldoFin = saldoFinalPorSemana[wk]; // null si es contexto
+                const saldoFinCls = (saldoFin == null) ? '' : (saldoFin >= 0 ? 'positive' : 'negative');
+                const headerBg = isContext ? '#30363d' : 'var(--sf2)';
+                const ctxBadge = isContext ? '<span style="font-size:9px;background:#8b949e30;color:#8b949e;padding:2px 6px;border-radius:3px;margin-left:6px;text-transform:uppercase;font-weight:600">contexto</span>' : '';
+                const isCurrent = (wk === currentWeekKey);
+                const curBadge = isCurrent ? '<span style="font-size:9px;background:#fbbf2430;color:#fbbf24;padding:2px 6px;border-radius:3px;margin-left:6px;text-transform:uppercase;font-weight:600">actual</span>' : '';
 
-                detailHtml += `<div style="margin-bottom:16px;">
-                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;padding:8px 12px;background:var(--sf2);border-radius:6px;">
+                detailHtml += `<div style="margin-bottom:16px;${isContext ? 'opacity:0.75' : ''}">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;padding:8px 12px;background:${headerBg};border-radius:6px;">
                         <div>
-                            <b>Semana ${fmtDateAR(wk)} — ${fmtDateAR(_dateToYmd(endDate))}</b>
-                            <span style="font-size:10px;color:var(--tx2);margin-left:8px">${d.count} movimientos</span>
+                            <b>Semana ${fmtDateAR(wk)} — ${fmtDateAR(_dateToYmd(endDate))}</b>${ctxBadge}${curBadge}
+                            <span style="font-size:10px;color:var(--tx2);margin-left:8px">${d.count} mov</span>
                         </div>
-                        <div style="display:flex;gap:12px;font-size:11px;flex-wrap:wrap;">
+                        <div style="display:flex;gap:12px;font-size:11px;flex-wrap:wrap;align-items:center">
                             <span class="positive">${formatARS(d.ing)}</span>
                             <span class="negative">${formatARS(d.egrOp)}<span style="font-size:9px;color:var(--tx2)"> op</span></span>
                             ${d.fees ? `<span style="color:#fb923c">${formatARS(d.fees)}<span style="font-size:9px;color:var(--tx2)"> fee's</span></span>` : ''}
                             ${d.deuda ? `<span style="color:#a78bfa">${formatARS(d.deuda)}<span style="font-size:9px;color:var(--tx2)"> deuda</span></span>` : ''}
-                            <span class="${saldoCls}" style="font-weight:700">${formatARS(saldo)}</span>
+                            <span class="${saldoCls}" style="font-weight:700;border-left:1px solid #30363d;padding-left:12px">Δ ${formatARS(saldo)}</span>
+                            ${saldoFin != null ? `<span class="${saldoFinCls}" style="font-weight:700;background:#0d111880;padding:4px 10px;border-radius:4px;border:1px solid ${saldoFin >= 0 ? '#23863660' : '#f8717160'}">💰 ${formatARS(saldoFin)}</span>` : '<span style="font-size:10px;color:var(--tx2);font-style:italic">histórico</span>'}
                         </div>
                     </div>
                     <table><tr><th>Fecha</th><th>Emp</th><th>Tipo</th><th>Ítem</th><th>Entidad</th><th class="text-right">Monto</th></tr>`;
