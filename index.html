@@ -3553,11 +3553,23 @@
             if (newCli === null) return;
             const newProy = prompt('Proyecto (opcional) — actual: ' + (m.proy || ''), m.proy || '');
             if (newProy === null) return;
+            // Estado: ¿este cambio refleja algo que YA pasó (REAL) o sigue planificado (PROYECTADO)?
+            // Default inteligente: si la fecha nueva es futura → propongo mantenerlo Proyectado.
+            // Si es hoy o pasada → propongo pasarlo a Real.
+            const _today = TODAY_STR || new Date().toISOString().slice(0, 10);
+            const _isFuture = newF > _today;
+            const _defaultReal = !_isFuture;
+            const _msg = _isFuture
+                ? '¿Pasar a REAL?\n\nLa nueva fecha es FUTURA (' + newF + '), por lo que normalmente seguiría en PROYECTADO.\n\nOK → marcar igual como REAL\nCancelar → mantener en PROYECTADO (recomendado)'
+                : '¿Pasar a REAL?\n\nLa nueva fecha (' + newF + ') ya pasó o es hoy.\n\nOK → marcar como REAL (recomendado)\nCancelar → mantener en PROYECTADO';
+            const wantsReal = confirm(_msg);
+            const newEo = wantsReal ? 'R' : 'P';
             CHECK_PENDING[idx] = {
                 action: 'modify',
                 f: newF, v: newV,
                 i: newI, en: newEn,
                 cc: newCC, cli: newCli, proy: newProy,
+                eo: newEo,
                 origF: m.f, origV: m.v
             };
             renderCheckDiario();
@@ -3675,7 +3687,8 @@
                     changes.push({ type: 'update', rowIndex: m._row, field: 'eo', value: 'R' });
                     localUpdates.push({ idx, patch: { eo: 'R' } });
                 } else if (p.action === 'modify') {
-                    const patch = { eo: 'R' };
+                    const targetEo = p.eo || 'R'; // si el usuario eligió mantener Proyectado, respetar
+                    const patch = { eo: targetEo };
                     if (p.f !== m.f) {
                         changes.push({ type: 'update', rowIndex: m._row, field: 'f', value: p.f });
                         patch.f = p.f;
@@ -3704,8 +3717,10 @@
                         changes.push({ type: 'update', rowIndex: m._row, field: 'proy', value: p.proy });
                         patch.proy = p.proy;
                     }
-                    // Modified movements also pass to REAL
-                    changes.push({ type: 'update', rowIndex: m._row, field: 'eo', value: 'R' });
+                    // Estado: respetar la elección del usuario (R o P)
+                    if (targetEo !== m.eo) {
+                        changes.push({ type: 'update', rowIndex: m._row, field: 'eo', value: targetEo });
+                    }
                     localUpdates.push({ idx, patch });
                 } else if (p.action === 'delete') {
                     changes.push({ type: 'delete', rowIndex: m._row });
