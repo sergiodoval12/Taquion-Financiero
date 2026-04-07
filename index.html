@@ -1710,7 +1710,7 @@
 
         // ========= GOOGLE SHEETS SYNC =========
         const SHEETS_CONFIG = {
-            apiUrl: 'https://script.google.com/macros/s/AKfycbxklSF2cOZhquW-d4qbAdyIVMJz1SWC7azpKe--E0hD9cATKxhVSblzTVBGHQilBHBv5A/exec',
+            apiUrl: 'https://script.google.com/macros/s/AKfycbxyN9PW1YlCmMh4jmvZQSWXsm6xQ858xoFmZbzBMJlqKZcnvOQplbe8lm_3h2B5JWGEdg/exec',
             enabled: true,
             lastSync: null,
             syncing: false,
@@ -3393,6 +3393,7 @@
                         if (pend.action === 'confirm') { rowBg = 'background:#23863615'; badge = '<span style="color:#3fb950;font-size:10px;font-weight:600">✓ CONFIRMADO</span>'; }
                         else if (pend.action === 'modify') { rowBg = 'background:#fbbf2415'; badge = '<span style="color:#fbbf24;font-size:10px;font-weight:600">✎ MODIFICADO</span>'; }
                         else if (pend.action === 'delete') { rowBg = 'background:#f8717115'; badge = '<span style="color:#f87171;font-size:10px;font-weight:600;text-decoration:line-through">🗑 ELIMINADO</span>'; }
+                        else if (pend.action === 'factura') { rowBg = 'background:#1f6feb15'; badge = '<span style="color:#58a6ff;font-size:10px;font-weight:600">📄 FACTURA</span>'; }
                     }
                     const showF = (pend && pend.f) || m.f;
                     const showV = (pend && pend.v !== undefined) ? pend.v : m.v;
@@ -3408,13 +3409,20 @@
                     // Factura badge — aplica a pagos Y cobranzas
                     html += '<td style="padding:8px 10px;text-align:center">';
                     {
-                        const facStatus = String(m.factura || '').trim().toUpperCase();
+                        // Tomar estado pendiente si existe (optimistic UI)
+                        const facEffective = (pend && pend.factura !== undefined) ? pend.factura : m.factura;
+                        const facStatus = String(facEffective || '').trim().toUpperCase();
+                        const isPendFac = pend && pend.factura !== undefined;
+                        const ringStyle = isPendFac ? ';box-shadow:0 0 0 1px #58a6ff inset' : '';
                         if (facStatus === 'OK') {
-                            html += '<button onclick="checkToggleFactura(' + idx + ')" title="Factura cargada — click para revertir" style="background:#23863620;border:1px solid #238636;color:#3fb950;padding:4px 10px;border-radius:3px;cursor:pointer;font-size:10px;font-weight:700">✓ OK</button>';
+                            const tipOk = isPendFac ? 'Pendiente: marcado OK (impactá para guardar)' : 'Factura cargada — click para revertir';
+                            html += '<button onclick="checkToggleFactura(' + idx + ')" title="' + tipOk + '" style="background:#23863620;border:1px solid #238636;color:#3fb950;padding:4px 10px;border-radius:3px;cursor:pointer;font-size:10px;font-weight:700' + ringStyle + '">✓ OK' + (isPendFac ? ' •' : '') + '</button>';
                         } else {
                             const label = isIng ? '⚠ Sin facturar' : '⚠ Sin fac.';
-                            const tip = isIng ? 'Cobranza sin facturar — si no se emite factura, no se va a poder cobrar. Click para marcar OK.' : 'Sin factura — click para marcar como OK';
-                            html += '<button onclick="checkToggleFactura(' + idx + ')" title="' + tip + '" style="background:#fbbf2420;border:1px solid #fbbf24;color:#fbbf24;padding:4px 10px;border-radius:3px;cursor:pointer;font-size:10px;font-weight:700">' + label + '</button>';
+                            const tip = isPendFac
+                                ? 'Pendiente: marcado SIN factura (impactá para guardar)'
+                                : (isIng ? 'Cobranza sin facturar — si no se emite factura, no se va a poder cobrar. Click para marcar OK.' : 'Sin factura — click para marcar como OK');
+                            html += '<button onclick="checkToggleFactura(' + idx + ')" title="' + tip + '" style="background:#fbbf2420;border:1px solid #fbbf24;color:#fbbf24;padding:4px 10px;border-radius:3px;cursor:pointer;font-size:10px;font-weight:700' + ringStyle + '">' + label + (isPendFac ? ' •' : '') + '</button>';
                         }
                     }
                     html += '</td>';
@@ -3498,32 +3506,35 @@
         }
 
         // Toggle factura status for a movement (OK ↔ '') and push immediately to SOT
-        async function checkToggleFactura(idx) {
+        // Toggle factura: queda en CHECK_PENDING para que se impacte vía "Impactar cambios"
+        // (junto al resto de los cambios). Si ya hay un pending para ese idx, le agrega/saca
+        // el campo factura sin pisar la action existente.
+        function checkToggleFactura(idx) {
             const m = DATA.mov[idx];
             if (!m) return;
-            const cur = String(m.factura || '').trim().toUpperCase();
-            const next = (cur === 'OK') ? '' : 'OK';
-            // Optimistic local update
-            m.factura = next;
-            renderCheckDiario();
-            // Push to SOT
-            if (!SHEETS_CONFIG.enabled || !SHEETS_CONFIG.apiUrl || !m._row) return;
-            try {
-                const r = await sheetsPushChanges({
-                    action: 'batch_update',
-                    changes: [{ type: 'update', rowIndex: m._row, field: 'factura', value: next }]
-                });
-                if (!r || r.error) {
-                    // Revert local on failure
-                    m.factura = cur;
-                    renderCheckDiario();
-                    alert('No se pudo actualizar la factura en el SOT: ' + (r && r.error || 'sin respuesta'));
+            const pend = CHECK_PENDING[idx];
+            const curEffective = (pend && pend.factura !== undefined)
+                ? String(pend.factura).trim().toUpperCase()
+                : String(m.factura || '').trim().toUpperCase();
+            const next = (curEffective === 'OK') ? '' : 'OK';
+            const origFac = String(m.factura || '').trim().toUpperCase();
+
+            if (pend) {
+                // Si el toggle vuelve al valor original Y la action es solo 'factura', limpio
+                if (next === origFac && pend.action === 'factura') {
+                    delete CHECK_PENDING[idx];
+                } else {
+                    pend.factura = next;
                 }
-            } catch (e) {
-                m.factura = cur;
-                renderCheckDiario();
-                alert('Error de red al actualizar factura: ' + e.message);
+            } else {
+                // Si el toggle resulta en el mismo valor que el SOT, no hay nada que pendiente
+                if (next === origFac) {
+                    renderCheckDiario();
+                    return;
+                }
+                CHECK_PENDING[idx] = { action: 'factura', factura: next };
             }
+            renderCheckDiario();
         }
 
         function checkConfirmAllVisible() {
@@ -3651,8 +3662,14 @@
                 } else if (p.action === 'confirm' || p.action === 'modify') {
                     const idx = parseInt(key, 10);
                     const m = DATA.mov[idx];
-                    if (m) checkRow(m.v || 0, m.i, m.en, m.factura);
+                    if (m) {
+                        // Considerar el valor de factura pendiente si existe
+                        const facEff = (p.factura !== undefined) ? p.factura : m.factura;
+                        checkRow(m.v || 0, m.i, m.en, facEff);
+                    }
                 }
+                // action === 'factura' standalone: no necesita pre-check (justamente lo está cambiando)
+                // action === 'delete': no necesita pre-check (no se confirma cobranza)
             });
             if (pagosSF.length > 0) {
                 const lista = pagosSF.slice(0, 8).join('\n• ');
@@ -3683,9 +3700,18 @@
                 const idx = parseInt(key, 10);
                 const m = DATA.mov[idx];
                 if (!m || !m._row) return;
-                if (p.action === 'confirm') {
+                if (p.action === 'factura') {
+                    // Toggle de factura standalone (no toca eo, no toca otros campos)
+                    changes.push({ type: 'update', rowIndex: m._row, field: 'factura', value: p.factura });
+                    localUpdates.push({ idx, patch: { factura: p.factura } });
+                } else if (p.action === 'confirm') {
                     changes.push({ type: 'update', rowIndex: m._row, field: 'eo', value: 'R' });
-                    localUpdates.push({ idx, patch: { eo: 'R' } });
+                    const _patch = { eo: 'R' };
+                    if (p.factura !== undefined && p.factura !== (m.factura || '')) {
+                        changes.push({ type: 'update', rowIndex: m._row, field: 'factura', value: p.factura });
+                        _patch.factura = p.factura;
+                    }
+                    localUpdates.push({ idx, patch: _patch });
                 } else if (p.action === 'modify') {
                     const targetEo = p.eo || 'R'; // si el usuario eligió mantener Proyectado, respetar
                     const patch = { eo: targetEo };
@@ -3716,6 +3742,10 @@
                     if (p.proy !== undefined && p.proy !== (m.proy || '')) {
                         changes.push({ type: 'update', rowIndex: m._row, field: 'proy', value: p.proy });
                         patch.proy = p.proy;
+                    }
+                    if (p.factura !== undefined && p.factura !== (m.factura || '')) {
+                        changes.push({ type: 'update', rowIndex: m._row, field: 'factura', value: p.factura });
+                        patch.factura = p.factura;
                     }
                     // Estado: respetar la elección del usuario (R o P)
                     if (targetEo !== m.eo) {

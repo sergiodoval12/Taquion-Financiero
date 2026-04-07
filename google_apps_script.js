@@ -122,12 +122,32 @@ function getMovimientos(ss) {
   const lastCol = ws.getLastColumn();
   if (lastRow < 2 || lastCol < 1) return [];
 
-  const data = ws.getRange(1, 1, lastRow, lastCol).getValues();
+  const range = ws.getRange(1, 1, lastRow, lastCol);
+  const data = range.getValues();
+  // BULLETPROOF date fix: ademas de getValues(), pedimos getDisplayValues()
+  // que devuelve los strings exactos que se ven en la celda (sin TZ involved).
+  // Asi parseamos la fecha desde el display string y eliminamos cualquier
+  // off-by-one por timezone, sea cual sea la config del Sheet o del script.
+  const display = range.getDisplayValues();
   const headers = data[0].map(h => String(h).trim().toLowerCase());
-  // FIX timezone: usar la zona horaria de la SHEET, no del SCRIPT.
-  // Si no usamos esto, los Date "10/04 00:00 BA" se formatean en el TZ del script
-  // (ej. America/Los_Angeles) y caen al d\u00eda anterior (off-by-one).
   const tz = ss.getSpreadsheetTimeZone() || 'America/Argentina/Buenos_Aires';
+
+  // Helper: parsear "DD/MM/YYYY" o "YYYY-MM-DD" o "DD-MM-YYYY" -> "YYYY-MM-DD"
+  function parseDisplayDate(s) {
+    if (!s) return '';
+    s = String(s).trim();
+    // ISO ya
+    let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (m) return m[1] + '-' + ('0'+m[2]).slice(-2) + '-' + ('0'+m[3]).slice(-2);
+    // DD/MM/YYYY o DD-MM-YYYY o DD.MM.YYYY
+    m = s.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})/);
+    if (m) {
+      let yr = m[3];
+      if (yr.length === 2) yr = (parseInt(yr) > 50 ? '19' : '20') + yr;
+      return yr + '-' + ('0'+m[2]).slice(-2) + '-' + ('0'+m[1]).slice(-2);
+    }
+    return '';
+  }
 
   // Map columns by header name
   // IMPORTANT: order matters — more specific matches must come BEFORE generic ones
@@ -167,11 +187,15 @@ function getMovimientos(ss) {
     // Skip empty rows
     if (!row[colMap.f] && !row[colMap.v] && !row[colMap.v_div]) continue;
 
-    // Parse fecha
+    // Parse fecha desde el display string (bulletproof, sin TZ involved)
     let fecha = '';
-    if (row[colMap.f] instanceof Date) {
+    if (colMap.f !== undefined && display[r] && display[r][colMap.f]) {
+      fecha = parseDisplayDate(display[r][colMap.f]);
+    }
+    // Fallback: si por alg\u00fan motivo el display est\u00e1 vac\u00edo pero el value es Date
+    if (!fecha && row[colMap.f] instanceof Date) {
       fecha = Utilities.formatDate(row[colMap.f], tz, 'yyyy-MM-dd');
-    } else if (row[colMap.f]) {
+    } else if (!fecha && row[colMap.f]) {
       fecha = String(row[colMap.f]).slice(0, 10);
     }
 
@@ -222,8 +246,23 @@ function getDeudaGC(ss) {
   const lastCol = ws.getLastColumn();
   if (lastRow < 2) return { schedule: [], orig: {}, resumen: {} };
 
-  const data = ws.getRange(1, 1, lastRow, Math.min(lastCol, 10)).getValues();
+  const range = ws.getRange(1, 1, lastRow, Math.min(lastCol, 10));
+  const data = range.getValues();
+  const display = range.getDisplayValues();
   const tz = ss.getSpreadsheetTimeZone() || 'America/Argentina/Buenos_Aires';
+  function parseDisplayDate(s) {
+    if (!s) return '';
+    s = String(s).trim();
+    let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (m) return m[1] + '-' + ('0'+m[2]).slice(-2) + '-' + ('0'+m[3]).slice(-2);
+    m = s.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})/);
+    if (m) {
+      let yr = m[3];
+      if (yr.length === 2) yr = (parseInt(yr) > 50 ? '19' : '20') + yr;
+      return yr + '-' + ('0'+m[2]).slice(-2) + '-' + ('0'+m[1]).slice(-2);
+    }
+    return '';
+  }
 
   // Parse original composition (rows 3-11 area)
   const orig = {};
@@ -262,9 +301,12 @@ function getDeudaGC(ss) {
     if (typeof numCol === 'number' && numCol >= 1 && numCol <= 50) {
       // This is a schedule row: #, Fecha, USD, ARS, Destino, Tipo, Estado
       let fecha = '';
-      if (data[r][1] instanceof Date) {
+      if (display[r] && display[r][1]) {
+        fecha = parseDisplayDate(display[r][1]);
+      }
+      if (!fecha && data[r][1] instanceof Date) {
         fecha = Utilities.formatDate(data[r][1], tz, 'yyyy-MM-dd');
-      } else {
+      } else if (!fecha) {
         fecha = String(data[r][1] || '').slice(0, 10);
       }
 
@@ -818,9 +860,24 @@ function getNomina(ss) {
   const lastRow = ws.getLastRow();
   if (lastRow < 2) return [];
 
-  const data = ws.getRange(1, 1, lastRow, ws.getLastColumn()).getValues();
+  const range = ws.getRange(1, 1, lastRow, ws.getLastColumn());
+  const data = range.getValues();
+  const display = range.getDisplayValues();
   const { map } = getNomHeaders(ws);
   const tz = ss.getSpreadsheetTimeZone() || 'America/Argentina/Buenos_Aires';
+  function parseDisplayDate(s) {
+    if (!s) return '';
+    s = String(s).trim();
+    let mm = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (mm) return mm[1] + '-' + ('0'+mm[2]).slice(-2) + '-' + ('0'+mm[3]).slice(-2);
+    mm = s.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})/);
+    if (mm) {
+      let yr = mm[3];
+      if (yr.length === 2) yr = (parseInt(yr) > 50 ? '19' : '20') + yr;
+      return yr + '-' + ('0'+mm[2]).slice(-2) + '-' + ('0'+mm[1]).slice(-2);
+    }
+    return '';
+  }
 
   const rows = [];
   for (let r = 1; r < data.length; r++) {
@@ -830,19 +887,25 @@ function getNomina(ss) {
     if (!nombre) continue;
 
     let fechaIng = '';
-    if (map.fechaIngreso !== undefined && row[map.fechaIngreso]) {
-      if (row[map.fechaIngreso] instanceof Date) {
-        fechaIng = Utilities.formatDate(row[map.fechaIngreso], tz, 'yyyy-MM-dd');
-      } else {
-        fechaIng = String(row[map.fechaIngreso]).slice(0, 10);
+    if (map.fechaIngreso !== undefined) {
+      if (display[r] && display[r][map.fechaIngreso]) fechaIng = parseDisplayDate(display[r][map.fechaIngreso]);
+      if (!fechaIng && row[map.fechaIngreso]) {
+        if (row[map.fechaIngreso] instanceof Date) {
+          fechaIng = Utilities.formatDate(row[map.fechaIngreso], tz, 'yyyy-MM-dd');
+        } else {
+          fechaIng = String(row[map.fechaIngreso]).slice(0, 10);
+        }
       }
     }
     let fechaBaja = '';
-    if (map.fechaBaja !== undefined && row[map.fechaBaja]) {
-      if (row[map.fechaBaja] instanceof Date) {
-        fechaBaja = Utilities.formatDate(row[map.fechaBaja], tz, 'yyyy-MM-dd');
-      } else {
-        fechaBaja = String(row[map.fechaBaja]).slice(0, 10);
+    if (map.fechaBaja !== undefined) {
+      if (display[r] && display[r][map.fechaBaja]) fechaBaja = parseDisplayDate(display[r][map.fechaBaja]);
+      if (!fechaBaja && row[map.fechaBaja]) {
+        if (row[map.fechaBaja] instanceof Date) {
+          fechaBaja = Utilities.formatDate(row[map.fechaBaja], tz, 'yyyy-MM-dd');
+        } else {
+          fechaBaja = String(row[map.fechaBaja]).slice(0, 10);
+        }
       }
     }
 
