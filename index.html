@@ -8507,7 +8507,11 @@
             }
 
             const today = _ymdToDate(todayStr);
-            const startD = _mondayOf(today);              // lunes de esta semana
+            // Arrancamos UNA semana antes del lunes actual: el CFO quiere ver
+            // la semana que acaba de cerrar como contexto. Si hoy es lun 6/4
+            // → semana 1 = lun 30/3 - dom 5/4, semana 2 = lun 6/4 - dom 12/4, etc.
+            const startD = _mondayOf(today);
+            startD.setDate(startD.getDate() - 7);
             const target = new Date(today);
             target.setDate(target.getDate() + 45);
             const endD = _sundayOf(target);               // domingo de la semana que contiene hoy+45
@@ -8535,17 +8539,23 @@
             // Get movements in range
             const mov45 = (DATA.mov || []).filter(m => m.f >= hoyStr && m.f <= finStr);
 
-            // Group by week (Monday start)
+            // Group by week (Monday start) — usa parsing local-safe
             function getWeekKey(dateStr) {
-                const d = new Date(dateStr);
-                const day = d.getDay();
-                const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Monday
-                const monday = new Date(d);
-                monday.setDate(diff);
-                return monday.toISOString().slice(0, 10);
+                const d = _ymdToDate(dateStr);
+                const mon = _mondayOf(d);
+                return _dateToYmd(mon);
             }
 
+            // Pre-seed all weeks in range so vacíos también renderizan
             const weeks = {};
+            {
+                let cursor = new Date(startD);
+                while (cursor <= endD) {
+                    const k = _dateToYmd(cursor);
+                    weeks[k] = { ing: 0, egr: 0, fees: 0, deuda: 0, egrOp: 0, items: [], count: 0 };
+                    cursor.setDate(cursor.getDate() + 7);
+                }
+            }
             mov45.forEach(m => {
                 const wk = getWeekKey(m.f);
                 if (!weeks[wk]) weeks[wk] = { ing: 0, egr: 0, fees: 0, deuda: 0, egrOp: 0, items: [], count: 0 };
@@ -8645,9 +8655,9 @@
                 if (APP.charts.semanal) APP.charts.semanal.destroy();
 
                 const weekLabels = weekKeys.map(w => {
-                    const end = new Date(w);
+                    const end = _ymdToDate(w);
                     end.setDate(end.getDate() + 6);
-                    return fmtDateAR(w).slice(0,5) + ' — ' + fmtDateAR(end.toISOString().slice(0,10)).slice(0,5);
+                    return fmtDateAR(w).slice(0,5) + ' — ' + fmtDateAR(_dateToYmd(end)).slice(0,5);
                 });
 
                 // Cumulative saldo
@@ -8733,7 +8743,7 @@
             let detailHtml = '';
             weekKeys.forEach(wk => {
                 const d = weeks[wk];
-                const endDate = new Date(wk);
+                const endDate = _ymdToDate(wk);
                 endDate.setDate(endDate.getDate() + 6);
                 const saldo = d.ing + d.egr;
                 const saldoCls = saldo >= 0 ? 'positive' : 'negative';
@@ -8741,7 +8751,7 @@
                 detailHtml += `<div style="margin-bottom:16px;">
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;padding:8px 12px;background:var(--sf2);border-radius:6px;">
                         <div>
-                            <b>Semana ${fmtDateAR(wk)} — ${fmtDateAR(endDate.toISOString().slice(0, 10))}</b>
+                            <b>Semana ${fmtDateAR(wk)} — ${fmtDateAR(_dateToYmd(endDate))}</b>
                             <span style="font-size:10px;color:var(--tx2);margin-left:8px">${d.count} movimientos</span>
                         </div>
                         <div style="display:flex;gap:12px;font-size:11px;flex-wrap:wrap;">
