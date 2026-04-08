@@ -1034,9 +1034,9 @@
                 <div style="display:flex;gap:12px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
                     <label style="font-size:11px;color:var(--tx2)">Período:</label>
                     <select id="compPeriodo" onchange="compPeriodoChanged()" style="background:#161b22;border:1px solid #30363d;color:#e6edf3;padding:4px 8px;border-radius:4px;font-size:11px">
-                        <option value="snapshot" selected>Snapshot (mes anterior + actual + próximo + YoY)</option>
+                        <option value="mes" selected>Por Mes (mes en curso)</option>
+                        <option value="snapshot">Snapshot (mes anterior + actual + próximo + YoY)</option>
                         <option value="all">Todo el historial</option>
-                        <option value="mes">Por Mes</option>
                         <option value="2026">2026</option>
                         <option value="2025">2025</option>
                         <option value="2024">2024</option>
@@ -1282,6 +1282,26 @@
                             </div>
                         </div>
 
+                        <div class="form-group">
+                            <label>Proyecto <span style="font-size:9px;color:#8b949e">(opcional — proyecto al que se imputa)</span></label>
+                            <input type="text" id="movProyecto" placeholder="Ej: Sandoz Q2, Lanzamiento BBVA, Onboarding RPM...">
+                        </div>
+
+                        <div class="form-group">
+                            <label>Factura / Comprobante <span style="font-size:9px;color:#8b949e">(N° de factura, recibo o referencia)</span></label>
+                            <input type="text" id="movFactura" placeholder="Ej: A-0001-00012345 / FC-B-456">
+                        </div>
+
+                        <div class="form-group">
+                            <label>Triggers <span style="font-size:9px;color:#8b949e">(condiciones que dispararon o disparan el movimiento)</span></label>
+                            <input type="text" id="movTriggers" placeholder="Ej: cobranza dependiente de aprobación legal, pago al hito 2…">
+                        </div>
+
+                    </div>
+
+                    <div class="form-group">
+                        <label>Observaciones <span style="font-size:9px;color:#8b949e">(notas libres, contexto, supuestos)</span></label>
+                        <textarea id="movObservaciones" rows="2" placeholder="Notas del CFO, contexto, supuestos o cualquier dato relevante…" style="width:100%;background:#0d1117;color:#e6edf3;border:1px solid #30363d;border-radius:6px;padding:8px;font-family:inherit;font-size:12px;resize:vertical"></textarea>
                     </div>
 
                     <div class="form-group">
@@ -1309,16 +1329,17 @@
                     </div>
 
                     <div class="form-group">
-                        <label>Moneda</label>
+                        <label>Moneda + Monto Original <span style="font-size:9px;color:#8b949e">(en la moneda en la que se pactó / facturó)</span></label>
                         <div style="display:flex;gap:8px;align-items:center">
                             <select id="movMoneda" onchange="onMovMonedaChange()" style="flex:0 0 auto;min-width:90px">
                                 <option value="ARS">ARS $</option>
                                 <option value="USD">USD US$</option>
                             </select>
                             <div style="flex:1">
-                                <input type="number" id="movMonto" step="0.01" required placeholder="Monto (+ ingreso, - egreso)">
+                                <input type="number" id="movMonto" step="0.01" required placeholder="Monto (+ ingreso, - egreso)" oninput="updateMontoK()">
                             </div>
                         </div>
+                        <div id="movMontoK" style="font-size:10px;color:#58a6ff;margin-top:4px;font-family:'Inter',monospace"></div>
                     </div>
 
                     <div class="form-group" id="movTCGroup" style="display:none">
@@ -1452,6 +1473,17 @@
                         <div class="card-title">Resumen por Área</div>
                         <div id="nominaAreaSummary"></div>
                     </div>
+                </div>
+
+                <!-- Proveedores agregados por Unidad de Negocio (CC) -->
+                <div class="card" style="margin-bottom:20px">
+                    <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+                        <span>Proveedores por Unidad de Negocio
+                            <span title="Egresos a proveedores (categorías Proveedores / Honorarios / Servicios) cargados en BD Movimientos, agrupados por su Centro de Costo (CC = UN). Sirve para ver cuánto está gastando cada UN en proveedores externos en el período seleccionado." style="display:inline-block;width:13px;height:13px;border-radius:50%;background:#30363d;color:#e6edf3;font-size:9px;text-align:center;line-height:13px;cursor:help;margin-left:4px;font-weight:400">?</span>
+                        </span>
+                        <select id="provUNMes" onchange="renderProveedoresUN()" style="background:#161b22;border:1px solid #30363d;color:#e6edf3;padding:4px 8px;border-radius:4px;font-size:11px"></select>
+                    </div>
+                    <div id="provUNContent" style="margin-top:10px"></div>
                 </div>
 
                 <!-- Employee table -->
@@ -1719,7 +1751,7 @@
 
         // ========= GOOGLE SHEETS SYNC =========
         const SHEETS_CONFIG = {
-            apiUrl: 'https://script.google.com/macros/s/AKfycbxArPsYhYbSk4j2u2mzTf9LxTyN3zYkQaCeaskwLgVjJlW5MTtiFnp9NTez5OweqeiL9A/exec',
+            apiUrl: 'https://script.google.com/macros/s/AKfycbyoqO6Tfq-N3Qdwwj5UHAHzzUxrig8v8GMUJ5ldfj15ss4sgi2zmqfJ7kW4lr0SXmuraQ/exec',
             enabled: true,
             lastSync: null,
             syncing: false,
@@ -2619,6 +2651,87 @@
                  (parseFloat(e.benMono)||0) + (parseFloat(e.benOS)||0));
         }
 
+        // ============================================================
+        // PROVEEDORES POR UNIDAD DE NEGOCIO (CC)
+        // Agrupa los egresos a proveedores cargados en BD Movimientos
+        // por su Centro de Costo (=UN), para el mes seleccionado.
+        // ============================================================
+        function renderProveedoresUN() {
+            const sel = document.getElementById('provUNMes');
+            const cont = document.getElementById('provUNContent');
+            if (!sel || !cont) return;
+
+            const mov = DATA.mov || [];
+            // Considerar como "proveedor" todo egreso cuya categoría refiera a servicios externos
+            const PROV_TYPES = ['Proveedores', 'Honorarios', 'Servicios Profesionales', 'Servicios profesionales', 'Servicios'];
+            const provMov = mov.filter(m => m.side === 'E' && PROV_TYPES.includes(m.t));
+
+            // Poblar selector de meses (la primera vez)
+            if (sel.options.length === 0) {
+                const months = [...new Set(provMov.map(m => (m.f || '').slice(0,7)).filter(Boolean))].sort().reverse();
+                if (months.length === 0) {
+                    cont.innerHTML = '<div style="color:var(--tx2);font-size:11px;padding:8px">Sin movimientos a proveedores cargados.</div>';
+                    return;
+                }
+                const monthNames = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+                sel.innerHTML = months.map(m => {
+                    const [y,mm] = m.split('-');
+                    return '<option value="'+m+'">'+monthNames[parseInt(mm)-1]+' '+y+'</option>';
+                }).join('');
+                const cur = new Date().toISOString().slice(0,7);
+                if (months.includes(cur)) sel.value = cur;
+            }
+
+            const mes = sel.value;
+            const ms = provMov.filter(m => (m.f || '').slice(0,7) === mes);
+
+            if (ms.length === 0) {
+                cont.innerHTML = '<div style="color:var(--tx2);font-size:11px;padding:12px;text-align:center">Sin movimientos a proveedores en '+mes+'.</div>';
+                return;
+            }
+
+            // Agrupar por CC (UN)
+            const byCC = {};
+            ms.forEach(m => {
+                const cc = (m.cc || '').trim() || 'Sin asignar';
+                if (!byCC[cc]) byCC[cc] = { total: 0, count: 0, top: {} };
+                const v = Math.abs(m.v || 0);
+                byCC[cc].total += v;
+                byCC[cc].count++;
+                // Top proveedores dentro de la UN
+                const prov = (m.en || m.i || 'Sin especificar').slice(0, 60);
+                byCC[cc].top[prov] = (byCC[cc].top[prov] || 0) + v;
+            });
+
+            const sorted = Object.entries(byCC).sort((a,b) => b[1].total - a[1].total);
+            const grandTotal = sorted.reduce((s, [, d]) => s + d.total, 0);
+
+            let html = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">';
+            sorted.forEach(([cc, d]) => {
+                const color = (typeof CC_COLORS !== 'undefined' && CC_COLORS[cc]) ? CC_COLORS[cc] : '#4b5563';
+                const pct = grandTotal > 0 ? (d.total/grandTotal*100).toFixed(1) : 0;
+                const top3 = Object.entries(d.top).sort((a,b)=>b[1]-a[1]).slice(0,3);
+                html += '<div style="background:#0d1117;border:1px solid #21262d;border-left:3px solid '+color+';border-radius:6px;padding:10px 12px">'
+                    + '<div style="display:flex;justify-content:space-between;align-items:baseline">'
+                    +   '<div style="font-weight:600;font-size:12px;color:#e6edf3">'+cc+'</div>'
+                    +   '<div style="font-size:10px;color:var(--tx2)">'+pct+'%</div>'
+                    + '</div>'
+                    + '<div style="font-size:16px;font-weight:600;color:#f87171;margin-top:2px">'+formatMoney(d.total)+'</div>'
+                    + '<div style="font-size:10px;color:var(--tx2);margin-top:2px">'+d.count+' movimientos</div>'
+                    + '<div style="margin-top:6px;padding-top:6px;border-top:1px dashed #21262d">';
+                top3.forEach(([prov, v]) => {
+                    html += '<div style="display:flex;justify-content:space-between;font-size:10px;color:#8b949e;padding:1px 0"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:60%">'+prov+'</span><span>'+formatMoney(v)+'</span></div>';
+                });
+                if (Object.keys(d.top).length > 3) {
+                    html += '<div style="font-size:9px;color:var(--tx2);margin-top:2px">+'+(Object.keys(d.top).length-3)+' más</div>';
+                }
+                html += '</div></div>';
+            });
+            html += '</div>';
+            html += '<div style="margin-top:10px;padding-top:8px;border-top:1px solid #21262d;display:flex;justify-content:space-between;font-size:11px"><span style="color:var(--tx2)">Total proveedores '+mes+'</span><span style="font-weight:600;color:#f87171">'+formatMoney(grandTotal)+'</span></div>';
+            cont.innerHTML = html;
+        }
+
         // Inline edit: click a cell → input/select → blur/enter saves → push to SOT
         function editNominaField(id, field, currentVal, type, options) {
             const emp = NOMINA.find(e => e.id === id);
@@ -2715,10 +2828,19 @@
             const noVendibles = activos.length - vendibles;
 
             const kpiDiv = document.getElementById('nominaKPIs');
+            // Tooltips explicativos:
+            //   • Sueldo Neto Total = lo que efectivamente se le paga al empleado/freelancer en mano:
+            //     Sueldo Bruto Recibo + Factura Monotributo + Beneficio Tarjeta Prepaga + Conectividad + Beneficio Monotributo + Beneficio OS
+            //   • Bruto + Facturas = solo el componente "remunerativo" sin beneficios:
+            //     Sueldo Bruto Recibo + Factura Monotributo
+            //   La diferencia entre los dos es el costo de los beneficios.
+            const tipNeto = 'Sueldo Neto Total = lo que efectivamente paga la empresa cada mes a la persona en mano:&#10;• Sueldo Bruto Recibo&#10;• Factura Monotributo (si aplica)&#10;• Beneficio Tarjeta Prepaga&#10;• Beneficio Conectividad&#10;• Beneficio Monotributo&#10;• Beneficio Obra Social&#10;&#10;Es la cifra que termina llegando al bolsillo del empleado/freelancer.';
+            const tipBruto = 'Bruto + Facturas = solo el componente remunerativo, SIN beneficios:&#10;• Sueldo Bruto Recibo&#10;• Factura Monotributo&#10;&#10;La diferencia con "Sueldo Neto Total" es el costo de los beneficios (tarjeta, conect, OS, etc.).';
+            const helpDot = (txt) => '<span title="'+txt+'" style="display:inline-block;width:13px;height:13px;border-radius:50%;background:#30363d;color:#e6edf3;font-size:9px;text-align:center;line-height:13px;cursor:help;margin-left:4px;font-weight:400">?</span>';
             kpiDiv.innerHTML = `
                 <div class="kpi-card"><div class="kpi-label">Headcount Activo</div><div class="kpi-value">${headcount}</div><div class="kpi-sub">TQN: ${tqnCount} · LMS: ${lmsCount}</div></div>
-                <div class="kpi-card"><div class="kpi-label">Sueldo Neto Total</div><div class="kpi-value">${formatMoney(costoNeto)}</div><div class="kpi-sub">Bruto + Facturas + Beneficios</div></div>
-                <div class="kpi-card"><div class="kpi-label">Bruto + Facturas</div><div class="kpi-value">${formatMoney(sueldoBrutoTotal)}</div><div class="kpi-sub">Recibo + Monotributo</div></div>
+                <div class="kpi-card"><div class="kpi-label">Sueldo Neto Total ${helpDot(tipNeto)}</div><div class="kpi-value">${formatMoney(costoNeto)}</div><div class="kpi-sub">Bruto + Facturas + Beneficios</div></div>
+                <div class="kpi-card"><div class="kpi-label">Bruto + Facturas ${helpDot(tipBruto)}</div><div class="kpi-value">${formatMoney(sueldoBrutoTotal)}</div><div class="kpi-sub">Recibo + Monotributo (sin beneficios)</div></div>
                 <div class="kpi-card"><div class="kpi-label">Clasificación</div><div class="kpi-value" style="font-size:18px">${vendibles} V / ${noVendibles} NV</div><div class="kpi-sub">Vendible vs No Vendible</div></div>
             `;
 
@@ -2770,6 +2892,9 @@
             });
             sh += '</tbody></table>';
             summaryDiv.innerHTML = sh;
+
+            // Render proveedores por UN (corre cada vez que se renderiza nómina)
+            renderProveedoresUN();
 
             // Employee count
             const countSpan = document.getElementById('nominaCount');
@@ -4938,6 +5063,7 @@
                 }
                 let h = '<div style="overflow-x:auto"><table style="width:100%;min-width:700px;border-collapse:collapse">';
                 h += '<thead><tr style="background:#161b22;position:sticky;top:0">' +
+                    '<th style="text-align:left;font-size:10px;padding:6px 4px;width:48px" title="Número de fila en la base de datos (Google Sheet)">SOT #</th>' +
                     '<th style="text-align:left;font-size:10px;padding:6px 4px;white-space:nowrap">Fecha</th>' +
                     '<th style="text-align:left;font-size:10px;padding:6px 4px;width:40px">Emp</th>' +
                     '<th style="text-align:left;font-size:10px;padding:6px 4px;min-width:80px">Tipo</th>' +
@@ -4957,7 +5083,9 @@
                     const ccBadge = ccStr
                         ? '<span style="display:inline-block;font-size:9px;padding:1px 6px;border-radius:8px;background:' + ccColor + '20;color:' + ccColor + ';border:1px solid ' + ccColor + '50">' + escH(ccStr) + '</span>'
                         : '<span style="font-size:9px;color:#fbbf24">⚠ sin tag</span>';
+                    const sotBadge = r._row ? '<span style="font-size:9px;font-family:monospace;background:#1f293780;color:#8b949e;padding:2px 5px;border-radius:3px;border:1px solid #30363d" title="Fila en Google Sheet">#' + r._row + '</span>' : '<span style="font-size:9px;color:#6b7280">—</span>';
                     h += '<tr style="' + bg + 'border-bottom:1px solid #21262d" id="bau_row_' + side + '_' + idx + '">' +
+                        '<td style="font-size:10px;padding:5px 4px;text-align:left">' + sotBadge + '</td>' +
                         '<td id="bau_f_' + side + '_' + idx + '" onclick="bauEditDate(\'' + mes + '\',\'' + side + '\',' + idx + ')" style="font-size:11px;padding:5px 4px;cursor:pointer;color:#58a6ff;white-space:nowrap" title="Click para cambiar fecha">' + fmtDateAR(r.f) + eoBadge + '</td>' +
                         '<td style="font-size:10px;padding:5px 4px;color:var(--tx2)">' + escH(r.emp || '') + '</td>' +
                         '<td style="font-size:10px;padding:5px 4px;color:var(--tx2)">' + escH(r.t) + '</td>' +
@@ -4971,7 +5099,7 @@
                         '</td></tr>';
                 });
                 const total = items.reduce((s, r) => s + r.v, 0);
-                h += '<tr style="border-top:2px solid #30363d;font-weight:700"><td colspan="6" style="font-size:11px;padding:6px 4px">TOTAL (' + items.length + ' items)</td><td style="text-align:right;font-size:11px;padding:6px 4px;color:' + color + '">' + formatARS(total) + '</td><td></td></tr>';
+                h += '<tr style="border-top:2px solid #30363d;font-weight:700"><td colspan="7" style="font-size:11px;padding:6px 4px">TOTAL (' + items.length + ' items)</td><td style="text-align:right;font-size:11px;padding:6px 4px;color:' + color + '">' + formatARS(total) + '</td><td></td></tr>';
                 h += '</tbody></table></div>';
                 return h;
             }
@@ -5076,7 +5204,7 @@
                 // Store detail with mov index for direct editing
                 if (!BAU_DETAIL[mes]) BAU_DETAIL[mes] = { ingresos: [], egresos: [], totalIng: 0, totalEgr: 0 };
                 const cc = String(m.cc || '').trim();
-                const rec = { t: m.t, i: it || '(sin item)', en: m.en || '', d: m.d || '', v: v, f: m.f, emp: m.emp, bn: m.bn, eo: m.eo, cc: cc, cli: m.cli || '', proy: m.proy || '', movIdx: movIdx, side: m.side };
+                const rec = { t: m.t, i: it || '(sin item)', en: m.en || '', d: m.d || '', v: v, f: m.f, emp: m.emp, bn: m.bn, eo: m.eo, cc: cc, cli: m.cli || '', proy: m.proy || '', movIdx: movIdx, side: m.side, _row: m._row };
                 if (_isIng) {
                     BAU_DETAIL[mes].ingresos.push(rec);
                     BAU_DETAIL[mes].totalIng += v;
@@ -5175,12 +5303,13 @@
                     const yoyEgrDef = deflateQ(yoy.egr, yoyQ);
                     const yoyIngDef = deflateQ(yoy.ing, yoyQ);
                     const margenCur = cur.ing + cur.egr;
+                    const vsTip = `Comparativa YoY deflada: el valor a la derecha del &quot;vs&quot; es ${yoyQ} ajustado por inflaci\u00f3n (INDEC) al mes actual, para hacer comparable con ${curQ}. La flecha muestra la variaci\u00f3n real (sin inflaci\u00f3n).`;
                     return `<div style="background:#0d1117;border:1px solid #30363d;border-left:3px solid ${CC_COLORS[cc]};border-radius:8px;padding:10px">
-                        <div style="font-weight:700;color:${CC_COLORS[cc]};font-size:12px;margin-bottom:6px">${cc} <span style="font-size:9px;color:var(--tx2);font-weight:400">${curQ}</span></div>
+                        <div style="font-weight:700;color:${CC_COLORS[cc]};font-size:12px;margin-bottom:6px">${cc} <span style="font-size:9px;color:var(--tx2);font-weight:400">${curQ}</span> <span title="${vsTip}" style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#30363d;color:#8b949e;font-size:9px;text-align:center;line-height:12px;cursor:help;margin-left:2px;font-weight:400">?</span></div>
                         <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--tx2)"><span>Ingresos</span><b class="positive">${formatARS(cur.ing)}</b></div>
-                        <div style="font-size:9px;text-align:right;margin-bottom:2px">${yoyArrow(cur.ing, yoyIngDef)} vs ${formatARS(yoyIngDef)}</div>
+                        <div style="font-size:9px;text-align:right;margin-bottom:2px" title="${vsTip}">${yoyArrow(cur.ing, yoyIngDef)} vs ${formatARS(yoyIngDef)}</div>
                         <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--tx2)"><span>Egresos</span><b class="negative">${formatARS(cur.egr)}</b></div>
-                        <div style="font-size:9px;text-align:right;margin-bottom:2px">${yoyArrow(Math.abs(cur.egr), Math.abs(yoyEgrDef))} vs ${formatARS(yoyEgrDef)}</div>
+                        <div style="font-size:9px;text-align:right;margin-bottom:2px" title="${vsTip}">${yoyArrow(Math.abs(cur.egr), Math.abs(yoyEgrDef))} vs ${formatARS(yoyEgrDef)}</div>
                         <div style="display:flex;justify-content:space-between;font-size:11px;border-top:1px solid #30363d;padding-top:4px;margin-top:4px"><span><b>Margen</b></span><b class="${margenCur>=0?'positive':'negative'}">${formatARS(margenCur)}</b></div>
                         <div style="font-size:9px;color:var(--tx2);margin-top:3px">${cur.n} movs en ${curQ}</div>
                     </div>`;
@@ -8356,8 +8485,23 @@
         }
 
         function renderComposicion() {
-            const periodoRaw = document.getElementById('compPeriodo')?.value || '2026-Q2';
-            const periodo = periodoRaw === 'mes' ? ('month:' + (document.getElementById('compMes')?.value || '2026-04')) : periodoRaw;
+            const periodoRaw = document.getElementById('compPeriodo')?.value || 'mes';
+            // Si está en modo "mes" y el select de mes todavía no fue inicializado, lo poblamos ahora.
+            const _mesSel = document.getElementById('compMes');
+            if (periodoRaw === 'mes' && _mesSel && _mesSel.options.length === 0) {
+                const months = new Set();
+                (DATA.mov || []).forEach(m => { if (m.f) months.add(m.f.slice(0, 7)); });
+                const sorted = [...months].sort().reverse();
+                const monthNames = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+                _mesSel.innerHTML = sorted.map(m => {
+                    const [y, mm] = m.split('-');
+                    return '<option value="' + m + '">' + monthNames[parseInt(mm)-1] + ' ' + y + '</option>';
+                }).join('');
+                const current = new Date().toISOString().slice(0,7);
+                if (sorted.includes(current)) _mesSel.value = current;
+                _mesSel.style.display = '';
+            }
+            const periodo = periodoRaw === 'mes' ? ('month:' + (document.getElementById('compMes')?.value || new Date().toISOString().slice(0,7))) : periodoRaw;
             const empresa = document.getElementById('compEmpresa')?.value || 'all';
             const incDeuda = document.getElementById('compIncDeuda')?.checked;
             const incPot = document.getElementById('compIncPot')?.checked;
@@ -8475,6 +8619,49 @@
                     const up = pct >= 0;
                     return '<span style="color:'+(up?'#34d399':'#f87171')+';font-size:11px">'+(up?'▲':'▼')+' '+Math.abs(pct).toFixed(1)+'%</span>';
                 };
+                // === BREAKDOWN POR Q (con filtro) ===
+                // Filtro Q: 'all' = mostrar los 4, 'Q1'..'Q4' = solo ese
+                const qFilter = document.getElementById('compQFilter')?.value || 'all';
+                const qAgg = (yr, q) => {
+                    const monthRange = { Q1:[1,3], Q2:[4,6], Q3:[7,9], Q4:[10,12] }[q];
+                    const ms = mov.filter(m => {
+                        if (!m.f || m.f.slice(0,4) !== yr) return false;
+                        const mm = parseInt(m.f.slice(5,7));
+                        if (mm < monthRange[0] || mm > monthRange[1]) return false;
+                        if (empresa !== 'all' && m.emp !== empresa) return false;
+                        const cls = getClass(m);
+                        if (cls === 'deuda' && !incDeuda) return false;
+                        if (cls === 'potencial' && !incPot) return false;
+                        if (cls === 'inversion' && !incInv) return false;
+                        if (COMP_EXCLUDED.has(compItemKey(m))) return false;
+                        return true;
+                    });
+                    let ing = 0, egr = 0;
+                    ms.forEach(m => {
+                        const mm = m.f.slice(0,7);
+                        const v = (typeof deflate === 'function') ? deflate(m.v, mm, targetMonth) : m.v;
+                        if (m.side === 'I') ing += Math.abs(v);
+                        else if (m.side === 'E') egr += -Math.abs(v);
+                    });
+                    return { ing, egr, neto: ing+egr };
+                };
+                const qList = ['Q1','Q2','Q3','Q4'].filter(q => qFilter === 'all' || qFilter === q);
+                let qRowsHtml = '';
+                qList.forEach(q => {
+                    const c = qAgg(curYear, q);
+                    const p = qAgg(prevYear, q);
+                    qRowsHtml +=
+                        '<tr>'
+                        + '<td style="padding:6px 8px;color:#e6edf3;font-weight:600">'+q+' '+curYear+'</td>'
+                        + '<td style="padding:6px 8px;text-align:right;color:#34d399">'+formatARS(c.ing)+'</td>'
+                        + '<td style="padding:6px 8px;text-align:right;color:var(--tx2);font-size:10px">'+formatARS(p.ing)+' '+arrow(c.ing,p.ing)+'</td>'
+                        + '<td style="padding:6px 8px;text-align:right;color:#f87171">'+formatARS(c.egr)+'</td>'
+                        + '<td style="padding:6px 8px;text-align:right;color:var(--tx2);font-size:10px">'+formatARS(p.egr)+' '+arrow(Math.abs(c.egr),Math.abs(p.egr))+'</td>'
+                        + '<td style="padding:6px 8px;text-align:right;font-weight:600;color:'+(c.neto>=0?'#34d399':'#f87171')+'">'+formatARS(c.neto)+'</td>'
+                        + '<td style="padding:6px 8px;text-align:right;color:var(--tx2);font-size:10px">'+formatARS(p.neto)+' '+arrow(c.neto,p.neto)+'</td>'
+                        + '</tr>';
+                });
+
                 document.getElementById('compAnualYoY').innerHTML =
                     '<div class="card"><div class="card-title">Resumen Anual ' + curYear + ' vs ' + prevYear + ' <span style="font-size:10px;color:var(--tx2);font-weight:400">(ponderado por inflación, valores en pesos de '+targetMonth+')</span></div>'
                     + '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:8px">'
@@ -8482,7 +8669,32 @@
                     + '<div class="kpi"><div class="kpi-label">Egresos '+curYear+'</div><div class="kpi-value negative">'+formatARS(cur.egr)+'</div><div class="kpi-sub">'+prevYear+': '+formatARS(prv.egr)+' '+arrow(Math.abs(cur.egr), Math.abs(prv.egr))+'</div></div>'
                     + '<div class="kpi" style="border-left:3px solid '+(cur.neto>=0?'var(--gn)':'var(--rd)')+'"><div class="kpi-label">Saldo Neto '+curYear+'</div><div class="kpi-value '+(cur.neto>=0?'positive':'negative')+'">'+formatARS(cur.neto)+'</div><div class="kpi-sub">'+prevYear+': '+formatARS(prv.neto)+' '+arrow(cur.neto, prv.neto)+'</div></div>'
                     + '<div class="kpi"><div class="kpi-label">Margen '+curYear+'</div><div class="kpi-value" style="color:'+(cur.margen>=0?'#34d399':'#f87171')+'">'+cur.margen.toFixed(1)+'%</div><div class="kpi-sub">'+prevYear+': '+prv.margen.toFixed(1)+'% '+arrow(cur.margen, prv.margen)+'</div></div>'
-                    + '</div></div>';
+                    + '</div>'
+                    // --- Sub-bloque: análisis trimestral ---
+                    + '<div style="margin-top:14px;padding-top:12px;border-top:1px solid #21262d">'
+                    + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">'
+                    +   '<div style="font-size:12px;font-weight:600;color:#e6edf3">Desglose por Trimestre <span style="font-size:10px;color:var(--tx2);font-weight:400">(usa los mismos filtros de empresa / deuda / potenciales / inversión)</span></div>'
+                    +   '<div><label style="font-size:10px;color:var(--tx2);margin-right:6px">Trimestre:</label>'
+                    +   '<select id="compQFilter" onchange="renderComposicion()" style="background:#161b22;border:1px solid #30363d;color:#e6edf3;padding:3px 6px;border-radius:4px;font-size:10px">'
+                    +     '<option value="all"'+(qFilter==='all'?' selected':'')+'>Todos</option>'
+                    +     '<option value="Q1"'+(qFilter==='Q1'?' selected':'')+'>Q1 (Ene-Mar)</option>'
+                    +     '<option value="Q2"'+(qFilter==='Q2'?' selected':'')+'>Q2 (Abr-Jun)</option>'
+                    +     '<option value="Q3"'+(qFilter==='Q3'?' selected':'')+'>Q3 (Jul-Sep)</option>'
+                    +     '<option value="Q4"'+(qFilter==='Q4'?' selected':'')+'>Q4 (Oct-Dic)</option>'
+                    +   '</select></div>'
+                    + '</div>'
+                    + '<div style="overflow-x:auto"><table style="width:100%;font-size:11px;border-collapse:collapse">'
+                    + '<thead><tr style="border-bottom:1px solid #30363d;color:var(--tx2);font-size:10px;text-transform:uppercase">'
+                    +   '<th style="padding:6px 8px;text-align:left">Trimestre</th>'
+                    +   '<th style="padding:6px 8px;text-align:right">Ingresos '+curYear+'</th>'
+                    +   '<th style="padding:6px 8px;text-align:right">Ingresos '+prevYear+' (Δ)</th>'
+                    +   '<th style="padding:6px 8px;text-align:right">Egresos '+curYear+'</th>'
+                    +   '<th style="padding:6px 8px;text-align:right">Egresos '+prevYear+' (Δ)</th>'
+                    +   '<th style="padding:6px 8px;text-align:right">Neto '+curYear+'</th>'
+                    +   '<th style="padding:6px 8px;text-align:right">Neto '+prevYear+' (Δ)</th>'
+                    + '</tr></thead><tbody>' + qRowsHtml + '</tbody></table></div>'
+                    + '</div>'
+                    + '</div>';
             } catch(e) { console.warn('compAnualYoY err', e); document.getElementById('compAnualYoY').innerHTML=''; }
 
             // === SNAPSHOT BREAKDOWN (when in snapshot mode) ===
@@ -8507,7 +8719,20 @@
                         const mg = ing ? (net/ing*100) : 0;
                         return { col, ing, egr, net, mg };
                     });
-                    const html = '<div class="card"><div class="card-title">Snapshot por Mes <span style="font-size:10px;color:var(--tx2);font-weight:400">(YoY ponderado por inflación a '+_curMes+')</span></div>'
+                    // Tooltip explicativo: el snapshot compara cuatro meses puntuales para ver tendencia y estacionalidad
+                    const snapHelp =
+                        'El Snapshot compara 4 fotos puntuales: \n' +
+                        '• Mes Anterior ('+_prevMes+'): tendencia hacia atrás (¿venimos mejor o peor?)\n' +
+                        '• Mes Actual ('+_curMes+'): foto del momento\n' +
+                        '• Mes Próximo ('+_nextMes+'): proyección inmediata (lo cargado en la SOT)\n' +
+                        '• YoY ('+_yoyMes+'): mismo mes del año pasado, deflactado a pesos de '+_curMes+' por inflación. Sirve para detectar estacionalidad y crecimiento real (sin efecto inflacionario).\n\n' +
+                        'No es un acumulado: cada columna muestra SOLO los movimientos de ese mes.';
+                    const html = '<div class="card"><div class="card-title">Snapshot por Mes '
+                        + '<span title="'+snapHelp.replace(/"/g,'&quot;').replace(/\n/g,'&#10;')+'" style="display:inline-block;width:14px;height:14px;border-radius:50%;background:#30363d;color:#e6edf3;font-size:9px;text-align:center;line-height:14px;cursor:help;margin-left:6px;font-weight:400">?</span>'
+                        + ' <span style="font-size:10px;color:var(--tx2);font-weight:400">(YoY ponderado por inflación a '+_curMes+')</span></div>'
+                        + '<div style="font-size:10px;color:var(--tx2);margin-top:4px;line-height:1.4">'
+                        +   'Comparativa de 4 fotos puntuales del mes (no acumuladas). El YoY se deflacta a pesos de '+_curMes+' para que la comparación sea real.'
+                        + '</div>'
                         + '<div style="display:grid;grid-template-columns:repeat('+snapCols.length+',1fr);gap:10px;margin-top:8px">'
                         + cells.map(c => '<div class="kpi"><div class="kpi-label">'+c.col.label+' <span style="color:var(--tx2)">'+c.col.key+'</span></div>'
                             + '<div style="font-size:12px;color:#34d399">+'+formatARS(c.ing)+'</div>'
@@ -9199,6 +9424,25 @@
             } else {
                 preview.textContent = '';
             }
+            updateMontoK();
+        }
+
+        // Muestra el monto en formato "K" (miles) y "M" (millones) para lectura rápida
+        function updateMontoK() {
+            const el = document.getElementById('movMontoK');
+            if (!el) return;
+            const moneda = document.getElementById('movMoneda')?.value || 'ARS';
+            const monto = parseFloat(document.getElementById('movMonto')?.value);
+            if (isNaN(monto) || monto === 0) { el.textContent = ''; return; }
+            // Si es USD, convertir a ARS para mostrar K
+            const tc = parseFloat(document.getElementById('movTC')?.value) || MEP.rate;
+            const arsAbs = Math.abs(moneda === 'USD' ? monto * tc : monto);
+            let label = '';
+            if (arsAbs >= 1e9) label = (arsAbs/1e9).toFixed(2) + ' MM ARS';
+            else if (arsAbs >= 1e6) label = (arsAbs/1e6).toFixed(2) + ' M ARS';
+            else if (arsAbs >= 1e3) label = (arsAbs/1e3).toFixed(1) + ' K ARS';
+            else label = arsAbs.toFixed(0) + ' ARS';
+            el.textContent = '≈ ' + label + (moneda === 'USD' ? ' (desde US$ ' + Math.abs(monto).toLocaleString('es-AR') + ')' : '');
         }
 
         // Attach live preview to monto and TC inputs
@@ -9231,10 +9475,15 @@
                 i: document.getElementById('movItem').value || document.getElementById('movItemSearch').value,
                 en: document.getElementById('movEntidad').value || document.getElementById('movEntidadSearch').value,
                 v: valorARS,
+                vOrig: montoRaw,        // Monto en su moneda original
                 monOrig: moneda,
                 tcUsado: moneda === 'USD' ? tc : undefined,
                 fp: document.getElementById('movFP').value || '',
                 cc: document.getElementById('movCC').value || '',
+                proy: document.getElementById('movProyecto')?.value || '',
+                fac: document.getElementById('movFactura')?.value || '',
+                trg: document.getElementById('movTriggers')?.value || '',
+                obs: document.getElementById('movObservaciones')?.value || '',
                 id: Date.now()
             };
             APP.movements.push(movement);
@@ -9255,10 +9504,15 @@
                         i: movement.i,
                         en: movement.en,
                         v: movement.v,
+                        vOrig: movement.vOrig || '',
                         monOrig: movement.monOrig,
                         tcUsado: movement.tcUsado || '',
                         fp: movement.fp || '',
-                        cc: movement.cc || ''
+                        cc: movement.cc || '',
+                        proy: movement.proy || '',
+                        fac: movement.fac || '',
+                        trg: movement.trg || '',
+                        obs: movement.obs || ''
                     }]
                 });
             }
