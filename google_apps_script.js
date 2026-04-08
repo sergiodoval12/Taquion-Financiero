@@ -363,16 +363,13 @@ function getDeudaBancaria(ss) {
 
   function parseMesCell(v) {
     if (v instanceof Date) {
-      // FIX: el legacy hack (day-as-year offset, e.g. day=26 -> 2026) ROMPE fechas reales
-      // donde día > 19 (como 30/04/2027 → year se transformaba en 2030).
-      // Ahora confiamos en el año real cuando es plausible (>= 2020), y solo caemos al
-      // hack legacy si el año está fuera de rango (formato viejo de la planilla original).
+      // En la sheet "Deuda Bancaria", las fechas están guardadas con un truco viejo:
+      // el DÍA codifica el año (25 = 2025, 26 = 2026, 27 = 2027, 28 = 2028).
+      // Esto es por cómo el usuario tipea "jun-25" y Excel lo interpreta como 25/06/{año actual}.
+      // Solo aplica a esta sheet — parseMesCell NO se usa en otros parsers.
       const d = v.getDate();
       const m = v.getMonth() + 1;
-      const realYear = v.getFullYear();
-      const year = (realYear >= 2020 && realYear <= 2050)
-        ? realYear
-        : ((d >= 20 && d <= 40) ? 2000 + d : realYear);
+      const year = (d >= 20 && d <= 40) ? 2000 + d : v.getFullYear();
       return year + '-' + (m < 10 ? '0' + m : m);
     }
     if (typeof v === 'number') {
