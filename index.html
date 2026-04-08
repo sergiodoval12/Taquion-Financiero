@@ -737,6 +737,12 @@
                 <h1>Deuda Consolidada</h1>
                 <p style="color:var(--tx2);margin-bottom:6px">Saldos pendientes desde hoy: bancaria (TQN + LMS) y ex-socio GC. Cuánto queda, cuánto sale este mes, y simulación de escenarios.</p>
 
+                <!-- 🔧 PANEL DE DIAGNÓSTICO (raw DATA.bd_loans del Apps Script) -->
+                <details style="margin-bottom:14px;background:#0d1117;border:1px solid #f97316;border-radius:6px;padding:0">
+                    <summary style="padding:10px 12px;cursor:pointer;color:#f97316;font-weight:600;font-size:12px">🔧 Diagnóstico Deuda Bancaria (raw del parser)</summary>
+                    <div id="deudaDiagnostico" style="padding:12px;border-top:1px solid #21262d"></div>
+                </details>
+
                 <!-- KPIs consolidados -->
                 <div class="kpi-grid" id="deudaConsolidadaKPIs"></div>
 
@@ -5351,7 +5357,174 @@
             }
         }
 
+        // ============================================================
+        // HELPER UNIFICADO: una sola fuente para TODOS los renderizadores
+        // de la página Deuda. Devuelve la "foto" forward-only del estado
+        // de la deuda bancaria + GC, leído de las dos sheets dedicadas.
+        // ============================================================
+        function _computeDeudaState() {
+            const hoyMes = new Date().toISOString().slice(0, 7);
+            const loans = DATA.bd_loans || [];
+
+            const bankList = loans.map(l => {
+                const sched = (l.schedule || []);
+                // Forward-only schedule: solo cuotas del mes actual en adelante
+                const fwd = sched.filter(s => s.mes >= hoyMes && (s.cuota || 0) > 0);
+                fwd.sort((a, b) => a.mes.localeCompare(b.mes));
+
+                const cuotaMesActual = fwd
+                    .filter(s => s.mes === hoyMes)
+                    .reduce((sum, s) => sum + (s.cuota || 0), 0);
+
+                const pendienteCuota = fwd.reduce((sum, s) => sum + (s.cuota || 0), 0);
+                const pendienteCapital = fwd.reduce((sum, s) => sum + (s.capital || 0), 0);
+                const pendienteInteres = fwd.reduce((sum, s) => sum + (s.interes || 0), 0);
+
+                return {
+                    entidad: l.entidad,
+                    referencia: l.referencia || '',
+                    capitalTomado: l.capital_tomado || 0,
+                    tna: l.tna || 0,
+                    schedAll: sched,         // schedule completo (incluye pasadas)
+                    fwd: fwd,                // cuotas futuras
+                    cuotaMesActual: cuotaMesActual,
+                    pendienteCuota: pendienteCuota,
+                    pendienteCapital: pendienteCapital,
+                    pendienteInteres: pendienteInteres,
+                    cuotasRestantes: fwd.length,
+                    proxima: fwd[0] || null,
+                    ultima: fwd[fwd.length - 1] || null
+                };
+            });
+
+            // Activos = los que tienen al menos 1 cuota pendiente
+            const activos = bankList.filter(b => b.cuotasRestantes > 0);
+            // Cerrados/sin cuotas = los que están parseados pero sin pendiente forward
+            const cerrados = bankList.filter(b => b.cuotasRestantes === 0);
+
+            activos.sort((a, b) => b.pendienteCuota - a.pendienteCuota);
+
+            // Totales sobre activos
+            const totalCuotaMesBanc = activos.reduce((s, b) => s + b.cuotaMesActual, 0);
+            const totalPendienteBanc = activos.reduce((s, b) => s + b.pendienteCuota, 0);
+            const totalPendCapitalBanc = activos.reduce((s, b) => s + b.pendienteCapital, 0);
+            const totalPendInteresBanc = activos.reduce((s, b) => s + b.pendienteInteres, 0);
+            const totalCuotasRestantes = activos.reduce((s, b) => s + b.cuotasRestantes, 0);
+
+            // Meses consolidados (para chart y "próxima cuota")
+            const mesesConCuotaMap = {};
+            activos.forEach(b => {
+                b.fwd.forEach(s => {
+                    if (!mesesConCuotaMap[s.mes]) {
+                        mesesConCuotaMap[s.mes] = { mes: s.mes, cuota: 0, capital: 0, interes: 0 };
+                    }
+                    mesesConCuotaMap[s.mes].cuota += s.cuota || 0;
+                    mesesConCuotaMap[s.mes].capital += s.capital || 0;
+                    mesesConCuotaMap[s.mes].interes += s.interes || 0;
+                });
+            });
+            const mesesConCuota = Object.values(mesesConCuotaMap).sort((a, b) => a.mes.localeCompare(b.mes));
+
+            // GC
+            const gcTerm = DATA.gc_term || {};
+            const gcSchedule = gcTerm.schedule || [];
+            const tc = parseFloat(document.getElementById('tcUSD')?.value) || MEP.rate;
+            const gcFwd = gcSchedule.filter(c => {
+                if (c.pagada) return false;
+                const cuotaMes = (c.fecha || '').slice(0, 7);
+                return cuotaMes >= hoyMes;
+            });
+            const gcPendUSD = gcFwd.reduce((s, c) => s + (c.usd || 0), 0);
+            const gcPendARS = gcPendUSD * tc;
+            const gcCuotasRest = gcFwd.length;
+            const gcMesActual = gcFwd.filter(c => (c.fecha || '').slice(0,7) === hoyMes);
+            const gcCuotaMesUSD = gcMesActual.reduce((s, c) => s + (c.usd || 0), 0);
+            const gcCuotaMesARS = gcCuotaMesUSD * tc;
+            const gcProxima = gcFwd[0] || null;
+
+            return {
+                hoyMes: hoyMes,
+                bankList: bankList,
+                activos: activos,
+                cerrados: cerrados,
+                totalCuotaMesBanc: totalCuotaMesBanc,
+                totalPendienteBanc: totalPendienteBanc,
+                totalPendCapitalBanc: totalPendCapitalBanc,
+                totalPendInteresBanc: totalPendInteresBanc,
+                totalCuotasRestantes: totalCuotasRestantes,
+                mesesConCuota: mesesConCuota,
+                tc: tc,
+                gcFwd: gcFwd,
+                gcPendUSD: gcPendUSD,
+                gcPendARS: gcPendARS,
+                gcCuotasRest: gcCuotasRest,
+                gcCuotaMesARS: gcCuotaMesARS,
+                gcProxima: gcProxima
+            };
+        }
+
+        // ============================================================
+        // PANEL DE DIAGNÓSTICO (visible en pantalla) — muestra el raw
+        // contenido de DATA.bd_loans para detectar inconsistencias.
+        // ============================================================
+        function renderDeudaDiagnostico() {
+            const el = document.getElementById('deudaDiagnostico');
+            if (!el) return;
+            const loans = DATA.bd_loans || [];
+            if (loans.length === 0) {
+                el.innerHTML = '<div style="color:#f87171">⚠ No hay datos en DATA.bd_loans (revisar getDeudaBancaria del Apps Script)</div>';
+                return;
+            }
+            const hoyMes = new Date().toISOString().slice(0, 7);
+            let html = '<table style="width:100%;font-size:10px;border-collapse:collapse"><thead>'
+                + '<tr style="background:#0d1117;color:#8b949e">'
+                + '<th style="text-align:left;padding:6px">#</th>'
+                + '<th style="text-align:left;padding:6px">entidad</th>'
+                + '<th style="text-align:right;padding:6px">capital_tomado</th>'
+                + '<th style="text-align:center;padding:6px">schedule.length</th>'
+                + '<th style="text-align:center;padding:6px">primera</th>'
+                + '<th style="text-align:center;padding:6px">última</th>'
+                + '<th style="text-align:right;padding:6px">cuota '+hoyMes+'</th>'
+                + '<th style="text-align:right;padding:6px">total cuota fwd</th>'
+                + '</tr></thead><tbody>';
+            loans.forEach((l, i) => {
+                const sched = l.schedule || [];
+                const fwd = sched.filter(s => s.mes >= hoyMes && (s.cuota || 0) > 0);
+                const cuotaHoy = fwd.filter(s => s.mes === hoyMes).reduce((a, s) => a + (s.cuota || 0), 0);
+                const totFwd = fwd.reduce((a, s) => a + (s.cuota || 0), 0);
+                const primera = sched.length > 0 ? sched[0].mes : '—';
+                const ultima = sched.length > 0 ? sched[sched.length-1].mes : '—';
+                const rowColor = sched.length === 0 ? '#7f1d1d' : (fwd.length === 0 ? '#78350f' : 'transparent');
+                html += `<tr style="background:${rowColor};border-top:1px solid #21262d">
+                    <td style="padding:6px">${i}</td>
+                    <td style="padding:6px;color:#58a6ff">${l.entidad}</td>
+                    <td style="text-align:right;padding:6px">${formatARS(l.capital_tomado || 0)}</td>
+                    <td style="text-align:center;padding:6px">${sched.length}</td>
+                    <td style="text-align:center;padding:6px">${primera}</td>
+                    <td style="text-align:center;padding:6px">${ultima}</td>
+                    <td style="text-align:right;padding:6px">${cuotaHoy > 0 ? formatARS(cuotaHoy) : '—'}</td>
+                    <td style="text-align:right;padding:6px">${formatARS(totFwd)}</td>
+                </tr>`;
+            });
+            html += '</tbody></table>';
+            const totalAbril = loans.reduce((s, l) => {
+                const sched = l.schedule || [];
+                const cuotaHoy = sched.filter(s => s.mes === hoyMes).reduce((a, s) => a + (s.cuota || 0), 0);
+                return s + cuotaHoy;
+            }, 0);
+            html += `<div style="margin-top:8px;font-size:11px"><b>Cuota total ${hoyMes} (suma de los 5 créditos):</b> ${formatARS(totalAbril)} <span style="color:var(--tx2)">(esperado según Excel: $15.813.954,21)</span></div>`;
+            // log a consola también
+            console.log('=== DIAGNÓSTICO DEUDA BANCARIA ===');
+            console.log('DATA.bd_loans:', loans);
+            loans.forEach((l, i) => {
+                console.log(`[${i}] ${l.entidad}: schedule.length=${(l.schedule||[]).length}, capital_tomado=${l.capital_tomado}`);
+                if ((l.schedule||[]).length > 0) console.log('   primera 3 cuotas:', l.schedule.slice(0, 3));
+            });
+            el.innerHTML = html;
+        }
+
         function renderDeudaConsolidadaKPIs() {
+            renderDeudaDiagnostico();
             // ───────────────────────────────────────────────────────────
             // FUENTE ÚNICA: las dos sheets dedicadas — "Deuda Bancaria" + "Deuda GC".
             // NO se cruza con DATA.mov (movimientos). La página vive desacoplada.
@@ -5991,177 +6164,155 @@
         }
 
         function renderDeudaBancaria() {
-            // New structure: per-loan detail + aggregated monthly (capital+interés vs solo capital)
-            const loans = DATA.bd_loans || [];
-            const monthly = (DATA.bd_monthly && DATA.bd_monthly.length)
-                ? DATA.bd_monthly
-                : (DATA.bd || []).map(m => ({ mes: m.mes, cuota: (m.cap||0)+(m.int||0), capital: m.cap||0, interes: m.int||0 }));
-            const hoy = new Date().toISOString().slice(0, 7);
-
-            // Split paid vs pending
-            const paid = monthly.filter(m => m.mes < hoy);
-            const pend = monthly.filter(m => m.mes >= hoy);
-            const pendCuota = pend.reduce((s, m) => s + (m.cuota || 0), 0);
-            const pendCap = pend.reduce((s, m) => s + (m.capital || 0), 0);
-            const pendInt = pend.reduce((s, m) => s + (m.interes || 0), 0);
-            const paidCuota = paid.reduce((s, m) => s + (m.cuota || 0), 0);
-
-            const totalTomado = loans.reduce((s, l) => s + (l.capital_tomado || 0), 0);
-
-            // Próximo mes (mes siguiente al actual)
-            const proxDate = new Date();
-            proxDate.setMonth(proxDate.getMonth() + 1);
-            const proxMesStr = proxDate.toISOString().slice(0, 7);
+            // ÚNICA fuente: _computeDeudaState() (forward-only desde sheet "Deuda Bancaria")
+            const st = _computeDeudaState();
+            const hoyMes = st.hoyMes;
             const mNamesB = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
-            const proxMesLabel = mNamesB[proxDate.getMonth()] + ' ' + proxDate.getFullYear();
-            const proxRow = monthly.find(m => m.mes === proxMesStr) || { cuota: 0, capital: 0, interes: 0 };
 
-            // GC del próximo mes
-            const gcTerm2 = DATA.gc_term || {};
-            const schedule2 = gcTerm2.schedule || [];
-            const tc2 = parseFloat(document.getElementById('tcUSD')?.value) || MEP.rate;
-            const proxGCCuotas = schedule2.filter(c => !c.pagada && (c.fecha || '').slice(0,7) === proxMesStr);
-            const proxGCUSD = proxGCCuotas.reduce((s, c) => s + (c.usd || 0), 0);
-            const proxGCARS = proxGCUSD * tc2;
-            const proxTotalDeuda = proxRow.cuota + proxGCARS;
+            // KPIs de la sub-sección Deuda Bancaria (sin "Capital Tomado")
+            const proxMes = st.mesesConCuota[0];
+            const proxLabel = proxMes ? (mNamesB[parseInt(proxMes.mes.split('-')[1])-1] + ' ' + proxMes.mes.split('-')[0]) : '—';
 
-            document.getElementById('deudaBancariaKPIs').innerHTML = `
+            const kpisEl = document.getElementById('deudaBancariaKPIs');
+            if (kpisEl) kpisEl.innerHTML = `
                 <div class="kpi">
-                    <div class="kpi-label">Capital Tomado (Total)</div>
-                    <div class="kpi-value">${formatARS(totalTomado)}</div>
-                    <div class="kpi-sub">${loans.length} préstamos activos</div>
+                    <div class="kpi-label">Cuota ${mNamesB[parseInt(hoyMes.split('-')[1])-1]} ${hoyMes.split('-')[0]}</div>
+                    <div class="kpi-value negative">${formatARS(st.totalCuotaMesBanc)}</div>
+                    <div class="kpi-sub">${st.activos.length} créditos activos</div>
                 </div>
                 <div class="kpi">
                     <div class="kpi-label">Capital Pendiente Amortizar</div>
-                    <div class="kpi-value negative">${formatARS(pendCap)}</div>
-                    <div class="kpi-sub">${pend.length} cuotas restantes</div>
+                    <div class="kpi-value negative">${formatARS(st.totalPendCapitalBanc)}</div>
+                    <div class="kpi-sub">${st.totalCuotasRestantes} cuotas restantes</div>
                 </div>
                 <div class="kpi">
                     <div class="kpi-label">Intereses Pendientes</div>
-                    <div class="kpi-value negative">${formatARS(pendInt)}</div>
+                    <div class="kpi-value negative">${formatARS(st.totalPendInteresBanc)}</div>
                     <div class="kpi-sub">Costo financiero futuro</div>
                 </div>
                 <div class="kpi">
                     <div class="kpi-label">Cuota Total Pendiente</div>
-                    <div class="kpi-value negative">${formatARS(pendCuota)}</div>
-                    <div class="kpi-sub">Cap + Int · Pagado: ${formatARS(paidCuota)}</div>
+                    <div class="kpi-value negative">${formatARS(st.totalPendienteBanc)}</div>
+                    <div class="kpi-sub">Cap + Int (forward-only)</div>
                 </div>
                 <div class="kpi" style="border-left:3px solid #f0883e">
-                    <div class="kpi-label">Deuda ${proxMesLabel} (Toda)</div>
-                    <div class="kpi-value negative">${formatARS(proxTotalDeuda)}</div>
-                    <div class="kpi-sub">Banc: ${formatARS(proxRow.cuota)}${proxGCARS > 0 ? ' · GC: ' + formatARS(proxGCARS) : ''}</div>
+                    <div class="kpi-label">Próx. Cuota Banc. (${proxLabel})</div>
+                    <div class="kpi-value negative">${proxMes ? formatARS(proxMes.cuota) : '—'}</div>
+                    <div class="kpi-sub">${proxMes ? 'Capital + Interés' : 'sin cuotas pendientes'}</div>
                 </div>
             `;
 
-            // Loan cards
+            // Cards de préstamos ACTIVOS (mismo source que la tabla)
             const cardsEl = document.getElementById('deudaBancariaLoansCards');
             if (cardsEl) {
-                cardsEl.innerHTML = loans.map((l, idx) => {
-                    const pagado = (l.schedule || []).filter(s => s.mes < hoy).reduce((a, s) => a + (s.capital || 0), 0);
-                    const pendL = (l.schedule || []).filter(s => s.mes >= hoy);
-                    const pendCapL = pendL.reduce((a, s) => a + (s.capital || 0), 0);
-                    const pendIntL = pendL.reduce((a, s) => a + (s.interes || 0), 0);
-                    const pctPag = (l.capital_tomado > 0) ? (pagado / l.capital_tomado * 100) : 0;
-                    const tnaStr = l.tna > 0 ? (l.tna * 100).toFixed(0) + '%' : '—';
-                    return `<div style="background:#161b22;border:1px solid #30363d;border-radius:10px;padding:12px">
-                        <div style="font-weight:700;font-size:13px;color:#58a6ff;margin-bottom:4px">${l.entidad}</div>
-                        <div style="font-size:10px;color:var(--tx2);margin-bottom:8px;min-height:14px">${l.referencia || ''}</div>
-                        <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px"><span>Capital tomado</span><b>${formatARS(l.capital_tomado)}</b></div>
-                        <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px"><span>TNA</span><b>${tnaStr}</b></div>
-                        <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px"><span>Capital pend.</span><b class="negative">${formatARS(pendCapL)}</b></div>
-                        <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:6px"><span>Intereses pend.</span><b class="negative">${formatARS(pendIntL)}</b></div>
-                        <div style="background:#0d1117;border-radius:4px;height:6px;overflow:hidden">
-                            <div style="background:#34d399;height:100%;width:${pctPag.toFixed(1)}%"></div>
-                        </div>
-                        <div style="font-size:10px;color:var(--tx2);text-align:right;margin-top:3px">${pctPag.toFixed(0)}% amortizado</div>
-                    </div>`;
-                }).join('');
+                if (st.activos.length === 0) {
+                    cardsEl.innerHTML = '<div style="color:var(--tx2);padding:12px">No hay créditos activos.</div>';
+                } else {
+                    cardsEl.innerHTML = st.activos.map((b) => {
+                        const tnaStr = b.tna > 0 ? (b.tna * 100).toFixed(0) + '%' : '—';
+                        const ultStr = b.ultima ? (mNamesB[parseInt(b.ultima.mes.split('-')[1])-1] + ' ' + b.ultima.mes.split('-')[0]) : '—';
+                        // % "amortizado" estimado: cuánto del capital tomado original ya no queda como capital pendiente
+                        const pctPag = b.capitalTomado > 0
+                            ? Math.max(0, Math.min(100, (1 - b.pendienteCapital / b.capitalTomado) * 100))
+                            : 0;
+                        return `<div style="background:#161b22;border:1px solid #30363d;border-radius:10px;padding:12px">
+                            <div style="font-weight:700;font-size:13px;color:#58a6ff;margin-bottom:4px">${b.entidad}</div>
+                            <div style="font-size:10px;color:var(--tx2);margin-bottom:8px;min-height:14px">${b.referencia}</div>
+                            <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px"><span>Cuota mes</span><b style="color:#f0883e">${b.cuotaMesActual > 0 ? formatARS(b.cuotaMesActual) : '—'}</b></div>
+                            <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px"><span>TNA</span><b>${tnaStr}</b></div>
+                            <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px"><span>Capital pend.</span><b class="negative">${formatARS(b.pendienteCapital)}</b></div>
+                            <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px"><span>Intereses pend.</span><b class="negative">${formatARS(b.pendienteInteres)}</b></div>
+                            <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:6px"><span>Cuotas rest.</span><b>${b.cuotasRestantes} (hasta ${ultStr})</b></div>
+                            <div style="background:#0d1117;border-radius:4px;height:6px;overflow:hidden">
+                                <div style="background:#34d399;height:100%;width:${pctPag.toFixed(1)}%"></div>
+                            </div>
+                            <div style="font-size:10px;color:var(--tx2);text-align:right;margin-top:3px">${pctPag.toFixed(0)}% amortizado (cap)</div>
+                        </div>`;
+                    }).join('');
+                }
             }
 
-            // Consolidated monthly table
-            let html = '<tr><th>Mes</th><th class="text-right">Cuota (Cap+Int)</th><th class="text-right">Solo Capital</th><th class="text-right">Interés</th><th>Estado</th></tr>';
-            monthly.forEach(m => {
-                const isPaid = m.mes < hoy;
-                const badge = isPaid ? '<span class="status-badge pagada">Pagada</span>' : '<span class="status-badge pendiente">Pendiente</span>';
-                html += `<tr class="${isPaid ? 'row-paid' : ''}">
-                    <td>${fmtMonthAR(m.mes)}</td>
-                    <td class="text-right amount negative">${formatARS(m.cuota || 0)}</td>
-                    <td class="text-right amount">${formatARS(m.capital || 0)}</td>
-                    <td class="text-right amount negative">${formatARS(m.interes || 0)}</td>
-                    <td>${badge}</td>
+            // Tabla mensual consolidada (solo forward — pasadas se asumen pagadas)
+            const tableEl = document.getElementById('deudaBancariaTQNTable');
+            if (tableEl) {
+                let html = '<tr><th>Mes</th><th class="text-right">Cuota (Cap+Int)</th><th class="text-right">Solo Capital</th><th class="text-right">Interés</th></tr>';
+                st.mesesConCuota.forEach(m => {
+                    html += `<tr>
+                        <td>${fmtMonthAR(m.mes)}</td>
+                        <td class="text-right amount negative">${formatARS(m.cuota || 0)}</td>
+                        <td class="text-right amount">${formatARS(m.capital || 0)}</td>
+                        <td class="text-right amount negative">${formatARS(m.interes || 0)}</td>
+                    </tr>`;
+                });
+                html += `<tr class="total-row">
+                    <td><b>TOTAL FUTURO</b></td>
+                    <td class="text-right amount negative"><b>${formatARS(st.totalPendienteBanc)}</b></td>
+                    <td class="text-right amount"><b>${formatARS(st.totalPendCapitalBanc)}</b></td>
+                    <td class="text-right amount negative"><b>${formatARS(st.totalPendInteresBanc)}</b></td>
                 </tr>`;
-            });
-            html += `<tr class="total-row">
-                <td><b>PENDIENTE</b></td>
-                <td class="text-right amount negative"><b>${formatARS(pendCuota)}</b></td>
-                <td class="text-right amount"><b>${formatARS(pendCap)}</b></td>
-                <td class="text-right amount negative"><b>${formatARS(pendInt)}</b></td>
-                <td><b>${pend.length} cuotas</b></td>
-            </tr>`;
-            document.getElementById('deudaBancariaTQNTable').innerHTML = html;
+                tableEl.innerHTML = html;
+            }
 
-            // Loan tabs + per-loan detail table
-            if (typeof APP.deudaLoanIdx !== 'number' || APP.deudaLoanIdx >= loans.length) APP.deudaLoanIdx = 0;
+            // Tabs por crédito (solo activos)
+            if (typeof APP.deudaLoanIdx !== 'number' || APP.deudaLoanIdx >= st.activos.length) APP.deudaLoanIdx = 0;
             const tabsEl = document.getElementById('deudaBancariaLoanTabs');
             if (tabsEl) {
-                tabsEl.innerHTML = loans.map((l, i) => {
+                tabsEl.innerHTML = st.activos.map((b, i) => {
                     const active = i === APP.deudaLoanIdx;
-                    const style = active
-                        ? 'font-weight:700;border-color:#58a6ff;color:#58a6ff'
-                        : '';
-                    return `<button class="secondary" style="${style}" onclick="deudaSelectLoan(${i})">${l.entidad}</button>`;
+                    const style = active ? 'font-weight:700;border-color:#58a6ff;color:#58a6ff' : '';
+                    return `<button class="secondary" style="${style}" onclick="deudaSelectLoan(${i})">${b.entidad}</button>`;
                 }).join('');
             }
-            const sel = loans[APP.deudaLoanIdx];
-            const sched = sel && sel.schedule ? sel.schedule : [];
-            let dhtml = '<tr><th>Mes</th><th class="text-right">Cuota</th><th class="text-right">Capital</th><th class="text-right">Interés</th><th>Estado</th></tr>';
-            sched.forEach(s => {
-                const isPaid = s.mes < hoy;
-                const badge = isPaid ? '<span class="status-badge pagada">Pagada</span>' : '<span class="status-badge pendiente">Pendiente</span>';
-                dhtml += `<tr class="${isPaid ? 'row-paid' : ''}">
-                    <td>${fmtMonthAR(s.mes)}</td>
-                    <td class="text-right amount negative">${formatARS(s.cuota || 0)}</td>
-                    <td class="text-right amount">${formatARS(s.capital || 0)}</td>
-                    <td class="text-right amount negative">${formatARS(s.interes || 0)}</td>
-                    <td>${badge}</td>
-                </tr>`;
-            });
-            if (sel) {
-                dhtml += `<tr class="total-row">
-                    <td><b>TOTAL ${sel.entidad}</b></td>
-                    <td class="text-right amount negative"><b>${formatARS(sel.total_cuota || 0)}</b></td>
-                    <td class="text-right amount"><b>${formatARS(sel.total_capital || 0)}</b></td>
-                    <td class="text-right amount negative"><b>${formatARS(sel.total_interes || 0)}</b></td>
-                    <td></td>
-                </tr>`;
-            }
-            document.getElementById('deudaBancariaLMSTable').innerHTML = dhtml;
-
-            // Chart - cuotas pendientes stacked (solo capital + interés)
-            const ctx = document.getElementById('deudaBancariaChart').getContext('2d');
-            if (APP.charts.deudaBancaria) APP.charts.deudaBancaria.destroy();
-
-            APP.charts.deudaBancaria = new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: pend.map(m => fmtMonthAR(m.mes)),
-                    datasets: [
-                        { label: 'Solo Capital', data: pend.map(m => m.capital || 0), backgroundColor: '#3b82f6' },
-                        { label: 'Intereses', data: pend.map(m => m.interes || 0), backgroundColor: '#fb923c' }
-                    ]
-                },
-                options: {
-                    responsive: true, maintainAspectRatio: false,
-                    plugins: {
-                        title: { display: true, text: 'Cuotas pendientes — Capital + Interés', color: '#c9d1d9' },
-                        legend: { labels: { color: '#c9d1d9' } }
-                    },
-                    scales: {
-                        x: { stacked: true, ticks: { color: '#8b949e' }, grid: { color: '#30363d' } },
-                        y: { stacked: true, ticks: { color: '#8b949e' }, grid: { color: '#30363d' } }
-                    }
+            const sel = st.activos[APP.deudaLoanIdx];
+            const detEl = document.getElementById('deudaBancariaLMSTable');
+            if (detEl) {
+                let dhtml = '<tr><th>Mes</th><th class="text-right">Cuota</th><th class="text-right">Capital</th><th class="text-right">Interés</th></tr>';
+                if (sel) {
+                    sel.fwd.forEach(s => {
+                        dhtml += `<tr>
+                            <td>${fmtMonthAR(s.mes)}</td>
+                            <td class="text-right amount negative">${formatARS(s.cuota || 0)}</td>
+                            <td class="text-right amount">${formatARS(s.capital || 0)}</td>
+                            <td class="text-right amount negative">${formatARS(s.interes || 0)}</td>
+                        </tr>`;
+                    });
+                    dhtml += `<tr class="total-row">
+                        <td><b>TOTAL ${sel.entidad}</b></td>
+                        <td class="text-right amount negative"><b>${formatARS(sel.pendienteCuota)}</b></td>
+                        <td class="text-right amount"><b>${formatARS(sel.pendienteCapital)}</b></td>
+                        <td class="text-right amount negative"><b>${formatARS(sel.pendienteInteres)}</b></td>
+                    </tr>`;
                 }
-            });
+                detEl.innerHTML = dhtml;
+            }
+
+            // Chart consolidado (forward-only)
+            const ctxEl = document.getElementById('deudaBancariaChart');
+            if (ctxEl) {
+                const ctx = ctxEl.getContext('2d');
+                if (APP.charts.deudaBancaria) APP.charts.deudaBancaria.destroy();
+                APP.charts.deudaBancaria = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: st.mesesConCuota.map(m => fmtMonthAR(m.mes)),
+                        datasets: [
+                            { label: 'Solo Capital', data: st.mesesConCuota.map(m => m.capital || 0), backgroundColor: '#3b82f6' },
+                            { label: 'Intereses', data: st.mesesConCuota.map(m => m.interes || 0), backgroundColor: '#fb923c' }
+                        ]
+                    },
+                    options: {
+                        responsive: true, maintainAspectRatio: false,
+                        plugins: {
+                            title: { display: true, text: 'Cuotas pendientes — Capital + Interés (forward-only)', color: '#c9d1d9' },
+                            legend: { labels: { color: '#c9d1d9' } }
+                        },
+                        scales: {
+                            x: { stacked: true, ticks: { color: '#8b949e' }, grid: { color: '#30363d' } },
+                            y: { stacked: true, ticks: { color: '#8b949e' }, grid: { color: '#30363d' } }
+                        }
+                    }
+                });
+            }
         }
 
         function deudaSelectLoan(i) {
