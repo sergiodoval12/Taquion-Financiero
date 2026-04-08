@@ -363,10 +363,16 @@ function getDeudaBancaria(ss) {
 
   function parseMesCell(v) {
     if (v instanceof Date) {
-      // The source sheet was built with DD as year offset (e.g. day=26 -> 2026)
+      // FIX: el legacy hack (day-as-year offset, e.g. day=26 -> 2026) ROMPE fechas reales
+      // donde día > 19 (como 30/04/2027 → year se transformaba en 2030).
+      // Ahora confiamos en el año real cuando es plausible (>= 2020), y solo caemos al
+      // hack legacy si el año está fuera de rango (formato viejo de la planilla original).
       const d = v.getDate();
       const m = v.getMonth() + 1;
-      const year = (d >= 20 && d <= 40) ? 2000 + d : v.getFullYear();
+      const realYear = v.getFullYear();
+      const year = (realYear >= 2020 && realYear <= 2050)
+        ? realYear
+        : ((d >= 20 && d <= 40) ? 2000 + d : realYear);
       return year + '-' + (m < 10 ? '0' + m : m);
     }
     if (typeof v === 'number') {
@@ -446,8 +452,11 @@ function getDeudaBancaria(ss) {
     return { loans: loans, schedule: schedule };
   }
 
-  const t1 = parseTable(t1Start, 5);
-  const t2 = t2Start >= 0 ? parseTable(t2Start, 5) : { loans: [], schedule: [] };
+  // Antes estaba cappeado en 5 columnas → si hay 6+ créditos se perdían.
+  // Subimos a 20 (mucho más que cualquier escenario realista de la operación)
+  const MAX_LOAN_COLS = 20;
+  const t1 = parseTable(t1Start, MAX_LOAN_COLS);
+  const t2 = t2Start >= 0 ? parseTable(t2Start, MAX_LOAN_COLS) : { loans: [], schedule: [] };
 
   // Pull TNA from T2 title row (cells 2..5 contain "TNA 45%" etc)
   if (t2Start >= 0) {

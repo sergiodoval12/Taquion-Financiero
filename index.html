@@ -740,6 +740,9 @@
                 <!-- KPIs consolidados -->
                 <div class="kpi-grid" id="deudaConsolidadaKPIs"></div>
 
+                <!-- Tabla resumen por crédito (single source of truth: SOT) -->
+                <div id="deudaConsolidadaTablaCreditos" style="margin-top:14px"></div>
+
                 <!-- Sub-tabs for sections -->
                 <div style="display:flex;gap:8px;margin:16px 0;flex-wrap:wrap" id="deudaSubTabs">
                     <button class="secondary" onclick="deudaShowSection('bancaria')" id="deudaTabBancaria" style="font-weight:700;border-color:#58a6ff;color:#58a6ff">Deuda Bancaria</button>
@@ -5349,40 +5352,103 @@
         }
 
         function renderDeudaConsolidadaKPIs() {
+            // ───────────────────────────────────────────────────────────
+            // FUENTE ÚNICA: DATA.mov (SOT). Las cuotas con t='Préstamos Bancarios'
+            // tienen eo='R' (pagada) o eo='P' (pendiente). NO mezclamos con sheet
+            // bd_monthly más; eso genera Math.max y números contradictorios.
+            //
+            // Cross-ref a DATA.bd_loans SOLO para "capital tomado" original
+            // (que el SOT no tiene como dato explícito).
+            // ───────────────────────────────────────────────────────────
             const hoyStr = new Date().toISOString().slice(0, 7); // 'YYYY-MM'
-            // PRIMARY SOURCE: DATA.mov (SOT). Sum cuotas futuras de Préstamos Bancarios.
-            const movPrestamos = (DATA.mov || []).filter(m =>
-                m.t === 'Préstamos Bancarios' && m.f && m.f >= hoyStr + '-01'
+            const mNames = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+            const [hoyY, hoyM] = hoyStr.split('-');
+            const mesLabel = mNames[parseInt(hoyM)-1] + ' ' + hoyY;
+
+            // Helper para matchear nombre de banco entre SOT (m.i) y bd_loans (l.entidad)
+            function _norm(s) { return String(s || '').toLowerCase().replace(/[^a-z0-9]/g,''); }
+
+            // 1. Agrupar todas las cuotas Préstamos Bancarios del SOT por banco
+            const allPrestamos = (DATA.mov || []).filter(m =>
+                m.t === 'Préstamos Bancarios' && m.f && !m._deleted
             );
-            const pendBancariaSOT = movPrestamos.reduce((s, m) => s + Math.abs(m.v || 0), 0);
-            const cuotasBancariaSOT = movPrestamos.length;
+            const byBank = {};
+            allPrestamos.forEach(m => {
+                const bank = m.i || 'Sin nombre';
+                if (!byBank[bank]) {
+                    byBank[bank] = {
+                        banco: bank,
+                        cuotasR: [],
+                        cuotasP: [],
+                        pagado: 0,
+                        pendiente: 0,
+                        capitalTomado: 0,
+                        proxima: null,
+                        ultima: null
+                    };
+                }
+                const isReal = String(m.eo || '').toUpperCase() === 'R';
+                if (isReal) {
+                    byBank[bank].cuotasR.push(m);
+                    byBank[bank].pagado += Math.abs(m.v || 0);
+                } else {
+                    byBank[bank].cuotasP.push(m);
+                    byBank[bank].pendiente += Math.abs(m.v || 0);
+                }
+            });
 
-            // Cross-check: bd_monthly (parsed from sheet "Deuda Bancaria")
-            const bdMonthly = DATA.bd_monthly && DATA.bd_monthly.length
-                ? DATA.bd_monthly
-                : (DATA.bd || []).map(m => ({ mes: m.mes, cuota: (m.cap||0)+(m.int||0), capital: m.cap||0, interes: m.int||0 }));
-            const pendMonthly = bdMonthly.filter(m => m.mes >= hoyStr);
-            const pendCapTQN = pendMonthly.reduce((s, m) => s + (m.capital || 0), 0);
-            const pendIntTQN = pendMonthly.reduce((s, m) => s + (m.interes || 0), 0);
-            const pendCuotaSheet = pendMonthly.reduce((s, m) => s + (m.cuota || 0), 0);
-            // Use the larger of (mov SOT, sheet schedule) — protects against parser losing rows
-            const pendBancariaTotal = Math.max(pendBancariaSOT, pendCuotaSheet);
-            const pendLMSTotal = 0;
-            const pendLMS = [];
-            // mantener referencias legacy
-            const bdTQN = DATA.bd || [];
-            const pendTQN = bdTQN.filter(m => m.mes >= hoyStr);
+            // 2. Cross-ref con bd_loans para capital_tomado
+            (DATA.bd_loans || []).forEach(l => {
+                const lk = _norm(l.entidad);
+                Object.values(byBank).forEach(b => {
+                    if (_norm(b.banco).indexOf(lk) >= 0 || lk.indexOf(_norm(b.banco)) >= 0) {
+                        b.capitalTomado = Math.max(b.capitalTomado, l.capital_tomado || 0);
+                        b.tna = l.tna;
+                        b.referencia = l.referencia;
+                    }
+                });
+            });
 
-            // GC: recalculate from schedule — use pagada flag + dynamic cross-check with DATA.mov
+            // 3. Calcular próxima/última cuota por banco + estadísticas
+            Object.values(byBank).forEach(b => {
+                b.cuotasP.sort((a, b2) => (a.f || '').localeCompare(b2.f || ''));
+                b.cuotasR.sort((a, b2) => (a.f || '').localeCompare(b2.f || ''));
+                b.proxima = b.cuotasP[0] || null;
+                b.ultima = b.cuotasP[b.cuotasP.length - 1] || null;
+                // Si no hay capitalTomado de bd_loans, lo aproximamos como pagado+pendiente
+                if (!b.capitalTomado) b.capitalTomado = b.pagado + b.pendiente;
+                b.pctAmortizado = b.capitalTomado > 0 ? (b.pagado / b.capitalTomado * 100) : 0;
+            });
+
+            const bankList = Object.values(byBank).filter(b => b.cuotasR.length + b.cuotasP.length > 0);
+            bankList.sort((a, b) => b.pendiente - a.pendiente); // ordenar por pendiente desc
+
+            // 4. Totales generales
+            const totalCapitalTomado = bankList.reduce((s, b) => s + b.capitalTomado, 0);
+            const totalPagadoBanc = bankList.reduce((s, b) => s + b.pagado, 0);
+            const totalPendienteBanc = bankList.reduce((s, b) => s + b.pendiente, 0);
+            const totalCuotasPendBanc = bankList.reduce((s, b) => s + b.cuotasP.length, 0);
+            const pctTotalAmort = totalCapitalTomado > 0 ? (totalPagadoBanc / totalCapitalTomado * 100) : 0;
+
+            // Cuota del mes en curso (bancaria, SOT)
+            const mesPendBanc = allPrestamos.filter(m =>
+                m.f.slice(0,7) === hoyStr && String(m.eo||'').toUpperCase() === 'P'
+            );
+            const mesPendBancARS = mesPendBanc.reduce((s, m) => s + Math.abs(m.v || 0), 0);
+
+            // Próximo vencimiento bancario (global)
+            const proximosTodos = bankList.filter(b => b.proxima).map(b => b.proxima);
+            proximosTodos.sort((a, b) => (a.f || '').localeCompare(b.f || ''));
+            const proxBancGlobal = proximosTodos[0] || null;
+
+            // 5. GC (sin cambios — está OK)
             const gcTerm = DATA.gc_term || {};
             const schedule = gcTerm.schedule || [];
             const gcPayments = (DATA.mov || []).filter(m =>
                 m.i && m.i.toLowerCase().includes('devolucion a gc') && (m.eo === 'R' || m.eo === 'E')
             );
             const gcPendientes = schedule.filter(cuota => {
-                // Already marked as paid in the term sheet → not pending
                 if (cuota.pagada) return false;
-                // Also check if there's a real payment in DATA.mov for this month
                 const cuotaMes = (cuota.fecha || '').slice(0, 7);
                 if (gcPayments.some(p => p.f && p.f.startsWith(cuotaMes))) return false;
                 return true;
@@ -5390,43 +5456,93 @@
             const tc = parseFloat(document.getElementById('tcUSD')?.value) || MEP.rate;
             const gcPendUSD = gcPendientes.reduce((s, c) => s + (c.usd || 0), 0);
             const gcPendARS = gcPendUSD * tc;
-
-            // Cuota mes en curso: SOT primero (DATA.mov), fallback al schedule
-            const movMesPrestamos = (DATA.mov || []).filter(m =>
-                m.t === 'Préstamos Bancarios' && m.f && m.f.slice(0, 7) === hoyStr
-            );
-            const mesTotalBancariaSOT = movMesPrestamos.reduce((s, m) => s + Math.abs(m.v || 0), 0);
-            const cuotaMesSheet = bdMonthly.filter(m => m.mes === hoyStr);
-            const mesCapTQN = cuotaMesSheet.reduce((s, m) => s + (m.capital || 0), 0);
-            const mesIntTQN = cuotaMesSheet.reduce((s, m) => s + (m.interes || 0), 0);
-            const mesTotalSheet = mesCapTQN + mesIntTQN;
-            const mesTotalTQN = Math.max(mesTotalBancariaSOT, mesTotalSheet);
-            const mesTotalLMS = 0;
             const cuotaMesGC = gcPendientes.filter(c => (c.fecha || '').slice(0,7) === hoyStr);
             const mesTotalGC = cuotaMesGC.reduce((s, c) => s + ((c.usd || 0) * tc), 0);
-            const mesTotalDeuda = mesTotalTQN + mesTotalGC;
+            const mesTotalDeuda = mesPendBancARS + mesTotalGC;
 
-            const mNames = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
-            const [hoyY, hoyM] = hoyStr.split('-');
-            const mesLabel = mNames[parseInt(hoyM)-1] + ' ' + hoyY;
-
+            // 6. Render KPIs GENERALES (números limpios, sin Math.max ni cross-checks)
             document.getElementById('deudaConsolidadaKPIs').innerHTML = `
                 <div class="kpi" style="border-left:3px solid #f0883e">
-                    <div class="kpi-label">Egreso Deuda ${mesLabel}</div>
+                    <div class="kpi-label">💸 Deuda a Pagar ${mesLabel}</div>
                     <div class="kpi-value negative">${formatARS(mesTotalDeuda)}</div>
-                    <div class="kpi-sub">Banc: ${formatARS(mesTotalTQN)} · GC: ${formatARS(mesTotalGC)}</div>
+                    <div class="kpi-sub">Banc: ${formatARS(mesPendBancARS)} · GC: ${formatARS(mesTotalGC)}</div>
                 </div>
                 <div class="kpi">
-                    <div class="kpi-label">Saldo Deuda Bancaria (Cuotas Pendientes)</div>
-                    <div class="kpi-value negative">${formatARS(pendBancariaTotal)}</div>
-                    <div class="kpi-sub">SOT: ${formatARS(pendBancariaSOT)} · Sheet: ${formatARS(pendCuotaSheet)} · ${cuotasBancariaSOT} cuotas</div>
+                    <div class="kpi-label">🏦 Capital Bancario Tomado</div>
+                    <div class="kpi-value">${formatARS(totalCapitalTomado)}</div>
+                    <div class="kpi-sub">${bankList.length} créditos · ${pctTotalAmort.toFixed(0)}% amortizado</div>
                 </div>
                 <div class="kpi">
-                    <div class="kpi-label">Saldo Deuda GC</div>
+                    <div class="kpi-label">⏳ Pendiente Bancario (Capital + Int.)</div>
+                    <div class="kpi-value negative">${formatARS(totalPendienteBanc)}</div>
+                    <div class="kpi-sub">${totalCuotasPendBanc} cuotas en ${bankList.filter(b => b.cuotasP.length > 0).length} créditos</div>
+                </div>
+                <div class="kpi" style="border-left:3px solid #58a6ff">
+                    <div class="kpi-label">📅 Próx. Venc. Bancario</div>
+                    <div class="kpi-value" style="font-size:14px">${proxBancGlobal ? formatARS(Math.abs(proxBancGlobal.v)) : '—'}</div>
+                    <div class="kpi-sub">${proxBancGlobal ? (proxBancGlobal.i + ' · ' + fmtDateAR(proxBancGlobal.f)) : 'sin pendientes'}</div>
+                </div>
+                <div class="kpi" style="border-left:3px solid #a78bfa">
+                    <div class="kpi-label">💵 Deuda GC (USD)</div>
                     <div class="kpi-value negative">${formatUSD(gcPendUSD)}</div>
-                    <div class="kpi-sub">≈ ${formatARS(gcPendARS)} · TC ${tc.toLocaleString('es-AR')} · ${gcPendientes.length} cuotas</div>
+                    <div class="kpi-sub">≈ ${formatARS(gcPendARS)} · ${gcPendientes.length} cuotas · TC ${tc.toLocaleString('es-AR')}</div>
                 </div>
             `;
+
+            // 7. Render TABLA RESUMEN POR CRÉDITO (debajo de los KPIs generales)
+            // Esta tabla refleja EXACTAMENTE lo que ven los cards de abajo,
+            // así no hay más "5 vs 2" ni datos contradictorios.
+            const tablaEl = document.getElementById('deudaConsolidadaTablaCreditos');
+            if (tablaEl) {
+                let html = `<table style="width:100%;font-size:11px"><thead>
+                    <tr style="background:#161b22;color:#8b949e">
+                        <th style="text-align:left;padding:8px">Crédito</th>
+                        <th style="text-align:right">Tomado</th>
+                        <th style="text-align:right">Pagado</th>
+                        <th style="text-align:right">% Amort.</th>
+                        <th style="text-align:right">Pendiente</th>
+                        <th style="text-align:right">Cuotas Pend.</th>
+                        <th style="text-align:left">Próx.</th>
+                        <th style="text-align:left">Última</th>
+                    </tr></thead><tbody>`;
+                bankList.forEach(b => {
+                    const proxStr = b.proxima ? (fmtDateAR(b.proxima.f) + ' · ' + formatARS(Math.abs(b.proxima.v))) : '—';
+                    const ultStr = b.ultima ? fmtDateAR(b.ultima.f) : '—';
+                    const barColor = b.pctAmortizado >= 80 ? '#34d399' : b.pctAmortizado >= 50 ? '#fbbf24' : '#f87171';
+                    html += `<tr style="border-top:1px solid #21262d">
+                        <td style="padding:8px;font-weight:600;color:#58a6ff">${b.banco}</td>
+                        <td style="text-align:right">${formatARS(b.capitalTomado)}</td>
+                        <td style="text-align:right;color:#3fb950">${formatARS(b.pagado)}</td>
+                        <td style="text-align:right">
+                            <div style="display:inline-block;width:60px">
+                                <div style="background:#0d1117;border-radius:3px;height:5px;overflow:hidden">
+                                    <div style="background:${barColor};height:100%;width:${b.pctAmortizado.toFixed(0)}%"></div>
+                                </div>
+                                <div style="font-size:9px;color:var(--tx2);margin-top:2px">${b.pctAmortizado.toFixed(0)}%</div>
+                            </div>
+                        </td>
+                        <td style="text-align:right;color:#f87171;font-weight:600">${formatARS(b.pendiente)}</td>
+                        <td style="text-align:right">${b.cuotasP.length}</td>
+                        <td style="font-size:10px">${proxStr}</td>
+                        <td style="font-size:10px;color:var(--tx2)">${ultStr}</td>
+                    </tr>`;
+                });
+                if (bankList.length === 0) {
+                    html += `<tr><td colspan="8" style="text-align:center;padding:16px;color:var(--tx2)">No hay créditos bancarios en el SOT (movimientos con t='Préstamos Bancarios')</td></tr>`;
+                }
+                // Fila total
+                html += `<tr style="border-top:2px solid #30363d;background:#0d1117;font-weight:700">
+                    <td style="padding:8px">TOTAL</td>
+                    <td style="text-align:right">${formatARS(totalCapitalTomado)}</td>
+                    <td style="text-align:right;color:#3fb950">${formatARS(totalPagadoBanc)}</td>
+                    <td style="text-align:right">${pctTotalAmort.toFixed(0)}%</td>
+                    <td style="text-align:right;color:#f87171">${formatARS(totalPendienteBanc)}</td>
+                    <td style="text-align:right">${totalCuotasPendBanc}</td>
+                    <td colspan="2"></td>
+                </tr>`;
+                html += `</tbody></table>`;
+                tablaEl.innerHTML = html;
+            }
 
             // === INVERSIONES SAFE (renderInversionesSAFE inline) ===
             renderInversionesSAFE();
