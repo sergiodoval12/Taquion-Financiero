@@ -2118,13 +2118,38 @@
             saldoFinalReal: -115351999,        // Saldo Final semana 2026-14 (-$115.3M) [legacy]
             saldoConDescReal: 60596096,        // Saldo + Descubierto disponible [legacy]
             semanaReal: '2026-03-30',
-            // EN CURSO (semana del lun 6/4) — actualizado por el CFO al 6/4/2026:
-            // Saldo bancario REAL al inicio de la semana = -$142.778.000
-            // Solo BANCARIZADO. Forward-roll desde acá usando solo movs con bn='B'.
-            saldoEnCurso: -142778000,          // Saldo bancario hoy (-$142.778M)
-            saldoEnCursoConDesc: 33170095,     // -142.778.000 + 175.948.095 = 33.170.095 disponible
+            // EN CURSO — actualizado por el CFO lunes 06/04 a las 22hs ARG:
+            // Saldo bancario REAL al momento del ancla = -$142.778.000
+            // anclaFechaCorte = fecha tal que los movs con f > anclaFechaCorte se SUMAN al ancla
+            // (Monday 22hs → ya incluye todos los movs del lunes, por eso el corte es 2026-04-06)
+            // El saldo "HOY" se calcula dinámicamente: ancla + sum(movs bancarizados con f > corte Y f <= hoy)
+            // Solo BANCARIZADO (bn='B'). Forward-roll desde acá usando solo movs con bn='B'.
+            saldoEnCurso: -142778000,          // Ancla: saldo bancario al momento de corte
+            anclaFechaCorte: '2026-04-06',     // Movimientos con f > esta fecha (estrictamente mayor) se suman al ancla
+            anclaTimestamp: '2026-04-06T22:00-03:00', // Solo informativo
+            saldoEnCursoConDesc: 33170095,     // -142.778.000 + 175.948.095 = 33.170.095 disponible [legacy]
             semanaEnCurso: '2026-04-06'
         };
+
+        // ─── Helper: Saldo bancario HOY dinámico ───
+        // Calcula: ancla + Σ(movs bancarizados con f > anclaFechaCorte Y f <= hoy)
+        // Este es el valor que debe mostrarse como "Saldo Bancario Actual/HOY" en el dashboard.
+        function calcSaldoBancarioHoy() {
+            const ancla = (CAJA && typeof CAJA.saldoEnCurso === 'number') ? CAJA.saldoEnCurso : 0;
+            const corte = (CAJA && CAJA.anclaFechaCorte) || (CAJA && CAJA.semanaEnCurso) || '';
+            const hoy = new Date().toISOString().slice(0, 10);
+            let delta = 0;
+            let nMovs = 0;
+            (DATA.mov || []).forEach(m => {
+                if (m.bn !== 'B') return;              // solo bancarizados
+                if (!m.f) return;
+                if (m.f > corte && m.f <= hoy) {        // estrictamente posterior al corte, hasta hoy
+                    delta += m.v || 0;
+                    nMovs++;
+                }
+            });
+            return { ancla, corte, hoy, delta, saldoHoy: ancla + delta, nMovs };
+        }
 
         // === DATA NORMALIZATION ===
 
@@ -4224,9 +4249,11 @@
 
             // === POSICIÓN DE CAJA & RUNWAY ===
             // TRIPLE runway: Operativo | Con Potenciales | Operativo Sin Deuda
-            const saldoActual = CAJA.saldoEnCurso;
-            const disponibleConDesc = CAJA.saldoEnCursoConDesc;
+            // saldoActual = ancla + movs bancarizados posteriores al corte, hasta hoy (dinámico)
+            const _saldoInfo = calcSaldoBancarioHoy();
+            const saldoActual = _saldoInfo.saldoHoy;
             const descubierto = CAJA.descubiertoAprobado;
+            const disponibleConDesc = saldoActual + descubierto;
 
             function getWeekMon(dateStr) {
                 const d = new Date(dateStr);
@@ -4365,11 +4392,14 @@
             }
 
             // Caja KPIs — TRIPLE runway
+            const _deltaColor = _saldoInfo.delta >= 0 ? '#34d399' : '#f87171';
+            const _deltaSign = _saldoInfo.delta >= 0 ? '+' : '';
+            const _saldoTip = `Cálculo dinámico:\n• Ancla CFO: ${formatARS(_saldoInfo.ancla)} (corte ${fmtDateAR(_saldoInfo.corte)})\n• Δ movs bancarizados desde el corte hasta ${fmtDateAR(_saldoInfo.hoy)}: ${_deltaSign}${formatARS(_saldoInfo.delta)} (${_saldoInfo.nMovs} movs)\n• Saldo HOY = Ancla + Δ = ${formatARS(_saldoInfo.saldoHoy)}`;
             document.getElementById('cajaKPIs').innerHTML = `
-                <div class="kpi" style="border-left:3px solid #f87171">
-                    <div class="kpi-label">Saldo Bancario Actual</div>
-                    <div class="kpi-value negative">${formatARS(saldoActual)}</div>
-                    <div class="kpi-sub">Semana ${fmtDateAR(CAJA.semanaEnCurso)} (en curso)</div>
+                <div class="kpi" style="border-left:3px solid ${saldoActual >= 0 ? '#34d399' : '#f87171'}" title="${_saldoTip.replace(/"/g,'&quot;')}">
+                    <div class="kpi-label">Saldo Bancario HOY <span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#30363d;color:#8b949e;font-size:9px;text-align:center;line-height:12px;cursor:help;font-weight:400">?</span></div>
+                    <div class="kpi-value ${saldoActual >= 0 ? 'positive' : 'negative'}">${formatARS(saldoActual)}</div>
+                    <div class="kpi-sub">Ancla ${formatARS(_saldoInfo.ancla)} (${fmtDateAR(_saldoInfo.corte)}) <span style="color:${_deltaColor};font-weight:700">${_deltaSign}${formatARS(_saldoInfo.delta)}</span> (${_saldoInfo.nMovs} movs)</div>
                 </div>
                 <div class="kpi" style="border-left:3px solid #60a5fa">
                     <div class="kpi-label">Disponible con Descubierto</div>
@@ -8747,13 +8777,25 @@
             } catch(e) { console.warn('compSnapshot err', e); document.getElementById('compSnapshot').innerHTML=''; }
 
             // === INGRESOS BY CLIENT (using 'en' field, fallback to 'i') ===
-            // EXCLUDE capital injections — aportes/mutuos are NOT client income
+            // NOTE: movimientos con CC=Financiero se agrupan todos bajo "Aporte"
+            // (incluye aportes de capital, préstamos GC, mutuos, devoluciones, etc.)
             const ingByClient = {};
-            active.filter(m => m.side === 'I' && m.v > 0 && !isCapitalInjection(m)).forEach(m => {
-                // Use entidad for cobranza, item for others
-                let key = m.en || m.i || '(sin nombre)';
-                if (key.length > 60) key = key.slice(0, 57) + '...';
-                if (!ingByClient[key]) ingByClient[key] = { total: 0, count: 0, tipo: m.t || '', items: [] };
+            active.filter(m => m.side === 'I' && m.v > 0).forEach(m => {
+                const ccStr = String(m.cc || '').trim().toLowerCase();
+                const isFin = ccStr === 'financiero';
+                // Si NO es Financiero, excluimos capital injections del grupo "clientes"
+                if (!isFin && isCapitalInjection(m)) return;
+                let key, tipo;
+                if (isFin) {
+                    key = 'Aporte';
+                    tipo = 'Financiero';
+                } else {
+                    // Use entidad for cobranza, item for others
+                    key = m.en || m.i || '(sin nombre)';
+                    if (key.length > 60) key = key.slice(0, 57) + '...';
+                    tipo = m.t || '';
+                }
+                if (!ingByClient[key]) ingByClient[key] = { total: 0, count: 0, tipo: tipo, items: [] };
                 ingByClient[key].total += m.v;
                 ingByClient[key].count++;
                 ingByClient[key].items.push(m);
@@ -8761,10 +8803,18 @@
             const ingSorted = Object.entries(ingByClient).sort((a, b) => b[1].total - a[1].total);
 
             // === EGRESOS BY CATEGORY (using 'i' for grouping, 'en' for detail) ===
+            // NOTE: movimientos con CC=Financiero se agrupan todos bajo "Deuda"
+            // (incluye préstamos bancarios, GC, intereses, AFIP financiero, etc.)
             const egrByCat = {};
             active.filter(m => m.side === 'E').forEach(m => {
+                const ccStrE = String(m.cc || '').trim().toLowerCase();
+                const isFinE = ccStrE === 'financiero';
+                let cat;
+                if (isFinE) {
+                    cat = 'Deuda';
+                } else {
                 // Smart category: use 'i' (item) as main category, but group similar
-                let cat = m.i || m.t || '(sin categoría)';
+                cat = m.i || m.t || '(sin categoría)';
                 // Group generic "Proveedores" by entidad
                 if (cat === 'Proveedores' && m.en) {
                     const en = m.en.toLowerCase();
@@ -8778,6 +8828,7 @@
                     else if (en.includes('wit') || en.includes('wendap')) cat = 'WIT / Wendap';
                     else cat = 'Proveedores Varios';
                 }
+                } // end else !isFinE
                 if (!egrByCat[cat]) egrByCat[cat] = { total: 0, count: 0, items: [] };
                 egrByCat[cat].total += m.v;
                 egrByCat[cat].count++;
@@ -9169,11 +9220,15 @@
                     + '<span style="font-size:10px;background:#1f6feb20;color:#58a6ff;padding:2px 6px;border-radius:3px;font-weight:700;margin-left:4px">SOLO BANCARIZADO (B)</span>';
             }
 
+            const _sInfo2 = calcSaldoBancarioHoy();
+            const _dColor2 = _sInfo2.delta >= 0 ? '#34d399' : '#f87171';
+            const _dSign2 = _sInfo2.delta >= 0 ? '+' : '';
+            const _sTip2 = `Cálculo dinámico:\n• Ancla CFO: ${formatARS(_sInfo2.ancla)} (corte ${fmtDateAR(_sInfo2.corte)})\n• Δ movs bancarizados hasta ${fmtDateAR(_sInfo2.hoy)}: ${_dSign2}${formatARS(_sInfo2.delta)} (${_sInfo2.nMovs} movs)\n• Saldo HOY = Ancla + Δ`;
             document.getElementById('semanalKPIs').innerHTML = `
-                <div class="kpi" style="border-left:3px solid ${startCash >= 0 ? 'var(--gn)' : 'var(--rd)'}">
-                    <div class="kpi-label">💰 Saldo Bancario HOY</div>
-                    <div class="kpi-value ${startCash >= 0 ? 'positive' : 'negative'}">${formatARS(startCash)}</div>
-                    <div class="kpi-sub">Inicio semana ${fmtDateAR(currentWeekKey)} · fuente: SOT Caja</div>
+                <div class="kpi" style="border-left:3px solid ${_sInfo2.saldoHoy >= 0 ? 'var(--gn)' : 'var(--rd)'}" title="${_sTip2.replace(/"/g,'&quot;')}">
+                    <div class="kpi-label">💰 Saldo Bancario HOY <span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#30363d;color:#8b949e;font-size:9px;text-align:center;line-height:12px;cursor:help;font-weight:400">?</span></div>
+                    <div class="kpi-value ${_sInfo2.saldoHoy >= 0 ? 'positive' : 'negative'}">${formatARS(_sInfo2.saldoHoy)}</div>
+                    <div class="kpi-sub">Ancla ${formatARS(_sInfo2.ancla)} <span style="color:${_dColor2};font-weight:700">${_dSign2}${formatARS(_sInfo2.delta)}</span> (${_sInfo2.nMovs} movs desde ${fmtDateAR(_sInfo2.corte)})</div>
                 </div>
                 <div class="kpi" style="border-left:3px solid ${saldoFinalPeriodo >= 0 ? 'var(--gn)' : 'var(--rd)'}">
                     <div class="kpi-label">📍 Saldo Proyectado al ${fmtDateAR(finStr)}</div>
