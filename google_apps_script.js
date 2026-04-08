@@ -351,6 +351,11 @@ function getDeudaBancaria(ss) {
 
   const nCols = Math.max(lastCol, 7);
   const data = ws.getRange(1, 1, lastRow, nCols).getValues();
+  // También leemos los display values SOLO de la columna A para parsear las fechas
+  // sin sufrir corrimientos de timezone (la sheet usa el truco "jun-25" donde
+  // "25" es el AÑO 2025, no el día). Confiar en la cadena que el usuario ve
+  // en pantalla es mucho más robusto que reconstruir desde un Date object.
+  const displayColA = ws.getRange(1, 1, lastRow, 1).getDisplayValues().map(function(r){return r[0];});
 
   // Locate table anchors
   let t1Start = -1, t2Start = -1;
@@ -361,37 +366,85 @@ function getDeudaBancaria(ss) {
   }
   if (t1Start === -1) return empty;
 
-  function parseMesCell(v) {
+  // Mapa de meses en castellano e inglés
+  const MESES_MAP = {
+    ene:'01',jan:'01',feb:'02',mar:'03',abr:'04',apr:'04',
+    may:'05',jun:'06',jul:'07',ago:'08',aug:'08',
+    sep:'09',sept:'09',oct:'10',nov:'11',dic:'12',dec:'12'
+  };
+
+  // Parser de fechas para la sheet "Deuda Bancaria".
+  // INVARIANTE de la sheet: las celdas de mes son Date objects donde
+  //   - el AÑO almacenado es siempre 2026 (bogus, ignorar)
+  //   - el MES es el mes real
+  //   - el DÍA codifica el AÑO REAL (25=2025, 26=2026, 27=2027, 28=2028)
+  // Esto es porque el usuario tipea "jun-25" y Sheets lo interpreta como 25/06/{año actual}.
+  function parseMesCell(v, display) {
+    // 1) Si v es Date, SIEMPRE usar día-como-año (sin caer en getFullYear).
+    //    Usamos accessors UTC para evitar corrimientos por timezone.
     if (v instanceof Date) {
-      // En la sheet "Deuda Bancaria", las fechas están guardadas con un truco viejo:
-      // el DÍA codifica el año (25 = 2025, 26 = 2026, 27 = 2027, 28 = 2028).
-      // Esto es por cómo el usuario tipea "jun-25" y Excel lo interpreta como 25/06/{año actual}.
-      // Solo aplica a esta sheet — parseMesCell NO se usa en otros parsers.
-      const d = v.getDate();
-      const m = v.getMonth() + 1;
-      const year = (d >= 20 && d <= 40) ? 2000 + d : v.getFullYear();
-      return year + '-' + (m < 10 ? '0' + m : m);
+      const d = v.getUTCDate();
+      const mo = v.getUTCMonth() + 1;
+      // Si el día está en el rango legacy (20-40), día = año
+      if (d >= 20 && d <= 40) {
+        const year = 2000 + d;
+        return year + '-' + (mo < 10 ? '0' + mo : mo);
+      }
+      // Si por algún motivo el día NO está en ese rango, usar el año real del Date
+      const fy = v.getUTCFullYear();
+      return fy + '-' + (mo < 10 ? '0' + mo : mo);
     }
+
+    // 2) Excel serial date (number)
     if (typeof v === 'number') {
-      // Excel serial date
       if (v > 30000 && v < 80000) {
         const epoch = new Date(Date.UTC(1899, 11, 30));
         const dt = new Date(epoch.getTime() + v * 86400000);
-        const m = dt.getUTCMonth() + 1;
-        return dt.getUTCFullYear() + '-' + (m < 10 ? '0' + m : m);
+        const dd = dt.getUTCDate();
+        const mo = dt.getUTCMonth() + 1;
+        if (dd >= 20 && dd <= 40) {
+          return (2000 + dd) + '-' + (mo < 10 ? '0' + mo : mo);
+        }
+        return dt.getUTCFullYear() + '-' + (mo < 10 ? '0' + mo : mo);
       }
       return '';
     }
-    const s = String(v || '').trim();
-    const mx = s.match(/(\d{4})[-\/](\d{1,2})/);
-    if (mx) return mx[1] + '-' + (mx[2].length < 2 ? '0' + mx[2] : mx[2]);
-    // dd/mm/yyyy
-    const mx2 = s.match(/(\d{1,2})[-\/](\d{1,2})[-\/](\d{4})/);
-    if (mx2) return mx2[3] + '-' + (mx2[2].length < 2 ? '0' + mx2[2] : mx2[2]);
+
+    // 3) String: parsear formatos varios (incluido el display value)
+    const s = String((v != null && v !== '') ? v : (display || '')).trim().toLowerCase();
+    if (!s) return '';
+
+    // "yyyy-mm" o "yyyy-mm-dd" → si tiene día y está en 20-40, día=año
+    const m1 = s.match(/^(\d{4})[\-\/](\d{1,2})(?:[\-\/](\d{1,2}))?/);
+    if (m1) {
+      const dd = m1[3] ? parseInt(m1[3], 10) : 0;
+      const mm = m1[2].padStart(2, '0');
+      if (dd >= 20 && dd <= 40) return (2000 + dd) + '-' + mm;
+      return m1[1] + '-' + mm;
+    }
+    // "dd/mm/yyyy"
+    const m2 = s.match(/^(\d{1,2})[\-\/](\d{1,2})[\-\/](\d{4})$/);
+    if (m2) {
+      const dd = parseInt(m2[1], 10);
+      const mm = m2[2].padStart(2, '0');
+      if (dd >= 20 && dd <= 40) return (2000 + dd) + '-' + mm;
+      return m2[3] + '-' + mm;
+    }
+    // "jun-25", "abr-26", "ene 27" (mes en castellano o inglés + año 2 dígitos)
+    const m3 = s.match(/^([a-záéíóú]{3,9})[\-\s\.\/]+(\d{2,4})$/);
+    if (m3) {
+      const mesKey = m3[1].slice(0,3).replace(/[áéíóú]/g, function(c){return {'á':'a','é':'e','í':'i','ó':'o','ú':'u'}[c];});
+      const mesNum = MESES_MAP[mesKey];
+      if (mesNum) {
+        let yr = parseInt(m3[2], 10);
+        if (yr < 100) yr = 2000 + yr;
+        return yr + '-' + mesNum;
+      }
+    }
     // "Abril 2026" / "abr 2026"
-    const meses = {ene:'01',feb:'02',mar:'03',abr:'04',may:'05',jun:'06',jul:'07',ago:'08',sep:'09',oct:'10',nov:'11',dic:'12'};
-    const mx3 = s.toLowerCase().match(/(ene|feb|mar|abr|may|jun|jul|ago|sep|oct|nov|dic)[a-z]*\s+(\d{4})/);
-    if (mx3) return mx3[2] + '-' + meses[mx3[1]];
+    const m4 = s.match(/(ene|feb|mar|abr|may|jun|jul|ago|sep|oct|nov|dic|jan|apr|aug|dec)[a-z]*\s+(\d{4})/);
+    if (m4) return m4[2] + '-' + MESES_MAP[m4[1]];
+
     return '';
   }
 
@@ -438,7 +491,7 @@ function getDeudaBancaria(ss) {
         continue;
       }
       blanks = 0;
-      const mes = parseMesCell(first);
+      const mes = parseMesCell(first, displayColA[r]);
       if (!mes) continue;
       const row = { mes: mes, vals: {} };
       for (let i = 0; i < loans.length; i++) {
