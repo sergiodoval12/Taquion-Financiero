@@ -512,10 +512,14 @@
 .combo-wrapper select,.combo-wrapper .searchable-select{flex:1}
 .combo-add{width:32px;background:var(--ac);color:#fff;border:none;border-radius:5px;font-size:18px;cursor:pointer;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .combo-add:hover{background:#3d7aee}
-.searchable-select{position:relative}
-.searchable-select input[type="text"]{width:100%;background:var(--sf2);border:1px solid var(--bd);color:var(--tx);padding:6px 10px;border-radius:5px;font-size:11.5px;font-family:inherit}
+.searchable-select input[type="text"]{width:100%;background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:10px 12px;border-radius:6px;font-size:13px;font-family:inherit}
 .searchable-select input:focus{outline:none;border-color:var(--ac)}
-.dropdown-list{display:none;position:absolute;top:100%;left:0;right:0;max-height:220px;overflow-y:auto;background:var(--sf2);border:1px solid var(--bd);border-top:none;border-radius:0 0 5px 5px;z-index:100}
+.dropdown-list{display:none;position:absolute;top:100%;left:0;right:0;max-height:260px;overflow-y:auto;background:#0d1117;border:1px solid #484f58;border-top:1px solid #484f58;border-radius:0 0 6px 6px;z-index:10000;box-shadow:0 8px 24px rgba(0,0,0,.7)}
+.dropdown-list .dd-item{padding:8px 12px;cursor:pointer;font-size:12px;color:#e6edf3;border-bottom:1px solid #21262d;background:#0d1117}
+.dropdown-list .dd-item:hover{background:#1f6feb40;color:#fff}
+.dropdown-list .dd-item:last-child{border-bottom:none}
+.searchable-select{position:relative;z-index:1}
+.searchable-select:focus-within{z-index:10001}
 .dropdown-option{padding:6px 10px;font-size:11.5px;cursor:pointer;color:var(--tx)}
 .dropdown-option:hover{background:rgba(79,140,255,.15)}
 .dropdown-info{padding:4px 10px;font-size:10px;color:var(--tx2);font-style:italic}
@@ -1331,13 +1335,11 @@
                     <div class="form-group">
                         <label>Moneda + Monto Original <span style="font-size:9px;color:#8b949e">(en la moneda en la que se pactó / facturó)</span></label>
                         <div style="display:flex;gap:8px;align-items:center">
-                            <select id="movMoneda" onchange="onMovMonedaChange()" style="flex:0 0 auto;min-width:90px">
+                            <select id="movMoneda" onchange="onMovMonedaChange()" style="width:110px;flex:0 0 110px">
                                 <option value="ARS">ARS $</option>
                                 <option value="USD">USD US$</option>
                             </select>
-                            <div style="flex:1">
-                                <input type="number" id="movMonto" step="0.01" required placeholder="Monto (+ ingreso, - egreso)" oninput="updateMontoK()">
-                            </div>
+                            <input type="number" id="movMonto" step="0.01" required placeholder="Monto (signo auto-seteado según Categoría)" oninput="updateMontoK()" style="flex:1 1 auto;width:auto;min-width:0">
                         </div>
                         <div id="movMontoK" style="font-size:10px;color:#58a6ff;margin-top:4px;font-family:'Inter',monospace"></div>
                     </div>
@@ -1751,7 +1753,7 @@
 
         // ========= GOOGLE SHEETS SYNC =========
         const SHEETS_CONFIG = {
-            apiUrl: 'https://script.google.com/macros/s/AKfycbyoqO6Tfq-N3Qdwwj5UHAHzzUxrig8v8GMUJ5ldfj15ss4sgi2zmqfJ7kW4lr0SXmuraQ/exec',
+            apiUrl: 'https://script.google.com/macros/s/AKfycbxThlkxo48cHrcwxMNAcSyd_X-pczckyDJBSgWPio8UGF4yRxXpq8XRqetwvYXEAnDKmA/exec',
             enabled: true,
             lastSync: null,
             syncing: false,
@@ -2118,37 +2120,56 @@
             saldoFinalReal: -115351999,        // Saldo Final semana 2026-14 (-$115.3M) [legacy]
             saldoConDescReal: 60596096,        // Saldo + Descubierto disponible [legacy]
             semanaReal: '2026-03-30',
-            // EN CURSO — actualizado por el CFO lunes 06/04 a las 22hs ARG:
-            // Saldo bancario REAL al momento del ancla = -$142.778.000
-            // anclaFechaCorte = fecha tal que los movs con f > anclaFechaCorte se SUMAN al ancla
-            // (Monday 22hs → ya incluye todos los movs del lunes, por eso el corte es 2026-04-06)
-            // El saldo "HOY" se calcula dinámicamente: ancla + sum(movs bancarizados con f > corte Y f <= hoy)
-            // Solo BANCARIZADO (bn='B'). Forward-roll desde acá usando solo movs con bn='B'.
-            saldoEnCurso: -142778000,          // Ancla: saldo bancario al momento de corte
-            anclaFechaCorte: '2026-04-06',     // Movimientos con f > esta fecha (estrictamente mayor) se suman al ancla
-            anclaTimestamp: '2026-04-06T22:00-03:00', // Solo informativo
-            saldoEnCursoConDesc: 33170095,     // -142.778.000 + 175.948.095 = 33.170.095 disponible [legacy]
+            // EN CURSO — actualizado por el CFO mie 08/04 a las 09:00 ARG:
+            // Saldo bancario REAL al momento del ancla = -$143.892.000
+            //
+            // SISTEMA DE AUTO-ROLL (forward daily):
+            // - anclaFechaCorte representa el día del ancla (ej '2026-04-08' = snapshot 08/04 09:00)
+            // - El "Saldo HOY" mostrado durante el mismo día del ancla = valor del ancla, sin tocar
+            //   (porque los movs del día todavía están en curso, no deben sumarse a la "realidad actual")
+            // - Cuando el calendario avanza (ej mañana 09/04), el sistema automáticamente suma todos los
+            //   movs del 08/04 al ancla, arrojando el nuevo saldo real del 09/04 a las 09:00 aprox.
+            // - Regla: delta = Σ(movs bancarizados con f > anclaFechaCorte Y f < hoy)
+            //   (solo días COMPLETOS posteriores al ancla, excluyendo el día en curso)
+            //
+            // Solo BANCARIZADO (bn='B').
+            saldoEnCurso: -143892000,          // Ancla: saldo bancario real al momento de corte
+            anclaFechaCorte: '2026-04-08',     // Día del ancla (hoy). Delta suma movs con f > este día Y f < hoy
+            anclaTimestamp: '2026-04-08T09:00-03:00', // Solo informativo
+            saldoEnCursoConDesc: 32056095,     // -143.892.000 + 175.948.095 = 32.056.095 disponible
             semanaEnCurso: '2026-04-06'
         };
 
-        // ─── Helper: Saldo bancario HOY dinámico ───
-        // Calcula: ancla + Σ(movs bancarizados con f > anclaFechaCorte Y f <= hoy)
-        // Este es el valor que debe mostrarse como "Saldo Bancario Actual/HOY" en el dashboard.
+        // ─── Helper: Saldo bancario HOY (auto-roll forward diario) ───
+        // Calcula:
+        //   • saldoHoy = ancla + Σ(movs bancarizados con f > anclaFechaCorte Y f < hoy)
+        //   • proyectadoFinDia = saldoHoy + Σ(movs bancarizados con f == hoy)
+        //   • deltaHoy = Σ(movs bancarizados con f == hoy)  [lo que pasa/pasará durante el día de hoy]
+        //
+        // El mismo día del ancla: delta=0, saldoHoy=ancla (congelado hasta que avance el calendario).
+        // Al día siguiente del ancla: delta automáticamente suma todos los movs del día del ancla.
         function calcSaldoBancarioHoy() {
             const ancla = (CAJA && typeof CAJA.saldoEnCurso === 'number') ? CAJA.saldoEnCurso : 0;
             const corte = (CAJA && CAJA.anclaFechaCorte) || (CAJA && CAJA.semanaEnCurso) || '';
             const hoy = new Date().toISOString().slice(0, 10);
-            let delta = 0;
+            let delta = 0;      // movs de días COMPLETOS posteriores al ancla (excluye hoy)
             let nMovs = 0;
+            let deltaHoy = 0;   // movs con fecha == hoy (día en curso)
+            let nMovsHoy = 0;
             (DATA.mov || []).forEach(m => {
                 if (m.bn !== 'B') return;              // solo bancarizados
                 if (!m.f) return;
-                if (m.f > corte && m.f <= hoy) {        // estrictamente posterior al corte, hasta hoy
+                if (m.f > corte && m.f < hoy) {         // días completos posteriores al ancla, excluyendo hoy
                     delta += m.v || 0;
                     nMovs++;
+                } else if (m.f === hoy) {               // movs del día en curso (proyectado fin de día)
+                    deltaHoy += m.v || 0;
+                    nMovsHoy++;
                 }
             });
-            return { ancla, corte, hoy, delta, saldoHoy: ancla + delta, nMovs };
+            const saldoHoy = ancla + delta;
+            const proyectadoFinDia = saldoHoy + deltaHoy;
+            return { ancla, corte, hoy, delta, saldoHoy, nMovs, deltaHoy, proyectadoFinDia, nMovsHoy };
         }
 
         // === DATA NORMALIZATION ===
@@ -4394,12 +4415,20 @@
             // Caja KPIs — TRIPLE runway
             const _deltaColor = _saldoInfo.delta >= 0 ? '#34d399' : '#f87171';
             const _deltaSign = _saldoInfo.delta >= 0 ? '+' : '';
-            const _saldoTip = `Cálculo dinámico:\n• Ancla CFO: ${formatARS(_saldoInfo.ancla)} (corte ${fmtDateAR(_saldoInfo.corte)})\n• Δ movs bancarizados desde el corte hasta ${fmtDateAR(_saldoInfo.hoy)}: ${_deltaSign}${formatARS(_saldoInfo.delta)} (${_saldoInfo.nMovs} movs)\n• Saldo HOY = Ancla + Δ = ${formatARS(_saldoInfo.saldoHoy)}`;
+            const _deltaHoyColor = _saldoInfo.deltaHoy >= 0 ? '#34d399' : '#f87171';
+            const _deltaHoySign = _saldoInfo.deltaHoy >= 0 ? '+' : '';
+            const _saldoTip = `Auto-roll diario:\n• Ancla CFO: ${formatARS(_saldoInfo.ancla)} @ ${fmtDateAR(_saldoInfo.corte)} 09:00\n• Δ días completos posteriores al ancla (hasta ayer): ${_deltaSign}${formatARS(_saldoInfo.delta)} (${_saldoInfo.nMovs} movs)\n• Saldo HOY = Ancla + Δ = ${formatARS(_saldoInfo.saldoHoy)}\n\nLos movs del día de hoy NO se suman acá (van en "Proyectado fin de día"). Mañana a las 9am se van a incorporar automáticamente.`;
+            const _proyTip = `Simulación intraday:\n• Saldo HOY: ${formatARS(_saldoInfo.saldoHoy)}\n• Movs con fecha ${fmtDateAR(_saldoInfo.hoy)}: ${_deltaHoySign}${formatARS(_saldoInfo.deltaHoy)} (${_saldoInfo.nMovsHoy} movs)\n• Fin de día = Saldo HOY + movs de hoy = ${formatARS(_saldoInfo.proyectadoFinDia)}`;
             document.getElementById('cajaKPIs').innerHTML = `
                 <div class="kpi" style="border-left:3px solid ${saldoActual >= 0 ? '#34d399' : '#f87171'}" title="${_saldoTip.replace(/"/g,'&quot;')}">
-                    <div class="kpi-label">Saldo Bancario HOY <span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#30363d;color:#8b949e;font-size:9px;text-align:center;line-height:12px;cursor:help;font-weight:400">?</span></div>
+                    <div class="kpi-label">💰 Saldo Bancario HOY <span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#30363d;color:#8b949e;font-size:9px;text-align:center;line-height:12px;cursor:help;font-weight:400">?</span></div>
                     <div class="kpi-value ${saldoActual >= 0 ? 'positive' : 'negative'}">${formatARS(saldoActual)}</div>
                     <div class="kpi-sub">Ancla ${formatARS(_saldoInfo.ancla)} (${fmtDateAR(_saldoInfo.corte)}) <span style="color:${_deltaColor};font-weight:700">${_deltaSign}${formatARS(_saldoInfo.delta)}</span> (${_saldoInfo.nMovs} movs)</div>
+                </div>
+                <div class="kpi" style="border-left:3px solid #fbbf24" title="${_proyTip.replace(/"/g,'&quot;')}">
+                    <div class="kpi-label">🌅 Proyectado fin de hoy <span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#30363d;color:#8b949e;font-size:9px;text-align:center;line-height:12px;cursor:help;font-weight:400">?</span></div>
+                    <div class="kpi-value ${_saldoInfo.proyectadoFinDia >= 0 ? 'positive' : 'negative'}">${formatARS(_saldoInfo.proyectadoFinDia)}</div>
+                    <div class="kpi-sub">HOY <span style="color:${_deltaHoyColor};font-weight:700">${_deltaHoySign}${formatARS(_saldoInfo.deltaHoy)}</span> (${_saldoInfo.nMovsHoy} movs del ${fmtDateAR(_saldoInfo.hoy)})</div>
                 </div>
                 <div class="kpi" style="border-left:3px solid #60a5fa">
                     <div class="kpi-label">Disponible con Descubierto</div>
@@ -9223,12 +9252,20 @@
             const _sInfo2 = calcSaldoBancarioHoy();
             const _dColor2 = _sInfo2.delta >= 0 ? '#34d399' : '#f87171';
             const _dSign2 = _sInfo2.delta >= 0 ? '+' : '';
-            const _sTip2 = `Cálculo dinámico:\n• Ancla CFO: ${formatARS(_sInfo2.ancla)} (corte ${fmtDateAR(_sInfo2.corte)})\n• Δ movs bancarizados hasta ${fmtDateAR(_sInfo2.hoy)}: ${_dSign2}${formatARS(_sInfo2.delta)} (${_sInfo2.nMovs} movs)\n• Saldo HOY = Ancla + Δ`;
+            const _dHColor2 = _sInfo2.deltaHoy >= 0 ? '#34d399' : '#f87171';
+            const _dHSign2 = _sInfo2.deltaHoy >= 0 ? '+' : '';
+            const _sTip2 = `Auto-roll diario:\n• Ancla CFO: ${formatARS(_sInfo2.ancla)} @ ${fmtDateAR(_sInfo2.corte)} 09:00\n• Δ días completos posteriores (hasta ayer): ${_dSign2}${formatARS(_sInfo2.delta)} (${_sInfo2.nMovs} movs)\n• Saldo HOY = Ancla + Δ\n\nMañana 9am los movs de hoy se incorporan automáticamente.`;
+            const _pTip2 = `Proyección intraday:\n• Saldo HOY + movs del día ${fmtDateAR(_sInfo2.hoy)} = ${formatARS(_sInfo2.proyectadoFinDia)}`;
             document.getElementById('semanalKPIs').innerHTML = `
                 <div class="kpi" style="border-left:3px solid ${_sInfo2.saldoHoy >= 0 ? 'var(--gn)' : 'var(--rd)'}" title="${_sTip2.replace(/"/g,'&quot;')}">
                     <div class="kpi-label">💰 Saldo Bancario HOY <span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#30363d;color:#8b949e;font-size:9px;text-align:center;line-height:12px;cursor:help;font-weight:400">?</span></div>
                     <div class="kpi-value ${_sInfo2.saldoHoy >= 0 ? 'positive' : 'negative'}">${formatARS(_sInfo2.saldoHoy)}</div>
                     <div class="kpi-sub">Ancla ${formatARS(_sInfo2.ancla)} <span style="color:${_dColor2};font-weight:700">${_dSign2}${formatARS(_sInfo2.delta)}</span> (${_sInfo2.nMovs} movs desde ${fmtDateAR(_sInfo2.corte)})</div>
+                </div>
+                <div class="kpi" style="border-left:3px solid #fbbf24" title="${_pTip2.replace(/"/g,'&quot;')}">
+                    <div class="kpi-label">🌅 Proyectado fin de hoy <span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#30363d;color:#8b949e;font-size:9px;text-align:center;line-height:12px;cursor:help;font-weight:400">?</span></div>
+                    <div class="kpi-value ${_sInfo2.proyectadoFinDia >= 0 ? 'positive' : 'negative'}">${formatARS(_sInfo2.proyectadoFinDia)}</div>
+                    <div class="kpi-sub">Saldo HOY <span style="color:${_dHColor2};font-weight:700">${_dHSign2}${formatARS(_sInfo2.deltaHoy)}</span> (${_sInfo2.nMovsHoy} movs de hoy)</div>
                 </div>
                 <div class="kpi" style="border-left:3px solid ${saldoFinalPeriodo >= 0 ? 'var(--gn)' : 'var(--rd)'}">
                     <div class="kpi-label">📍 Saldo Proyectado al ${fmtDateAR(finStr)}</div>
@@ -9509,8 +9546,16 @@
         function addMovement(event) {
             event.preventDefault();
             const moneda = document.getElementById('movMoneda').value;
-            const montoRaw = parseFloat(document.getElementById('movMonto').value);
+            let montoRaw = parseFloat(document.getElementById('movMonto').value);
             const tc = parseFloat(document.getElementById('movTC')?.value) || MEP.rate;
+            const catSel = document.getElementById('movCat').value;
+
+            // AUTO-SIGNO: forzar signo según Categoría (Egreso=negativo, Ingreso=positivo)
+            // Esto evita errores de carga donde el CFO olvida el signo "-"
+            if (!isNaN(montoRaw)) {
+                if (catSel === 'Egreso' && montoRaw > 0) montoRaw = -montoRaw;
+                else if (catSel === 'Ingreso' && montoRaw < 0) montoRaw = -montoRaw;
+            }
 
             // Calculate ARS value
             let valorARS = montoRaw;

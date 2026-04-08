@@ -633,17 +633,58 @@ function updateMovimiento(ss, rowIndex, field, value) {
   return { error: 'Unknown field: ' + field };
 }
 
+// ─── Helper: normaliza fecha a "YYYY-MM-DD" para comparar ───
+function _movFechaToYmd(v) {
+  if (!v) return '';
+  if (v instanceof Date) {
+    const y = v.getFullYear();
+    const m = v.getMonth() + 1;
+    const d = v.getDate();
+    return y + '-' + (m < 10 ? '0' + m : m) + '-' + (d < 10 ? '0' + d : d);
+  }
+  const s = String(v);
+  // Try ISO YYYY-MM-DD prefix
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return iso[0];
+  // Try DD/MM/YYYY
+  const dmy = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (dmy) {
+    const d = dmy[1].padStart(2, '0');
+    const m = dmy[2].padStart(2, '0');
+    return dmy[3] + '-' + m + '-' + d;
+  }
+  return s;
+}
+
+// ─── Helper: encuentra la fila donde insertar un mov por fecha ───
+// Devuelve el rowIndex DESPUÉS del cual insertar (1-based, donde 1 es el header).
+// Estrategia: insertar después de la última fila cuya fecha sea <= nueva fecha.
+// Si no hay ninguna fila <= nueva fecha, insertar después del header (= en fila 2).
+function _findInsertRowForDate(ws, fechaCol, newFechaYmd) {
+  const lastRow = ws.getLastRow();
+  if (lastRow < 2) return 1; // sheet vacía → insertar después de header
+  // Leer toda la columna de fechas de una sola vez
+  const values = ws.getRange(2, fechaCol + 1, lastRow - 1, 1).getValues();
+  let insertAfter = 1; // header row
+  for (let i = 0; i < values.length; i++) {
+    const ymd = _movFechaToYmd(values[i][0]);
+    if (ymd && ymd <= newFechaYmd) {
+      insertAfter = i + 2; // +2 porque empezamos en row 2 (i=0 → row 2)
+    }
+  }
+  return insertAfter;
+}
+
 function addMovimientos(ss, rows) {
   const ws = ss.getSheetByName(SHEET_MOV);
   if (!ws) return { error: 'Sheet not found: ' + SHEET_MOV };
 
   const { map, count } = getMovHeaders(ws);
-  let lastRow = ws.getLastRow();
   let added = 0;
+  const insertedRows = [];
 
-  // Build all rows as array for batch write
-  const newData = [];
-
+  // Procesamos uno a uno porque cada inserción shiftea las filas siguientes
+  // y necesitamos recalcular el punto de inserción cada vez.
   rows.forEach(mov => {
     const rowArr = new Array(count).fill('');
     if (map.f !== undefined) rowArr[map.f] = mov.f || '';
@@ -666,43 +707,57 @@ function addMovimientos(ss, rows) {
     if (map.proy !== undefined) rowArr[map.proy] = mov.proy || '';
     if (map.factura !== undefined) rowArr[map.factura] = mov.factura || '';
 
-    newData.push(rowArr);
+    // Encontrar dónde insertar según la fecha del nuevo mov
+    const newFechaYmd = _movFechaToYmd(mov.f);
+    let insertAfter;
+    if (!newFechaYmd || map.f === undefined) {
+      // Sin fecha → al final
+      insertAfter = ws.getLastRow();
+    } else {
+      insertAfter = _findInsertRowForDate(ws, map.f, newFechaYmd);
+    }
+
+    // Insertar fila nueva justo después de insertAfter
+    ws.insertRowAfter(insertAfter);
+    const newRowIndex = insertAfter + 1;
+    ws.getRange(newRowIndex, 1, 1, count).setValues([rowArr]);
+    insertedRows.push(newRowIndex);
     added++;
   });
 
-  if (newData.length > 0) {
-    ws.getRange(lastRow + 1, 1, newData.length, count).setValues(newData);
-  }
-
-  return { ok: true, added, lastRow: lastRow + newData.length };
+  return { ok: true, added, insertedRows, lastRow: ws.getLastRow() };
 }
 
 function deleteMovimiento(ss, rowIndex) {
   const ws = ss.getSheetByName(SHEET_MOV);
   if (!ws) return { error: 'Sheet not found' };
+  if (rowIndex < 2) return { error: 'Cannot delete header row' };
 
-  const { map } = getMovHeaders(ws);
-  if (map.v !== undefined) ws.getRange(rowIndex, map.v + 1).setValue(0);
-  if (map.v_div !== undefined) ws.getRange(rowIndex, map.v_div + 1).setValue(0);
+  // Borrado REAL: elimina la fila completa del SOT (no zero-out).
+  // Importante: esto shiftea hacia arriba todas las filas posteriores,
+  // por lo que cualquier referencia cacheada en el frontend a rowIndex
+  // de filas posteriores queda desactualizada hasta el próximo refresh.
+  ws.deleteRow(rowIndex);
 
-  return { ok: true, row: rowIndex };
+  return { ok: true, row: rowIndex, deleted: true };
 }
 
 function batchUpdate(ss, changes) {
+  // Procesar en orden seguro para evitar que delete/insert shifteen los rowIndex
+  // de operaciones siguientes:
+  //   1) Todos los UPDATE (no shiftean)
+  //   2) Todos los DELETE en orden DESCENDENTE de rowIndex (así borrar uno no afecta los demás)
+  //   3) Todos los INSERT al final (siempre se calculan contra la sheet ya actualizada)
   let applied = 0;
-  changes.forEach(c => {
-    if (c.type === 'update') {
-      updateMovimiento(ss, c.rowIndex, c.field, c.value);
-      applied++;
-    } else if (c.type === 'add') {
-      addMovimientos(ss, [c.row]);
-      applied++;
-    } else if (c.type === 'delete') {
-      deleteMovimiento(ss, c.rowIndex);
-      applied++;
-    }
-  });
-  return { ok: true, applied };
+  const updates = changes.filter(c => c.type === 'update');
+  const deletes = changes.filter(c => c.type === 'delete').slice().sort((a, b) => b.rowIndex - a.rowIndex);
+  const inserts = changes.filter(c => c.type === 'add');
+
+  updates.forEach(c => { updateMovimiento(ss, c.rowIndex, c.field, c.value); applied++; });
+  deletes.forEach(c => { deleteMovimiento(ss, c.rowIndex); applied++; });
+  inserts.forEach(c => { addMovimientos(ss, [c.row]); applied++; });
+
+  return { ok: true, applied, breakdown: { updates: updates.length, deletes: deletes.length, inserts: inserts.length } };
 }
 
 function updateGCEstado(ss, cuotaNum, estado) {
