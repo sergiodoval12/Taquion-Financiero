@@ -2129,8 +2129,8 @@
             //   (porque los movs del día todavía están en curso, no deben sumarse a la "realidad actual")
             // - Cuando el calendario avanza (ej mañana 09/04), el sistema automáticamente suma todos los
             //   movs del 08/04 al ancla, arrojando el nuevo saldo real del 09/04 a las 09:00 aprox.
-            // - Regla: delta = Σ(movs bancarizados con f > anclaFechaCorte Y f < hoy)
-            //   (solo días COMPLETOS posteriores al ancla, excluyendo el día en curso)
+            // - Regla: delta = Σ(movs bancarizados con f >= anclaFechaCorte Y f < hoy)
+            //   (desde el día del ancla hasta ayer inclusive, excluyendo el día en curso)
             //
             // Solo BANCARIZADO (bn='B').
             saldoEnCurso: -143892000,          // Ancla: saldo bancario real al momento de corte
@@ -2142,7 +2142,7 @@
 
         // ─── Helper: Saldo bancario HOY (auto-roll forward diario) ───
         // Calcula:
-        //   • saldoHoy = ancla + Σ(movs bancarizados con f > anclaFechaCorte Y f < hoy)
+        //   • saldoHoy = ancla + Σ(movs bancarizados con f >= anclaFechaCorte Y f < hoy)
         //   • proyectadoFinDia = saldoHoy + Σ(movs bancarizados con f == hoy)
         //   • deltaHoy = Σ(movs bancarizados con f == hoy)  [lo que pasa/pasará durante el día de hoy]
         //
@@ -2152,14 +2152,14 @@
             const ancla = (CAJA && typeof CAJA.saldoEnCurso === 'number') ? CAJA.saldoEnCurso : 0;
             const corte = (CAJA && CAJA.anclaFechaCorte) || (CAJA && CAJA.semanaEnCurso) || '';
             const hoy = new Date().toISOString().slice(0, 10);
-            let delta = 0;      // movs de días COMPLETOS posteriores al ancla (excluye hoy)
+            let delta = 0;      // movs desde el día del ancla hasta ayer inclusive (excluye hoy)
             let nMovs = 0;
             let deltaHoy = 0;   // movs con fecha == hoy (día en curso)
             let nMovsHoy = 0;
             (DATA.mov || []).forEach(m => {
                 if (m.bn !== 'B') return;              // solo bancarizados
                 if (!m.f) return;
-                if (m.f > corte && m.f < hoy) {         // días completos posteriores al ancla, excluyendo hoy
+                if (m.f >= corte && m.f < hoy) {        // días completos desde el ancla hasta ayer inclusive
                     delta += m.v || 0;
                     nMovs++;
                 } else if (m.f === hoy) {               // movs del día en curso (proyectado fin de día)
