@@ -1480,8 +1480,8 @@
                 <!-- Proveedores agregados por Unidad de Negocio (CC) -->
                 <div class="card" style="margin-bottom:20px">
                     <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
-                        <span>Proveedores por Unidad de Negocio
-                            <span title="Egresos a proveedores (categorías Proveedores / Honorarios / Servicios) cargados en BD Movimientos, agrupados por su Centro de Costo (CC = UN). Sirve para ver cuánto está gastando cada UN en proveedores externos en el período seleccionado." style="display:inline-block;width:13px;height:13px;border-radius:50%;background:#30363d;color:#e6edf3;font-size:9px;text-align:center;line-height:13px;cursor:help;margin-left:4px;font-weight:400">?</span>
+                        <span>Honorarios y Contrataciones (por ITEM)
+                            <span title="Egresos de honorarios y contrataciones de personas agrupados por ITEM del SOT. Solo incluye movimientos con descripción 'Honorarios' (freelancers, staff, liquidaciones, etc.). Excluye herramientas y software (Digimind, Google, Notion, etc.)." style="display:inline-block;width:13px;height:13px;border-radius:50%;background:#30363d;color:#e6edf3;font-size:9px;text-align:center;line-height:13px;cursor:help;margin-left:4px;font-weight:400">?</span>
                         </span>
                         <select id="provUNMes" onchange="renderProveedoresUN()" style="background:#161b22;border:1px solid #30363d;color:#e6edf3;padding:4px 8px;border-radius:4px;font-size:11px"></select>
                     </div>
@@ -2708,15 +2708,15 @@
             if (!sel || !cont) return;
 
             const mov = DATA.mov || [];
-            // Considerar como "proveedor" todo egreso cuya categoría refiera a servicios externos
-            const PROV_TYPES = ['Proveedores', 'Honorarios', 'Servicios Profesionales', 'Servicios profesionales', 'Servicios'];
-            const provMov = mov.filter(m => m.side === 'E' && PROV_TYPES.includes(m.t));
+            // Solo contrataciones de personas (d='Honorarios'): freelancers, staff, etc.
+            // Excluye herramientas/software (Digimind, Google, Notion, Dropbox, etc.)
+            const provMov = mov.filter(m => m.side === 'E' && m.d === 'Honorarios');
 
             // Poblar selector de meses (la primera vez)
             if (sel.options.length === 0) {
                 const months = [...new Set(provMov.map(m => (m.f || '').slice(0,7)).filter(Boolean))].sort().reverse();
                 if (months.length === 0) {
-                    cont.innerHTML = '<div style="color:var(--tx2);font-size:11px;padding:8px">Sin movimientos a proveedores cargados.</div>';
+                    cont.innerHTML = '<div style="color:var(--tx2);font-size:11px;padding:8px">Sin movimientos de honorarios cargados.</div>';
                     return;
                 }
                 const monthNames = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
@@ -2732,34 +2732,35 @@
             const ms = provMov.filter(m => (m.f || '').slice(0,7) === mes);
 
             if (ms.length === 0) {
-                cont.innerHTML = '<div style="color:var(--tx2);font-size:11px;padding:12px;text-align:center">Sin movimientos a proveedores en '+mes+'.</div>';
+                cont.innerHTML = '<div style="color:var(--tx2);font-size:11px;padding:12px;text-align:center">Sin movimientos de honorarios en '+mes+'.</div>';
                 return;
             }
 
-            // Agrupar por CC (UN)
-            const byCC = {};
+            // Agrupar por ITEM (m.i) — muestra la categoría del SOT
+            const byItem = {};
             ms.forEach(m => {
-                const cc = (m.cc || '').trim() || 'Sin asignar';
-                if (!byCC[cc]) byCC[cc] = { total: 0, count: 0, top: {} };
+                const item = (m.i || '').trim() || 'Sin especificar';
+                if (!byItem[item]) byItem[item] = { total: 0, count: 0, top: {} };
                 const v = Math.abs(m.v || 0);
-                byCC[cc].total += v;
-                byCC[cc].count++;
-                // Top proveedores dentro de la UN
-                const prov = (m.en || m.i || 'Sin especificar').slice(0, 60);
-                byCC[cc].top[prov] = (byCC[cc].top[prov] || 0) + v;
+                byItem[item].total += v;
+                byItem[item].count++;
+                // Detalle: personas/entidades dentro del ITEM
+                const prov = (m.en || 'Sin especificar').slice(0, 60);
+                byItem[item].top[prov] = (byItem[item].top[prov] || 0) + v;
             });
 
-            const sorted = Object.entries(byCC).sort((a,b) => b[1].total - a[1].total);
+            const sorted = Object.entries(byItem).sort((a,b) => b[1].total - a[1].total);
             const grandTotal = sorted.reduce((s, [, d]) => s + d.total, 0);
 
+            const itemColors = { 'Freelance':'#a78bfa', 'Sueldos y Honorarios':'#34d399', 'Liquidaciones finales':'#fbbf24', 'Proveedores':'#60a5fa', 'Beneficios':'#f472b6', 'Maestranza':'#fb923c', 'SOCIOS':'#22d3ee', 'DIRECCIÓN':'#e879f9', 'STAFF':'#84cc16', 'BONOS':'#14b8a6' };
             let html = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">';
-            sorted.forEach(([cc, d]) => {
-                const color = (typeof CC_COLORS !== 'undefined' && CC_COLORS[cc]) ? CC_COLORS[cc] : '#4b5563';
+            sorted.forEach(([item, d]) => {
+                const color = itemColors[item] || '#4b5563';
                 const pct = grandTotal > 0 ? (d.total/grandTotal*100).toFixed(1) : 0;
-                const top3 = Object.entries(d.top).sort((a,b)=>b[1]-a[1]).slice(0,3);
+                const top3 = Object.entries(d.top).sort((a,b)=>b[1]-a[1]).slice(0,5);
                 html += '<div style="background:#0d1117;border:1px solid #21262d;border-left:3px solid '+color+';border-radius:6px;padding:10px 12px">'
                     + '<div style="display:flex;justify-content:space-between;align-items:baseline">'
-                    +   '<div style="font-weight:600;font-size:12px;color:#e6edf3">'+cc+'</div>'
+                    +   '<div style="font-weight:600;font-size:12px;color:#e6edf3">'+item+'</div>'
                     +   '<div style="font-size:10px;color:var(--tx2)">'+pct+'%</div>'
                     + '</div>'
                     + '<div style="font-size:16px;font-weight:600;color:#f87171;margin-top:2px">'+formatMoney(d.total)+'</div>'
@@ -2768,13 +2769,13 @@
                 top3.forEach(([prov, v]) => {
                     html += '<div style="display:flex;justify-content:space-between;font-size:10px;color:#8b949e;padding:1px 0"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:60%">'+prov+'</span><span>'+formatMoney(v)+'</span></div>';
                 });
-                if (Object.keys(d.top).length > 3) {
-                    html += '<div style="font-size:9px;color:var(--tx2);margin-top:2px">+'+(Object.keys(d.top).length-3)+' más</div>';
+                if (Object.keys(d.top).length > 5) {
+                    html += '<div style="font-size:9px;color:var(--tx2);margin-top:2px">+'+(Object.keys(d.top).length-5)+' más</div>';
                 }
                 html += '</div></div>';
             });
             html += '</div>';
-            html += '<div style="margin-top:10px;padding-top:8px;border-top:1px solid #21262d;display:flex;justify-content:space-between;font-size:11px"><span style="color:var(--tx2)">Total proveedores '+mes+'</span><span style="font-weight:600;color:#f87171">'+formatMoney(grandTotal)+'</span></div>';
+            html += '<div style="margin-top:10px;padding-top:8px;border-top:1px solid #21262d;display:flex;justify-content:space-between;font-size:11px"><span style="color:var(--tx2)">Total honorarios '+mes+' <span style="font-size:9px;color:#6e7681">(personas, no herramientas)</span></span><span style="font-weight:600;color:#f87171">'+formatMoney(grandTotal)+'</span></div>';
             cont.innerHTML = html;
         }
 
@@ -4578,8 +4579,8 @@
             // Build quick lookup from DATA.q (q.q is YYYY-MM of first month of quarter)
             const qLookup = {};
             (DATA.q || []).forEach(q => {
-                const qKey = ymToQuarter(q.q);
-                qLookup[qKey] = q;
+                // q.q ya viene en formato "2026-Q2", usarlo directo como key
+                qLookup[q.q] = q;
             });
             function deflateQDash(value, qStr) {
                 return deflate(value, quarterMidMonth(qStr), targetMonthDash);
@@ -5360,16 +5361,11 @@
                     const cur = (qCC[curQ] && qCC[curQ][cc]) || { ing: 0, egr: 0, n: 0 };
                     const yoy = (qCC[yoyQ] && qCC[yoyQ][cc]) || { ing: 0, egr: 0, n: 0 };
                     const yoyEgrDef = deflateQ(yoy.egr, yoyQ);
-                    const yoyIngDef = deflateQ(yoy.ing, yoyQ);
-                    const margenCur = cur.ing + cur.egr;
                     const vsTip = `Comparativa YoY deflada: el valor a la derecha del &quot;vs&quot; es ${yoyQ} ajustado por inflaci\u00f3n (INDEC) al mes actual, para hacer comparable con ${curQ}. La flecha muestra la variaci\u00f3n real (sin inflaci\u00f3n).`;
                     return `<div style="background:#0d1117;border:1px solid #30363d;border-left:3px solid ${CC_COLORS[cc]};border-radius:8px;padding:10px">
                         <div style="font-weight:700;color:${CC_COLORS[cc]};font-size:12px;margin-bottom:6px">${cc} <span style="font-size:9px;color:var(--tx2);font-weight:400">${curQ}</span> <span title="${vsTip}" style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#30363d;color:#8b949e;font-size:9px;text-align:center;line-height:12px;cursor:help;margin-left:2px;font-weight:400">?</span></div>
-                        <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--tx2)"><span>Ingresos</span><b class="positive">${formatARS(cur.ing)}</b></div>
-                        <div style="font-size:9px;text-align:right;margin-bottom:2px" title="${vsTip}">${yoyArrow(cur.ing, yoyIngDef)} vs ${formatARS(yoyIngDef)}</div>
-                        <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--tx2)"><span>Egresos</span><b class="negative">${formatARS(cur.egr)}</b></div>
-                        <div style="font-size:9px;text-align:right;margin-bottom:2px" title="${vsTip}">${yoyArrow(Math.abs(cur.egr), Math.abs(yoyEgrDef))} vs ${formatARS(yoyEgrDef)}</div>
-                        <div style="display:flex;justify-content:space-between;font-size:11px;border-top:1px solid #30363d;padding-top:4px;margin-top:4px"><span><b>Margen</b></span><b class="${margenCur>=0?'positive':'negative'}">${formatARS(margenCur)}</b></div>
+                        <div class="negative" style="font-size:16px;font-weight:700;margin:4px 0">${formatARS(cur.egr)}</div>
+                        <div style="font-size:9px;text-align:right;margin-bottom:2px" title="${vsTip}">${yoyArrow(Math.abs(cur.egr), Math.abs(yoyEgrDef))} <span style="color:var(--tx2)">vs ${formatARS(yoyEgrDef)}</span></div>
                         <div style="font-size:9px;color:var(--tx2);margin-top:3px">${cur.n} movs en ${curQ}</div>
                     </div>`;
                 }).join('');
@@ -8841,21 +8837,8 @@
                 if (isFinE) {
                     cat = 'Deuda';
                 } else {
-                // Smart category: use 'i' (item) as main category, but group similar
+                // Agrupar por ITEM (columna 'i' del SOT) — sin overrides manuales
                 cat = m.i || m.t || '(sin categoría)';
-                // Group generic "Proveedores" by entidad
-                if (cat === 'Proveedores' && m.en) {
-                    const en = m.en.toLowerCase();
-                    // Keep known providers as their own category
-                    if (en.includes('josefina') || en.includes('maharbiz')) cat = 'JOSEFINA MAHARBIZ';
-                    else if (en.includes('visa') || en.includes('tarjeta')) cat = 'Tarjeta VISA';
-                    else if (en.includes('alquiler')) cat = 'Alquiler';
-                    else if (en.includes('google') || en.includes('golaware')) cat = 'Google / Tech';
-                    else if (en.includes('notion')) cat = 'Notion';
-                    else if (en.includes('swiss') || en.includes('osde')) cat = 'Salud / OSDE';
-                    else if (en.includes('wit') || en.includes('wendap')) cat = 'WIT / Wendap';
-                    else cat = 'Proveedores Varios';
-                }
                 } // end else !isFinE
                 if (!egrByCat[cat]) egrByCat[cat] = { total: 0, count: 0, items: [] };
                 egrByCat[cat].total += m.v;
