@@ -1468,12 +1468,26 @@
                 <!-- Costo por Área chart + table -->
                 <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:20px">
                     <div class="card" style="flex:1;min-width:300px">
-                        <div class="card-title">Costo Mensual por Área</div>
+                        <div class="card-title">Costo Mensual por Área <span style="font-size:10px;color:var(--tx2);font-weight:400">· empleados</span></div>
                         <div style="height:280px"><canvas id="nominaAreaChart"></canvas></div>
                     </div>
                     <div class="card" style="flex:1;min-width:300px">
                         <div class="card-title">Resumen por Área</div>
                         <div id="nominaAreaSummary"></div>
+                    </div>
+                </div>
+
+                <!-- Especialistas BAU por Unidad (SOT Nómina — bloque freelance BAU) -->
+                <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:20px">
+                    <div class="card" style="flex:1;min-width:300px">
+                        <div class="card-title">Especialistas BAU por Unidad
+                            <span title="Nómina de Especialistas / Profesionales por Área BAU (SOT Nómina). Distribución de los freelance tipo BAU por UN. Fuente: SOT Nómina." style="display:inline-block;width:13px;height:13px;border-radius:50%;background:#30363d;color:#e6edf3;font-size:9px;text-align:center;line-height:13px;cursor:help;margin-left:4px;font-weight:400">?</span>
+                        </div>
+                        <div style="height:280px"><canvas id="especialistasBAUChart"></canvas></div>
+                    </div>
+                    <div class="card" style="flex:1;min-width:300px">
+                        <div class="card-title">Detalle Especialistas BAU</div>
+                        <div id="especialistasBAUSummary"></div>
                     </div>
                 </div>
 
@@ -2856,6 +2870,78 @@
             cont.innerHTML = html;
         }
 
+        // ============================================================
+        // ESPECIALISTAS BAU POR UN
+        // Fuente: SOT Nómina, bloque "Nómina de Especialistas / Profesionales por Área BAU"
+        // Filtra los honorarios con tipo === 'BAU' y los distribuye por UN.
+        // ============================================================
+        let especialistasBAUChartInstance = null;
+        function renderEspecialistasBAU() {
+            const ctx = document.getElementById('especialistasBAUChart');
+            const summaryDiv = document.getElementById('especialistasBAUSummary');
+            if (!ctx && !summaryDiv) return;
+
+            const bau = (HONORARIOS_SEED || []).filter(h => h.tipo === 'BAU');
+            const byUN = {};
+            bau.forEach(h => {
+                const un = h.un || 'Sin asignar';
+                if (!byUN[un]) byUN[un] = { count: 0, nombres: [] };
+                byUN[un].count++;
+                byUN[un].nombres.push(h.nombre + ' ' + h.apellido);
+            });
+            const sorted = Object.entries(byUN).sort((a,b) => b[1].count - a[1].count);
+            const total = bau.length;
+
+            // Destruir chart previo
+            if (especialistasBAUChartInstance) { especialistasBAUChartInstance.destroy(); especialistasBAUChartInstance = null; }
+
+            if (ctx && sorted.length > 0 && typeof Chart !== 'undefined') {
+                especialistasBAUChartInstance = new Chart(ctx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: sorted.map(([u]) => u),
+                        datasets: [{
+                            data: sorted.map(([, d]) => d.count),
+                            backgroundColor: sorted.map(([u]) => (typeof AREA_COLORS !== 'undefined' && AREA_COLORS[u]) || '#4b5563'),
+                            borderWidth: 0
+                        }]
+                    },
+                    options: {
+                        responsive: true, maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: true, position: 'right', labels: { color: '#8b949e', font: { size: 10 }, padding: 8, boxWidth: 12 } },
+                            tooltip: { callbacks: { label: function(c) {
+                                const pct = total > 0 ? ((c.raw / total) * 100).toFixed(1) : 0;
+                                return ' ' + c.label + ': ' + c.raw + ' especialista' + (c.raw > 1 ? 's' : '') + ' (' + pct + '%)';
+                            }}}
+                        }
+                    }
+                });
+            }
+
+            if (summaryDiv) {
+                if (sorted.length === 0) {
+                    summaryDiv.innerHTML = '<div style="color:var(--tx2);font-size:11px;padding:12px;text-align:center">Sin especialistas BAU cargados.</div>';
+                } else {
+                    let sh = '<div style="font-size:10px;color:var(--tx2);margin-bottom:8px">Total: <strong style="color:#e6edf3">'+total+'</strong> especialistas BAU</div>';
+                    sh += '<table style="width:100%;font-size:11px"><thead><tr style="color:#8b949e;text-align:left"><th>UN</th><th style="text-align:center"># BAU</th><th style="text-align:right">%</th><th>Nombres</th></tr></thead><tbody>';
+                    sorted.forEach(([un, d]) => {
+                        const pct = total > 0 ? ((d.count / total) * 100).toFixed(1) : '0';
+                        const color = (typeof AREA_COLORS !== 'undefined' && AREA_COLORS[un]) || '#4b5563';
+                        sh += '<tr style="border-bottom:1px solid #21262d">'
+                            + '<td style="padding:6px 4px"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:'+color+';margin-right:6px"></span>'+un+'</td>'
+                            + '<td style="padding:6px 4px;text-align:center;font-weight:600">'+d.count+'</td>'
+                            + '<td style="padding:6px 4px;text-align:right;color:#8b949e">'+pct+'%</td>'
+                            + '<td style="padding:6px 4px;font-size:10px;color:var(--tx2)">'+d.nombres.join(', ')+'</td>'
+                            + '</tr>';
+                    });
+                    sh += '</tbody></table>';
+                    sh += '<div style="margin-top:8px;font-size:9px;color:var(--tx2);line-height:1.5">Fuente: SOT Nómina — bloque "Nómina de Especialistas / Profesionales por Área BAU". Filtra honorarios con tipo=BAU (asesoramiento a la unidad, no asignados a cuenta específica).</div>';
+                    summaryDiv.innerHTML = sh;
+                }
+            }
+        }
+
         function _distCard(label, val, total, color, isTotal) {
             const pct = total > 0 ? (val/total*100).toFixed(1) : '0.0';
             return '<div style="background:#0d1117;border:1px solid #21262d;border-left:3px solid '+color+';border-radius:6px;padding:10px 12px">'
@@ -3110,6 +3196,9 @@
 
             // Render Distribución por UN (solo fuente SOT Nómina — empleados + honorarios)
             renderDistribucionUN();
+
+            // Render Especialistas BAU por UN (bloque freelance BAU de la SOT Nómina)
+            renderEspecialistasBAU();
 
             // Employee count
             const countSpan = document.getElementById('nominaCount');
