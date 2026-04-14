@@ -1477,33 +1477,15 @@
                     </div>
                 </div>
 
-                <!-- Consolidado por Unidad de Negocio: Sueldos + Honorarios + Prov. BAU + Prov. CUENTA -->
+                <!-- Consolidado por Unidad de Negocio: empleados + honorarios (SOT Nómina only) -->
                 <div class="card" style="margin-bottom:20px">
                     <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
-                        <span>Distribución por Unidad de Negocio — Consolidado
-                            <span title="Para el mes seleccionado, muestra el costo total por UN sumando:&#10;• Sueldos (nómina activa, sueldo neto por empleado asignado a esa UN)&#10;• Honorarios (egresos de freelance/honorarios imputados al CC)&#10;• Prov. BAU (egresos a proveedores con Cliente = Taquion o sin cliente)&#10;• Prov. CUENTA Proyecto (egresos con Cliente distinto a Taquion, i.e. proyectos vendibles)&#10;Incluye % peso y subtotales Vendibles vs Soporte." style="display:inline-block;width:13px;height:13px;border-radius:50%;background:#30363d;color:#e6edf3;font-size:9px;text-align:center;line-height:13px;cursor:help;margin-left:4px;font-weight:400">?</span>
+                        <span>Distribución por Unidad de Negocio
+                            <span title="Alimentado únicamente por la SOT Nómina (empleados + especialistas freelance). Muestra: headcount, sueldo neto mensual, nº de honorarios por UN clasificados como CUENTA (asignados a cliente) o BAU (asesoramiento a la UN), y % peso por UN. Subtotales Vendibles vs Soporte." style="display:inline-block;width:13px;height:13px;border-radius:50%;background:#30363d;color:#e6edf3;font-size:9px;text-align:center;line-height:13px;cursor:help;margin-left:4px;font-weight:400">?</span>
                         </span>
-                        <div style="display:flex;gap:8px;align-items:center">
-                            <select id="distUNRango" onchange="renderDistribucionUN()" style="background:#161b22;border:1px solid #30363d;color:#e6edf3;padding:4px 8px;border-radius:4px;font-size:11px">
-                                <option value="mes">Mes seleccionado</option>
-                                <option value="q">Trimestre</option>
-                                <option value="ytd">YTD</option>
-                            </select>
-                            <select id="distUNMes" onchange="renderDistribucionUN()" style="background:#161b22;border:1px solid #30363d;color:#e6edf3;padding:4px 8px;border-radius:4px;font-size:11px"></select>
-                        </div>
+                        <span style="font-size:10px;color:var(--tx2);font-weight:400">Fuente: SOT Nómina</span>
                     </div>
                     <div id="distUNContent" style="margin-top:10px"></div>
-                </div>
-
-                <!-- Proveedores agregados por Unidad de Negocio (CC) -->
-                <div class="card" style="margin-bottom:20px">
-                    <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
-                        <span>Honorarios y Contrataciones (por ITEM)
-                            <span title="Egresos de honorarios y contrataciones de personas agrupados por ITEM del SOT. Solo incluye movimientos con descripción 'Honorarios' (freelancers, staff, liquidaciones, etc.). Excluye herramientas y software (Digimind, Google, Notion, etc.)." style="display:inline-block;width:13px;height:13px;border-radius:50%;background:#30363d;color:#e6edf3;font-size:9px;text-align:center;line-height:13px;cursor:help;margin-left:4px;font-weight:400">?</span>
-                        </span>
-                        <select id="provUNMes" onchange="renderProveedoresUN()" style="background:#161b22;border:1px solid #30363d;color:#e6edf3;padding:4px 8px;border-radius:4px;font-size:11px"></select>
-                    </div>
-                    <div id="provUNContent" style="margin-top:10px"></div>
                 </div>
 
                 <!-- Employee table -->
@@ -1514,24 +1496,6 @@
                     </div>
                 </div>
 
-                <!-- Reconciliación Nómina ↔ Movimientos -->
-                <div class="card" style="margin-top:20px">
-                    <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
-                        <span>Reconciliación Nómina ↔ Movimientos</span>
-                        <div style="display:flex;gap:8px;align-items:center">
-                            <select id="reconcMes" onchange="renderReconciliation()" style="background:#161b22;border:1px solid #30363d;color:#e6edf3;padding:4px 8px;border-radius:4px;font-size:11px"></select>
-                            <span style="font-size:10px;color:#8b949e">Esperado (Nómina) vs Real (Movimientos)</span>
-                        </div>
-                    </div>
-                    <!-- Reconciliation KPIs -->
-                    <div id="reconcKPIs" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-bottom:16px"></div>
-                    <!-- Reconciliation by empresa + modalidad -->
-                    <div id="reconcDetail" style="margin-bottom:16px"></div>
-                    <!-- Reconciliation by area -->
-                    <div id="reconcByArea"></div>
-                    <!-- Name matching log for individual movements -->
-                    <div id="reconcNameMatches" style="margin-top:12px"></div>
-                </div>
             </div>
 
             <!-- AUDITORÍA SOT PAGE -->
@@ -2641,6 +2605,24 @@
             {id:23,nombre:'Matias',apellido:'Nogueira',cuit:'',lider:'Sergio',equipo:'LUMOS',area:'Inspire',clasif:'NO VENDIBLE',tipo:'BAU',modalidad:'Mixta',empresa:'TQN',cargo:'',seniority:'',sueldoBruto:1184000,facturaMono:2600000,benTarjeta:600000,benConect:17550,benMono:0,benOS:0,sueldoNeto:4200270,fechaIngreso:'',estado:'Activo'}
         ];
 
+        // === HONORARIOS (Especialistas / Freelance por Área — BAU / CUENTA) ===
+        // Fuente: SOT Nómina, bloque "Nómina de Especialistas / Profesionales por Área BAU"
+        const HONORARIOS_SEED = [
+            {id:'H1',nombre:'Rodrigo Nahuel',apellido:'Artigas',lider:'Lider Inspire',un:'Inspire',tipo:'CUENTA',cuentas:['Suterh','Todo Un país']},
+            {id:'H2',nombre:'Betzabeth Cristina',apellido:'Balzan Vale',lider:'Lider Ignite',un:'Ignite',tipo:'CUENTA',cuentas:['Rosbaco','Boca','Froneri','Todo Un país']},
+            {id:'H3',nombre:'Nicolas Jorge',apellido:'Bavoleo',lider:'COO',un:'Gestión de Cuentas',tipo:'CUENTA',cuentas:['Boca']},
+            {id:'H4',nombre:'Solana Lucia',apellido:'Cuevas',lider:'Lider Ignite',un:'Ignite',tipo:'BAU',cuentas:[]},
+            {id:'H5',nombre:'Fara Emilia Paula',apellido:'Gonzalez',lider:'Lider Inspire',un:'Inspire',tipo:'BAU',cuentas:[]},
+            {id:'H6',nombre:'Sofia Julieta',apellido:'Griolli',lider:'Lider Inspire',un:'Inspire',tipo:'CUENTA',cuentas:['Suterh']},
+            {id:'H7',nombre:'Victoria',apellido:'Lupo',lider:'Lider Insights',un:'Insights',tipo:'BAU',cuentas:[]},
+            {id:'H10',nombre:'Christian Alberto',apellido:'Savloff',lider:'Lider Inspire',un:'Inspire',tipo:'BAU',cuentas:[]},
+            {id:'H11',nombre:'Elena Celeste',apellido:'Targonol',lider:'Lider Inspire',un:'Inspire',tipo:'BAU',cuentas:[]},
+            {id:'H12',nombre:'Julieta Mabel',apellido:'Torres',lider:'Lider Inspire',un:'Inspire',tipo:'BAU',cuentas:[]},
+            {id:'H13',nombre:'Alejo Raul',apellido:'Zubillaga',lider:'Lider Inspire',un:'Inspire',tipo:'CUENTA',cuentas:['Rosbaco','Boca']},
+            {id:'H14',nombre:'Gisela Alicia',apellido:'Bongiorni',lider:'CCO',un:'Comercial',tipo:'BAU',cuentas:[]},
+            {id:'H15',nombre:'Maria Jose',apellido:'Montaño Coneo',lider:'Lider Inspire',un:'Inspire',tipo:'BAU',cuentas:[]}
+        ];
+
         // Initialize NOMINA: use localStorage if available and non-empty, otherwise seed
         let NOMINA = JSON.parse(localStorage.getItem('tqn_nomina') || '[]');
         if (NOMINA.length === 0) {
@@ -2739,161 +2721,136 @@
         }
 
         function renderDistribucionUN() {
-            const selMes = document.getElementById('distUNMes');
-            const selRango = document.getElementById('distUNRango');
             const cont = document.getElementById('distUNContent');
-            if (!selMes || !cont) return;
+            if (!cont) return;
 
-            const mov = DATA.mov || [];
-            const egresos = mov.filter(m => m.side === 'E' || (m.v || 0) < 0);
+            // Fuente ÚNICA: SOT Nómina (empleados + honorarios). NO usa BD Movimientos.
+            const empleados = (NOMINA || []).filter(e => e.estado === 'Activo');
+            const honorarios = HONORARIOS_SEED || [];
 
-            // Populate month selector once
-            if (selMes.options.length === 0) {
-                const months = [...new Set(mov.map(m => (m.f || '').slice(0,7)).filter(Boolean))].sort().reverse();
-                const monthNames = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
-                selMes.innerHTML = months.map(m => {
-                    const [y,mm] = m.split('-');
-                    return '<option value="'+m+'">'+monthNames[parseInt(mm)-1]+' '+y+'</option>';
-                }).join('');
-                const cur = new Date().toISOString().slice(0,7);
-                if (months.includes(cur)) selMes.value = cur;
-            }
-
-            const rango = selRango ? selRango.value : 'mes';
-            const mesSel = selMes.value;
-            const [ySel, mSel] = (mesSel || '').split('-').map(x => parseInt(x));
-
-            function inRange(fstr) {
-                if (!fstr) return false;
-                const [y,m] = fstr.split('-').map(x => parseInt(x));
-                if (rango === 'mes') return fstr.slice(0,7) === mesSel;
-                if (rango === 'q') {
-                    const q = Math.ceil(mSel/3);
-                    const qM = Math.ceil(m/3);
-                    return y === ySel && qM === q;
-                }
-                if (rango === 'ytd') return y === ySel && m <= mSel;
-                return false;
-            }
-
-            // Meses cubiertos para prorratear sueldos
-            const monthsCovered = new Set();
-            mov.forEach(m => { if (inRange(m.f)) monthsCovered.add((m.f||'').slice(0,7)); });
-            const nMeses = Math.max(1, monthsCovered.size || 1);
-
-            // 1) Sueldos: nómina activa × nº de meses del rango
-            const sueldosPorUN = {};
-            (NOMINA || []).filter(e => e.estado === 'Activo').forEach(e => {
+            // Agrupar empleados por UN
+            const byUN = {};
+            empleados.forEach(e => {
                 const un = e.area || 'Sin asignar';
-                sueldosPorUN[un] = (sueldosPorUN[un] || 0) + getNeto(e) * nMeses;
+                if (!byUN[un]) byUN[un] = { un, hc:0, hcV:0, hcNV:0, sueldoNeto:0, honCUE:0, honBAU:0, honNombres:[] };
+                byUN[un].hc++;
+                if (e.clasif === 'VENDIBLE') byUN[un].hcV++; else byUN[un].hcNV++;
+                byUN[un].sueldoNeto += getNeto(e);
+            });
+            // Sumar honorarios por UN
+            honorarios.forEach(h => {
+                const un = h.un || 'Sin asignar';
+                if (!byUN[un]) byUN[un] = { un, hc:0, hcV:0, hcNV:0, sueldoNeto:0, honCUE:0, honBAU:0, honNombres:[] };
+                if (h.tipo === 'CUENTA') byUN[un].honCUE++; else byUN[un].honBAU++;
+                byUN[un].honNombres.push(h.nombre + ' ' + h.apellido + ' (' + h.tipo + ')');
             });
 
-            // 2) Honorarios: egresos con detalle "Honorarios"
-            const honPorUN = {};
-            egresos.filter(m => inRange(m.f) && (m.d || '').toLowerCase() === 'honorarios').forEach(m => {
-                const un = getMovUnit(m) || 'Sin asignar';
-                honPorUN[un] = (honPorUN[un] || 0) + Math.abs(m.v || 0);
-            });
+            const rows = Object.values(byUN).sort((a,b) => b.sueldoNeto - a.sueldoNeto);
+            const totalHC = rows.reduce((a,r)=>a+r.hc,0);
+            const totalSueldo = rows.reduce((a,r)=>a+r.sueldoNeto,0);
+            const totalHonCUE = rows.reduce((a,r)=>a+r.honCUE,0);
+            const totalHonBAU = rows.reduce((a,r)=>a+r.honBAU,0);
+            const totalHon = totalHonCUE + totalHonBAU;
 
-            // 3) Proveedores: tipo=Proveedores y detalle != Honorarios; split BAU vs CUENTA
-            // CUENTA Proyecto = cliente distinto a Taquion (o proyecto populado)
-            const provBAU = {}, provCUE = {};
-            egresos.filter(m => inRange(m.f) && m.t === 'Proveedores' && (m.d || '').toLowerCase() !== 'honorarios').forEach(m => {
-                const un = getMovUnit(m) || 'Sin asignar';
-                const cli = (m.cli || m.cliente || '').toString().trim();
-                const proy = (m.proy || '').toString().trim();
-                const esCuenta = (cli && cli.toLowerCase() !== 'taquion') || !!proy;
-                const bucket = esCuenta ? provCUE : provBAU;
-                bucket[un] = (bucket[un] || 0) + Math.abs(m.v || 0);
-            });
-
-            // Union UNs
-            const allUNs = new Set([
-                ...Object.keys(sueldosPorUN),
-                ...Object.keys(honPorUN),
-                ...Object.keys(provBAU),
-                ...Object.keys(provCUE)
-            ]);
-
-            // Build rows
-            const rows = [...allUNs].map(un => {
-                const s = sueldosPorUN[un] || 0;
-                const h = honPorUN[un] || 0;
-                const b = provBAU[un] || 0;
-                const c = provCUE[un] || 0;
-                return { un, clasif: _clasifUN(un), s, h, b, c, total: s+h+b+c };
-            }).filter(r => r.total > 0).sort((a,b) => b.total - a.total);
-
-            const grand = rows.reduce((acc,r) => acc + r.total, 0);
-            const subVend = rows.filter(r => r.clasif === 'Vendible').reduce((a,r)=>a+r.total,0);
-            const subSop  = rows.filter(r => r.clasif === 'Soporte').reduce((a,r)=>a+r.total,0);
-            const subInd  = rows.filter(r => r.clasif === 'Industria/Otro').reduce((a,r)=>a+r.total,0);
+            const subVend = rows.filter(r => _clasifUN(r.un)==='Vendible').reduce((a,r)=>a+r.sueldoNeto,0);
+            const subSop  = rows.filter(r => _clasifUN(r.un)==='Soporte').reduce((a,r)=>a+r.sueldoNeto,0);
+            const subInd  = rows.filter(r => _clasifUN(r.un)==='Industria/Otro').reduce((a,r)=>a+r.sueldoNeto,0);
 
             if (rows.length === 0) {
-                cont.innerHTML = '<div style="color:var(--tx2);font-size:11px;padding:12px;text-align:center">Sin datos en el rango seleccionado.</div>';
+                cont.innerHTML = '<div style="color:var(--tx2);font-size:11px;padding:12px;text-align:center">Sin datos de nómina cargados.</div>';
                 return;
             }
 
-            const rangoLabel = rango === 'mes' ? ('mes ' + mesSel) : (rango === 'q' ? ('Q'+Math.ceil(mSel/3)+' '+ySel+' ('+nMeses+' meses)') : ('YTD '+ySel+' ('+nMeses+' meses)'));
-
-            // Subtotal cards
-            let html = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:14px">'
-                + _distCard('Vendibles', subVend, grand, '#3fb950')
-                + _distCard('Soporte', subSop, grand, '#fb923c')
-                + (subInd > 0 ? _distCard('Industria/Otro', subInd, grand, '#58a6ff') : '')
-                + _distCard('TOTAL ' + rangoLabel, grand, grand, '#e6edf3', true)
+            // KPIs por clasificación (sobre sueldo neto mensual — fuente SOT Nómina)
+            let html = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:14px">'
+                + _distCard('Vendibles', subVend, totalSueldo, '#3fb950')
+                + _distCard('Soporte', subSop, totalSueldo, '#fb923c')
+                + (subInd > 0 ? _distCard('Industria/Otro', subInd, totalSueldo, '#58a6ff') : '')
+                + _distCard('TOTAL Sueldo Neto / mes', totalSueldo, totalSueldo, '#e6edf3', true)
                 + '</div>';
 
-            // Table
-            html += '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px;min-width:820px">'
+            // Mini-resumen de honorarios
+            html += '<div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap">'
+                + '<div style="flex:1;min-width:160px;background:#0d1117;border:1px solid #21262d;border-left:3px solid #a78bfa;border-radius:6px;padding:10px 12px">'
+                +   '<div style="font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:0.5px">Honorarios freelance</div>'
+                +   '<div style="font-size:16px;font-weight:600;color:#a78bfa;margin-top:2px">'+totalHon+' personas</div>'
+                +   '<div style="font-size:10px;color:var(--tx2);margin-top:2px">'+totalHonCUE+' CUENTA · '+totalHonBAU+' BAU</div>'
+                + '</div>'
+                + '<div style="flex:1;min-width:160px;background:#0d1117;border:1px solid #21262d;border-left:3px solid #3fb950;border-radius:6px;padding:10px 12px">'
+                +   '<div style="font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:0.5px">Headcount empleados</div>'
+                +   '<div style="font-size:16px;font-weight:600;color:#3fb950;margin-top:2px">'+totalHC+'</div>'
+                +   '<div style="font-size:10px;color:var(--tx2);margin-top:2px">'+rows.reduce((a,r)=>a+r.hcV,0)+' Vendibles · '+rows.reduce((a,r)=>a+r.hcNV,0)+' No Vendibles</div>'
+                + '</div>'
+                + '</div>';
+
+            // Tabla consolidada por UN
+            html += '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px;min-width:800px">'
                 + '<thead><tr style="background:#161b22;border-bottom:2px solid #30363d">'
                 + '<th style="text-align:left;padding:8px 10px;color:#8b949e;font-weight:600">Unidad</th>'
                 + '<th style="text-align:center;padding:8px 10px;color:#8b949e;font-weight:600">Clasif.</th>'
-                + '<th style="text-align:right;padding:8px 10px;color:#8b949e;font-weight:600">Sueldos</th>'
-                + '<th style="text-align:right;padding:8px 10px;color:#8b949e;font-weight:600">Honorarios</th>'
-                + '<th style="text-align:right;padding:8px 10px;color:#8b949e;font-weight:600">Prov. BAU</th>'
-                + '<th style="text-align:right;padding:8px 10px;color:#8b949e;font-weight:600">Prov. CUENTA</th>'
-                + '<th style="text-align:right;padding:8px 10px;color:#8b949e;font-weight:600">TOTAL</th>'
-                + '<th style="text-align:right;padding:8px 10px;color:#8b949e;font-weight:600">% Peso</th>'
+                + '<th style="text-align:center;padding:8px 10px;color:#8b949e;font-weight:600">HC (V / NV)</th>'
+                + '<th style="text-align:right;padding:8px 10px;color:#8b949e;font-weight:600">Sueldo Neto / mes</th>'
+                + '<th style="text-align:center;padding:8px 10px;color:#8b949e;font-weight:600">Hon. CUENTA</th>'
+                + '<th style="text-align:center;padding:8px 10px;color:#8b949e;font-weight:600">Hon. BAU</th>'
+                + '<th style="text-align:right;padding:8px 10px;color:#8b949e;font-weight:600">% Peso Sueldo</th>'
                 + '</tr></thead><tbody>';
 
             rows.forEach(r => {
-                const pct = grand > 0 ? (r.total/grand*100) : 0;
+                const pct = totalSueldo > 0 ? (r.sueldoNeto/totalSueldo*100) : 0;
                 const bar = Math.min(100, pct).toFixed(1);
+                const clasif = _clasifUN(r.un);
                 html += '<tr style="border-bottom:1px solid #21262d;background:'+_fillUN(r.un)+'">'
                     + '<td style="padding:8px 10px;color:#e6edf3;border-left:3px solid '+_borderUN(r.un)+'"><strong>'+r.un+'</strong></td>'
-                    + '<td style="padding:8px 10px;text-align:center"><span style="font-size:9px;padding:2px 6px;border-radius:3px;background:'+(r.clasif==='Vendible'?'#23863630':r.clasif==='Soporte'?'#fb923c30':'#58a6ff30')+';color:'+(r.clasif==='Vendible'?'#3fb950':r.clasif==='Soporte'?'#fb923c':'#58a6ff')+'">'+r.clasif+'</span></td>'
-                    + '<td style="padding:8px 10px;text-align:right;color:#e6edf3">'+formatMoney(r.s)+'</td>'
-                    + '<td style="padding:8px 10px;text-align:right;color:#a78bfa">'+formatMoney(r.h)+'</td>'
-                    + '<td style="padding:8px 10px;text-align:right;color:#60a5fa">'+formatMoney(r.b)+'</td>'
-                    + '<td style="padding:8px 10px;text-align:right;color:#fbbf24">'+formatMoney(r.c)+'</td>'
-                    + '<td style="padding:8px 10px;text-align:right;color:#f87171;font-weight:600">'+formatMoney(r.total)+'</td>'
-                    + '<td style="padding:8px 10px;text-align:right;color:#e6edf3;min-width:90px"><div style="display:flex;align-items:center;gap:6px;justify-content:flex-end"><div style="width:50px;height:6px;background:#21262d;border-radius:3px;overflow:hidden"><div style="width:'+bar+'%;height:100%;background:'+_borderUN(r.un)+'"></div></div><span style="font-size:10px">'+pct.toFixed(1)+'%</span></div></td>'
+                    + '<td style="padding:8px 10px;text-align:center"><span style="font-size:9px;padding:2px 6px;border-radius:3px;background:'+(clasif==='Vendible'?'#23863630':clasif==='Soporte'?'#fb923c30':'#58a6ff30')+';color:'+(clasif==='Vendible'?'#3fb950':clasif==='Soporte'?'#fb923c':'#58a6ff')+'">'+clasif+'</span></td>'
+                    + '<td style="padding:8px 10px;text-align:center;color:#e6edf3">'+r.hc+' <span style="color:var(--tx2);font-size:10px">('+r.hcV+'V / '+r.hcNV+'NV)</span></td>'
+                    + '<td style="padding:8px 10px;text-align:right;color:#e6edf3">'+formatMoney(r.sueldoNeto)+'</td>'
+                    + '<td style="padding:8px 10px;text-align:center;color:'+(r.honCUE>0?'#fbbf24':'var(--tx2)')+'">'+r.honCUE+'</td>'
+                    + '<td style="padding:8px 10px;text-align:center;color:'+(r.honBAU>0?'#60a5fa':'var(--tx2)')+'">'+r.honBAU+'</td>'
+                    + '<td style="padding:8px 10px;text-align:right;color:#e6edf3;min-width:110px"><div style="display:flex;align-items:center;gap:6px;justify-content:flex-end"><div style="width:60px;height:6px;background:#21262d;border-radius:3px;overflow:hidden"><div style="width:'+bar+'%;height:100%;background:'+_borderUN(r.un)+'"></div></div><span style="font-size:10px">'+pct.toFixed(1)+'%</span></div></td>'
                     + '</tr>';
             });
 
-            // Totals row
-            const tS = rows.reduce((a,r)=>a+r.s,0);
-            const tH = rows.reduce((a,r)=>a+r.h,0);
-            const tB = rows.reduce((a,r)=>a+r.b,0);
-            const tC = rows.reduce((a,r)=>a+r.c,0);
             html += '<tr style="background:#161b22;border-top:2px solid #30363d;font-weight:600">'
                 + '<td colspan="2" style="padding:10px;color:#e6edf3">TOTAL</td>'
-                + '<td style="padding:10px;text-align:right;color:#e6edf3">'+formatMoney(tS)+'</td>'
-                + '<td style="padding:10px;text-align:right;color:#a78bfa">'+formatMoney(tH)+'</td>'
-                + '<td style="padding:10px;text-align:right;color:#60a5fa">'+formatMoney(tB)+'</td>'
-                + '<td style="padding:10px;text-align:right;color:#fbbf24">'+formatMoney(tC)+'</td>'
-                + '<td style="padding:10px;text-align:right;color:#f87171">'+formatMoney(grand)+'</td>'
+                + '<td style="padding:10px;text-align:center;color:#e6edf3">'+totalHC+'</td>'
+                + '<td style="padding:10px;text-align:right;color:#e6edf3">'+formatMoney(totalSueldo)+'</td>'
+                + '<td style="padding:10px;text-align:center;color:#fbbf24">'+totalHonCUE+'</td>'
+                + '<td style="padding:10px;text-align:center;color:#60a5fa">'+totalHonBAU+'</td>'
                 + '<td style="padding:10px;text-align:right;color:#e6edf3">100.0%</td>'
                 + '</tr>';
             html += '</tbody></table></div>';
 
-            html += '<div style="margin-top:8px;font-size:10px;color:var(--tx2);line-height:1.5">'
-                + '<strong style="color:#8b949e">Lecturas:</strong> '
-                + 'Sueldos = nómina activa × ' + nMeses + ' mes(es). '
-                + 'Honorarios = egresos con detalle="Honorarios" imputados al CC. '
-                + 'Prov. BAU = Tipo=Proveedores con Cliente=Taquion o sin cliente. '
-                + 'Prov. CUENTA = Tipo=Proveedores con Cliente distinto a Taquion o Proyecto cargado.'
+            // Detalle Honorarios
+            html += '<div style="margin-top:20px">'
+                + '<div style="font-size:12px;font-weight:600;color:#e6edf3;margin-bottom:8px">Detalle de Honorarios Freelance (SOT Nómina)</div>'
+                + '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px;min-width:700px">'
+                + '<thead><tr style="background:#161b22;border-bottom:2px solid #30363d">'
+                + '<th style="text-align:left;padding:6px 10px;color:#8b949e;font-weight:600">Nombre</th>'
+                + '<th style="text-align:left;padding:6px 10px;color:#8b949e;font-weight:600">UN</th>'
+                + '<th style="text-align:center;padding:6px 10px;color:#8b949e;font-weight:600">Tipo</th>'
+                + '<th style="text-align:left;padding:6px 10px;color:#8b949e;font-weight:600">Líder</th>'
+                + '<th style="text-align:left;padding:6px 10px;color:#8b949e;font-weight:600">Cuentas Asociadas</th>'
+                + '</tr></thead><tbody>';
+            honorarios.slice().sort((a,b) => {
+                if (a.tipo !== b.tipo) return a.tipo === 'CUENTA' ? -1 : 1;
+                return a.un.localeCompare(b.un);
+            }).forEach(h => {
+                const tipoColor = h.tipo === 'CUENTA' ? '#fbbf24' : '#60a5fa';
+                const tipoBg = h.tipo === 'CUENTA' ? '#fbbf2420' : '#60a5fa20';
+                html += '<tr style="border-bottom:1px solid #21262d">'
+                    + '<td style="padding:6px 10px;color:#e6edf3">'+h.nombre+' '+h.apellido+'</td>'
+                    + '<td style="padding:6px 10px;color:#e6edf3">'+h.un+'</td>'
+                    + '<td style="padding:6px 10px;text-align:center"><span style="font-size:9px;padding:2px 6px;border-radius:3px;background:'+tipoBg+';color:'+tipoColor+';font-weight:600">'+h.tipo+'</span></td>'
+                    + '<td style="padding:6px 10px;color:var(--tx2)">'+h.lider+'</td>'
+                    + '<td style="padding:6px 10px;color:var(--tx2);font-size:10px">'+(h.cuentas.length > 0 ? h.cuentas.join(' · ') : '—')+'</td>'
+                    + '</tr>';
+            });
+            html += '</tbody></table></div></div>';
+
+            html += '<div style="margin-top:10px;font-size:10px;color:var(--tx2);line-height:1.5">'
+                + '<strong style="color:#8b949e">Fuente única:</strong> SOT Nómina (bloque empleados + bloque Especialistas/Freelance por Área BAU). No incluye información de BD Movimientos. '
+                + 'Sueldo Neto = bruto + factura monotributo + beneficios (tarjeta prepaga, conectividad, OS, monotributo). '
+                + '% Peso calculado sobre sueldo neto mensual de empleados.'
                 + '</div>';
 
             cont.innerHTML = html;
@@ -3151,9 +3108,7 @@
             sh += '</tbody></table>';
             summaryDiv.innerHTML = sh;
 
-            // Render proveedores por UN (corre cada vez que se renderiza nómina)
-            renderProveedoresUN();
-            // Render Distribución consolidada por UN
+            // Render Distribución por UN (solo fuente SOT Nómina — empleados + honorarios)
             renderDistribucionUN();
 
             // Employee count
@@ -3227,8 +3182,7 @@
             html += '</tbody>';
             table.innerHTML = html;
 
-            // Also render reconciliation section
-            renderReconciliation();
+            // Reconciliación removida — esta página se alimenta sólo de la SOT Nómina
         }
 
         // === RECONCILIACIÓN NÓMINA ↔ MOVIMIENTOS ===
