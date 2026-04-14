@@ -1491,6 +1491,20 @@
                     </div>
                 </div>
 
+                <!-- Nómina Total BAU por Unidad = Empleados + Especialistas BAU -->
+                <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:20px">
+                    <div class="card" style="flex:1;min-width:300px">
+                        <div class="card-title">Nómina Total BAU por Unidad
+                            <span title="Suma de empleados activos (SOT Nómina, bloque colaboradores) + especialistas freelance tipo BAU (SOT Nómina, bloque Especialistas). Distribución de headcount total BAU por UN. Fuente: SOT Nómina." style="display:inline-block;width:13px;height:13px;border-radius:50%;background:#30363d;color:#e6edf3;font-size:9px;text-align:center;line-height:13px;cursor:help;margin-left:4px;font-weight:400">?</span>
+                        </div>
+                        <div style="height:280px"><canvas id="nominaTotalBAUChart"></canvas></div>
+                    </div>
+                    <div class="card" style="flex:1;min-width:300px">
+                        <div class="card-title">Detalle Nómina Total BAU</div>
+                        <div id="nominaTotalBAUSummary"></div>
+                    </div>
+                </div>
+
                 <!-- Consolidado por Unidad de Negocio: empleados + honorarios (SOT Nómina only) -->
                 <div class="card" style="margin-bottom:20px">
                     <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
@@ -2942,6 +2956,88 @@
             }
         }
 
+        // ============================================================
+        // NÓMINA TOTAL BAU POR UN
+        // Suma empleados activos (SOT Nómina) + especialistas BAU (SOT Nómina) por UN.
+        // ============================================================
+        let nominaTotalBAUChartInstance = null;
+        function renderNominaTotalBAU() {
+            const ctx = document.getElementById('nominaTotalBAUChart');
+            const summaryDiv = document.getElementById('nominaTotalBAUSummary');
+            if (!ctx && !summaryDiv) return;
+
+            const empleados = (NOMINA || []).filter(e => e.estado === 'Activo');
+            const bau = (HONORARIOS_SEED || []).filter(h => h.tipo === 'BAU');
+
+            const byUN = {};
+            empleados.forEach(e => {
+                const un = e.area || 'Sin asignar';
+                if (!byUN[un]) byUN[un] = { emp: 0, esp: 0 };
+                byUN[un].emp++;
+            });
+            bau.forEach(h => {
+                const un = h.un || 'Sin asignar';
+                if (!byUN[un]) byUN[un] = { emp: 0, esp: 0 };
+                byUN[un].esp++;
+            });
+            const sorted = Object.entries(byUN)
+                .map(([un, d]) => [un, { ...d, total: d.emp + d.esp }])
+                .sort((a,b) => b[1].total - a[1].total);
+            const totalEmp = empleados.length;
+            const totalEsp = bau.length;
+            const total = totalEmp + totalEsp;
+
+            if (nominaTotalBAUChartInstance) { nominaTotalBAUChartInstance.destroy(); nominaTotalBAUChartInstance = null; }
+
+            if (ctx && sorted.length > 0 && typeof Chart !== 'undefined') {
+                nominaTotalBAUChartInstance = new Chart(ctx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: sorted.map(([u]) => u),
+                        datasets: [{
+                            data: sorted.map(([, d]) => d.total),
+                            backgroundColor: sorted.map(([u]) => (typeof AREA_COLORS !== 'undefined' && AREA_COLORS[u]) || '#4b5563'),
+                            borderWidth: 0
+                        }]
+                    },
+                    options: {
+                        responsive: true, maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: true, position: 'right', labels: { color: '#8b949e', font: { size: 10 }, padding: 8, boxWidth: 12 } },
+                            tooltip: { callbacks: { label: function(c) {
+                                const d = sorted[c.dataIndex][1];
+                                const pct = total > 0 ? ((c.raw / total) * 100).toFixed(1) : 0;
+                                return ' ' + c.label + ': ' + c.raw + ' (' + d.emp + ' emp + ' + d.esp + ' esp BAU) · ' + pct + '%';
+                            }}}
+                        }
+                    }
+                });
+            }
+
+            if (summaryDiv) {
+                if (sorted.length === 0) {
+                    summaryDiv.innerHTML = '<div style="color:var(--tx2);font-size:11px;padding:12px;text-align:center">Sin datos de nómina.</div>';
+                } else {
+                    let sh = '<div style="font-size:10px;color:var(--tx2);margin-bottom:8px">Total BAU: <strong style="color:#e6edf3">'+total+'</strong> personas · <span style="color:#3fb950">'+totalEmp+' empleados</span> + <span style="color:#a78bfa">'+totalEsp+' especialistas BAU</span></div>';
+                    sh += '<table style="width:100%;font-size:11px"><thead><tr style="color:#8b949e;text-align:left"><th>UN</th><th style="text-align:center">Emp</th><th style="text-align:center">Esp BAU</th><th style="text-align:center">Total</th><th style="text-align:right">%</th></tr></thead><tbody>';
+                    sorted.forEach(([un, d]) => {
+                        const pct = total > 0 ? ((d.total / total) * 100).toFixed(1) : '0';
+                        const color = (typeof AREA_COLORS !== 'undefined' && AREA_COLORS[un]) || '#4b5563';
+                        sh += '<tr style="border-bottom:1px solid #21262d">'
+                            + '<td style="padding:6px 4px"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:'+color+';margin-right:6px"></span>'+un+'</td>'
+                            + '<td style="padding:6px 4px;text-align:center;color:#3fb950">'+d.emp+'</td>'
+                            + '<td style="padding:6px 4px;text-align:center;color:'+(d.esp>0?'#a78bfa':'var(--tx2)')+'">'+d.esp+'</td>'
+                            + '<td style="padding:6px 4px;text-align:center;font-weight:600;color:#e6edf3">'+d.total+'</td>'
+                            + '<td style="padding:6px 4px;text-align:right;color:#8b949e">'+pct+'%</td>'
+                            + '</tr>';
+                    });
+                    sh += '</tbody></table>';
+                    sh += '<div style="margin-top:8px;font-size:9px;color:var(--tx2);line-height:1.5">Fuente: SOT Nómina. Suma colaboradores activos + especialistas freelance BAU. Distribución por headcount.</div>';
+                    summaryDiv.innerHTML = sh;
+                }
+            }
+        }
+
         function _distCard(label, val, total, color, isTotal) {
             const pct = total > 0 ? (val/total*100).toFixed(1) : '0.0';
             return '<div style="background:#0d1117;border:1px solid #21262d;border-left:3px solid '+color+';border-radius:6px;padding:10px 12px">'
@@ -3199,6 +3295,8 @@
 
             // Render Especialistas BAU por UN (bloque freelance BAU de la SOT Nómina)
             renderEspecialistasBAU();
+            // Render Nómina Total BAU (empleados activos + especialistas BAU) por UN
+            renderNominaTotalBAU();
 
             // Employee count
             const countSpan = document.getElementById('nominaCount');
