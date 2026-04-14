@@ -4293,14 +4293,21 @@
                 return 'operativo';
             }
 
-            // Detect ALL debt payments (bancaria + GC)
-            // Bancaria: tipo 'Préstamos Bancarios' (includes Santander refi, recategorized at load)
-            // GC: Devolucion a GC items
-            // NOT: descubierto interest, NOT: operational providers
+            // Detect ALL debt/financing payments (bancaria + GC + Financiamiento category)
+            // Regla base: cualquier egreso donde detalle (m.d) contenga "Financiamiento" se considera deuda.
+            // Esto captura:
+            //   - Préstamos Bancarios (Galicia, BBVA, Ciudad, Santander refi)
+            //   - AFIP IVA Financiado (t=Impuestos y Tasas, d=Financiamiento AFIP) — ~$213MM
+            //   - Santander como Proveedor refi (t=Proveedores, i=Santander, d=Financiamiento) — ~$63MM
+            //   - Devolución a GC / cuota GC (Guido Comparada, ex-socio)
+            //   - Galicia - Mills
+            // NO captura: descubierto interest, operational providers
             function isDebtPayment(m) {
                 if (m.v >= 0) return false;
                 const t = m.t || '';
                 const it = (m.i || '').toLowerCase();
+                const d = (m.d || '').toLowerCase();
+                if (d.includes('financiamiento')) return true;          // AFIP fin + Santander fin + etc.
                 if (t === 'Préstamos Bancarios') return true;
                 if (t === 'Cobr. Deuda Salta23') return true;
                 if (it.includes('devolucion a gc') || it.includes('devolución a gc') || it.includes('cuota gc')) return true;
@@ -4357,12 +4364,9 @@
             let minNoDebtConDesc = disponibleConDesc, minNoDebtWeek = null;
             let totalPotenciales = 0, totalInversion = 0, totalDeuda = 0;
 
-            // Threshold de runway: el colchón puede bajar HASTA -descubierto antes de declarar quiebre.
-            // Racional: el saldo actual ya está profundamente negativo (~-158MM con cushion de solo 17MM),
-            // entonces medir "semana hasta cushion<0" da 0 para todos los escenarios y no muestra el impacto
-            // del ahorro de deuda. Con threshold=-descubierto, medimos "semana hasta necesitar un segundo
-            // descubierto equivalente", lo que refleja la capacidad real de absorción + el ahorro mensual.
-            const _runwayFloor = -descubierto; // ~-175MM
+            // Threshold de runway: el colchón se declara quebrado cuando supera el valor del descubierto,
+            // es decir, cuando (saldo + descubierto) < 0. Esto equivale a agotar la capacidad del descubierto.
+            const _runwayFloor = 0;
 
             // Track última semana con cushion por encima del floor (captura recuperación)
             let lastOkOp = -1, lastOkFull = -1, lastOkNoDebt = -1;
@@ -4469,7 +4473,7 @@
                     <div class="kpi-value ${disponibleConDesc >= 0 ? 'positive' : 'negative'}">${formatARS(disponibleConDesc)}</div>
                     <div class="kpi-sub">Desc: ${formatARS(descubierto)}</div>
                 </div>
-                <div class="kpi" style="border-left:3px solid ${rwMesesNum <= 2 ? '#f87171' : rwMesesNum <= 4 ? '#fbbf24' : '#fb923c'}" title="Meses hasta que el saldo + descubierto caiga por debajo de -${formatARS(descubierto)} (necesitaríamos un 2do descubierto equivalente). Escenario operativo real con deuda, sin potenciales.">
+                <div class="kpi" style="border-left:3px solid ${rwMesesNum <= 2 ? '#f87171' : rwMesesNum <= 4 ? '#fbbf24' : '#fb923c'}" title="Meses hasta que el saldo actual + flujos proyectados + descubierto sea < 0 (agotar el descubierto). Escenario operativo real con deuda, sin potenciales.">
                     <div class="kpi-label">Runway Operativo</div>
                     <div class="kpi-value" style="color:${rwMesesNum <= 2 ? '#f87171' : rwMesesNum <= 4 ? '#fbbf24' : '#fb923c'};font-size:24px">${rwOpWeek ? rwOpMeses + 'm' : '>6m'}</div>
                     <div class="kpi-sub">${rwOpWeek ? 'Quiebre sem ' + fmtDateAR(rwOpWeek).slice(0,5) : 'Mín: ' + formatARS(minOpConDesc)}</div>
