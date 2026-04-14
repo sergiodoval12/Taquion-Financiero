@@ -4293,25 +4293,32 @@
                 return 'operativo';
             }
 
-            // Detect ALL debt/financing payments (bancaria + GC + Financiamiento category)
-            // Regla base: cualquier egreso donde detalle (m.d) contenga "Financiamiento" se considera deuda.
-            // Esto captura:
-            //   - Préstamos Bancarios (Galicia, BBVA, Ciudad, Santander refi)
-            //   - AFIP IVA Financiado (t=Impuestos y Tasas, d=Financiamiento AFIP) — ~$213MM
-            //   - Santander como Proveedor refi (t=Proveedores, i=Santander, d=Financiamiento) — ~$63MM
-            //   - Devolución a GC / cuota GC (Guido Comparada, ex-socio)
+            // Detect ALL debt payments (bancaria + GC + refi, pero NO AFIP ni impuestos)
+            // Regla: deuda = obligaciones financieras negociables/pausables.
+            // Captura:
+            //   - Préstamos Bancarios (Galicia, BBVA, Ciudad) — ~$5MM/mes
+            //   - Santander refi como Proveedor (d=Financiamiento) — ~$7MM/mes
+            //   - Devolución a GC / cuota GC (Guido Comparada, ex-socio) — ~$19MM/mes
             //   - Galicia - Mills
-            // NO captura: descubierto interest, operational providers
+            //   - Cobr. Deuda Salta23
+            // NO captura: AFIP IVA Financiado (obligación tributaria, no deuda), cargas sociales,
+            //              descubierto interest, operational providers.
             function isDebtPayment(m) {
                 if (m.v >= 0) return false;
                 const t = m.t || '';
                 const it = (m.i || '').toLowerCase();
                 const d = (m.d || '').toLowerCase();
-                if (d.includes('financiamiento')) return true;          // AFIP fin + Santander fin + etc.
+                // EXCLUSIONES explícitas: AFIP e impuestos NO son deuda aunque digan "Financiamiento"
+                if (t === 'Impuestos y Tasas') return false;
+                if (d.includes('financiamiento afip')) return false;
+                if (t === 'Sueldos y Jornales') return false; // cargas sociales no son deuda
+                // INCLUSIONES: deuda bancaria + GC + refi
                 if (t === 'Préstamos Bancarios') return true;
                 if (t === 'Cobr. Deuda Salta23') return true;
                 if (it.includes('devolucion a gc') || it.includes('devolución a gc') || it.includes('cuota gc')) return true;
                 if (it.includes('galicia - mills')) return true;
+                // Santander refi que viene catalogado como Proveedor pero con detalle Financiamiento
+                if (t === 'Proveedores' && d.includes('financiamiento')) return true;
                 return false;
             }
 
