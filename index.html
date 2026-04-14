@@ -2636,19 +2636,19 @@
         // === HONORARIOS (Especialistas / Freelance por Área — BAU / CUENTA) ===
         // Fuente: SOT Nómina, bloque "Nómina de Especialistas / Profesionales por Área BAU"
         const HONORARIOS_SEED = [
-            {id:'H1',nombre:'Rodrigo Nahuel',apellido:'Artigas',lider:'Lider Inspire',un:'Inspire',tipo:'CUENTA',cuentas:['Suterh','Todo Un país']},
-            {id:'H2',nombre:'Betzabeth Cristina',apellido:'Balzan Vale',lider:'Lider Ignite',un:'Ignite',tipo:'CUENTA',cuentas:['Rosbaco','Boca','Froneri','Todo Un país']},
-            {id:'H3',nombre:'Nicolas Jorge',apellido:'Bavoleo',lider:'COO',un:'Gestión de Cuentas',tipo:'CUENTA',cuentas:['Boca']},
-            {id:'H4',nombre:'Solana Lucia',apellido:'Cuevas',lider:'Lider Ignite',un:'Ignite',tipo:'BAU',cuentas:[]},
-            {id:'H5',nombre:'Fara Emilia Paula',apellido:'Gonzalez',lider:'Lider Inspire',un:'Inspire',tipo:'BAU',cuentas:[]},
-            {id:'H6',nombre:'Sofia Julieta',apellido:'Griolli',lider:'Lider Inspire',un:'Inspire',tipo:'CUENTA',cuentas:['Suterh']},
-            {id:'H7',nombre:'Victoria',apellido:'Lupo',lider:'Lider Insights',un:'Insights',tipo:'BAU',cuentas:[]},
-            {id:'H10',nombre:'Christian Alberto',apellido:'Savloff',lider:'Lider Inspire',un:'Inspire',tipo:'BAU',cuentas:[]},
-            {id:'H11',nombre:'Elena Celeste',apellido:'Targonol',lider:'Lider Inspire',un:'Inspire',tipo:'BAU',cuentas:[]},
-            {id:'H12',nombre:'Julieta Mabel',apellido:'Torres',lider:'Lider Inspire',un:'Inspire',tipo:'BAU',cuentas:[]},
-            {id:'H13',nombre:'Alejo Raul',apellido:'Zubillaga',lider:'Lider Inspire',un:'Inspire',tipo:'CUENTA',cuentas:['Rosbaco','Boca']},
-            {id:'H14',nombre:'Gisela Alicia',apellido:'Bongiorni',lider:'CCO',un:'Comercial',tipo:'BAU',cuentas:[]},
-            {id:'H15',nombre:'Maria Jose',apellido:'Montaño Coneo',lider:'Lider Inspire',un:'Inspire',tipo:'BAU',cuentas:[]}
+            {id:'H1',nombre:'Rodrigo Nahuel',apellido:'Artigas',lider:'Lider Inspire',un:'Inspire',tipo:'CUENTA',cuentas:['Suterh','Todo Un país'],honorario:1850000},
+            {id:'H2',nombre:'Betzabeth Cristina',apellido:'Balzan Vale',lider:'Lider Ignite',un:'Ignite',tipo:'CUENTA',cuentas:['Rosbaco','Boca','Froneri','Todo Un país'],honorario:881300},
+            {id:'H3',nombre:'Nicolas Jorge',apellido:'Bavoleo',lider:'COO',un:'Gestión de Cuentas',tipo:'CUENTA',cuentas:['Boca'],honorario:1200000},
+            {id:'H4',nombre:'Solana Lucia',apellido:'Cuevas',lider:'Lider Ignite',un:'Ignite',tipo:'BAU',cuentas:[],honorario:1400000},
+            {id:'H5',nombre:'Fara Emilia Paula',apellido:'Gonzalez',lider:'Lider Inspire',un:'Inspire',tipo:'BAU',cuentas:[],honorario:737750},
+            {id:'H6',nombre:'Sofia Julieta',apellido:'Griolli',lider:'Lider Inspire',un:'Inspire',tipo:'CUENTA',cuentas:['Suterh'],honorario:1810000},
+            {id:'H7',nombre:'Victoria',apellido:'Lupo',lider:'Lider Insights',un:'Insights',tipo:'BAU',cuentas:[],honorario:3000000},
+            {id:'H10',nombre:'Christian Alberto',apellido:'Savloff',lider:'Lider Inspire',un:'Inspire',tipo:'BAU',cuentas:[],honorario:3000000},
+            {id:'H11',nombre:'Elena Celeste',apellido:'Targonol',lider:'Lider Inspire',un:'Inspire',tipo:'BAU',cuentas:[],honorario:2225250},
+            {id:'H12',nombre:'Julieta Mabel',apellido:'Torres',lider:'Lider Inspire',un:'Inspire',tipo:'BAU',cuentas:[],honorario:1300000},
+            {id:'H13',nombre:'Alejo Raul',apellido:'Zubillaga',lider:'Lider Inspire',un:'Inspire',tipo:'CUENTA',cuentas:['Rosbaco','Boca'],honorario:1200000},
+            {id:'H14',nombre:'Gisela Alicia',apellido:'Bongiorni',lider:'CCO',un:'Comercial',tipo:'BAU',cuentas:[],honorario:3500000},
+            {id:'H15',nombre:'Maria Jose',apellido:'Montaño Coneo',lider:'Lider Inspire',un:'Inspire',tipo:'BAU',cuentas:[],honorario:1000000}
         ];
 
         // Initialize NOMINA: use localStorage if available and non-empty, otherwise seed
@@ -2899,12 +2899,14 @@
             const byUN = {};
             bau.forEach(h => {
                 const un = h.un || 'Sin asignar';
-                if (!byUN[un]) byUN[un] = { count: 0, nombres: [] };
+                if (!byUN[un]) byUN[un] = { count: 0, costo: 0, nombres: [] };
                 byUN[un].count++;
+                byUN[un].costo += (h.honorario || 0);
                 byUN[un].nombres.push(h.nombre + ' ' + h.apellido);
             });
-            const sorted = Object.entries(byUN).sort((a,b) => b[1].count - a[1].count);
-            const total = bau.length;
+            const sorted = Object.entries(byUN).sort((a,b) => b[1].costo - a[1].costo);
+            const totalCount = bau.length;
+            const totalCosto = bau.reduce((a,h) => a + (h.honorario || 0), 0);
 
             // Destruir chart previo
             if (especialistasBAUChartInstance) { especialistasBAUChartInstance.destroy(); especialistasBAUChartInstance = null; }
@@ -2915,7 +2917,7 @@
                     data: {
                         labels: sorted.map(([u]) => u),
                         datasets: [{
-                            data: sorted.map(([, d]) => d.count),
+                            data: sorted.map(([, d]) => d.costo),
                             backgroundColor: sorted.map(([u]) => (typeof AREA_COLORS !== 'undefined' && AREA_COLORS[u]) || '#4b5563'),
                             borderWidth: 0
                         }]
@@ -2925,8 +2927,9 @@
                         plugins: {
                             legend: { display: true, position: 'right', labels: { color: '#8b949e', font: { size: 10 }, padding: 8, boxWidth: 12 } },
                             tooltip: { callbacks: { label: function(c) {
-                                const pct = total > 0 ? ((c.raw / total) * 100).toFixed(1) : 0;
-                                return ' ' + c.label + ': ' + c.raw + ' especialista' + (c.raw > 1 ? 's' : '') + ' (' + pct + '%)';
+                                const d = sorted[c.dataIndex][1];
+                                const pct = totalCosto > 0 ? ((c.raw / totalCosto) * 100).toFixed(1) : 0;
+                                return ' ' + c.label + ': ' + formatMoney(c.raw) + ' · ' + d.count + ' pers (' + pct + '%)';
                             }}}
                         }
                     }
@@ -2937,20 +2940,20 @@
                 if (sorted.length === 0) {
                     summaryDiv.innerHTML = '<div style="color:var(--tx2);font-size:11px;padding:12px;text-align:center">Sin especialistas BAU cargados.</div>';
                 } else {
-                    let sh = '<div style="font-size:10px;color:var(--tx2);margin-bottom:8px">Total: <strong style="color:#e6edf3">'+total+'</strong> especialistas BAU</div>';
-                    sh += '<table style="width:100%;font-size:11px"><thead><tr style="color:#8b949e;text-align:left"><th>UN</th><th style="text-align:center"># BAU</th><th style="text-align:right">%</th><th>Nombres</th></tr></thead><tbody>';
+                    let sh = '<div style="font-size:10px;color:var(--tx2);margin-bottom:8px">Total: <strong style="color:#e6edf3">'+formatMoney(totalCosto)+'</strong> mensual · '+totalCount+' especialistas BAU</div>';
+                    sh += '<table style="width:100%;font-size:11px"><thead><tr style="color:#8b949e;text-align:left"><th>UN</th><th style="text-align:center"># BAU</th><th style="text-align:right">Costo / mes</th><th style="text-align:right">%</th></tr></thead><tbody>';
                     sorted.forEach(([un, d]) => {
-                        const pct = total > 0 ? ((d.count / total) * 100).toFixed(1) : '0';
+                        const pct = totalCosto > 0 ? ((d.costo / totalCosto) * 100).toFixed(1) : '0';
                         const color = (typeof AREA_COLORS !== 'undefined' && AREA_COLORS[un]) || '#4b5563';
                         sh += '<tr style="border-bottom:1px solid #21262d">'
                             + '<td style="padding:6px 4px"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:'+color+';margin-right:6px"></span>'+un+'</td>'
-                            + '<td style="padding:6px 4px;text-align:center;font-weight:600">'+d.count+'</td>'
+                            + '<td style="padding:6px 4px;text-align:center">'+d.count+'</td>'
+                            + '<td style="padding:6px 4px;text-align:right;font-weight:600">'+formatMoney(d.costo)+'</td>'
                             + '<td style="padding:6px 4px;text-align:right;color:#8b949e">'+pct+'%</td>'
-                            + '<td style="padding:6px 4px;font-size:10px;color:var(--tx2)">'+d.nombres.join(', ')+'</td>'
                             + '</tr>';
                     });
                     sh += '</tbody></table>';
-                    sh += '<div style="margin-top:8px;font-size:9px;color:var(--tx2);line-height:1.5">Fuente: SOT Nómina — bloque "Nómina de Especialistas / Profesionales por Área BAU". Filtra honorarios con tipo=BAU (asesoramiento a la unidad, no asignados a cuenta específica).</div>';
+                    sh += '<div style="margin-top:8px;font-size:9px;color:var(--tx2);line-height:1.5">Fuente: SOT Nómina — bloque "Nómina de Especialistas / Profesionales por Área BAU". Distribución por Honorario Total mensual de cada especialista BAU.</div>';
                     summaryDiv.innerHTML = sh;
                 }
             }
@@ -2972,20 +2975,25 @@
             const byUN = {};
             empleados.forEach(e => {
                 const un = e.area || 'Sin asignar';
-                if (!byUN[un]) byUN[un] = { emp: 0, esp: 0 };
+                if (!byUN[un]) byUN[un] = { emp: 0, esp: 0, costoEmp: 0, costoEsp: 0 };
                 byUN[un].emp++;
+                byUN[un].costoEmp += getNeto(e);
             });
             bau.forEach(h => {
                 const un = h.un || 'Sin asignar';
-                if (!byUN[un]) byUN[un] = { emp: 0, esp: 0 };
+                if (!byUN[un]) byUN[un] = { emp: 0, esp: 0, costoEmp: 0, costoEsp: 0 };
                 byUN[un].esp++;
+                byUN[un].costoEsp += (h.honorario || 0);
             });
             const sorted = Object.entries(byUN)
-                .map(([un, d]) => [un, { ...d, total: d.emp + d.esp }])
-                .sort((a,b) => b[1].total - a[1].total);
+                .map(([un, d]) => [un, { ...d, total: d.emp + d.esp, costoTotal: d.costoEmp + d.costoEsp }])
+                .sort((a,b) => b[1].costoTotal - a[1].costoTotal);
             const totalEmp = empleados.length;
             const totalEsp = bau.length;
-            const total = totalEmp + totalEsp;
+            const totalHC = totalEmp + totalEsp;
+            const costoEmpTot = empleados.reduce((a,e) => a + getNeto(e), 0);
+            const costoEspTot = bau.reduce((a,h) => a + (h.honorario || 0), 0);
+            const totalCosto = costoEmpTot + costoEspTot;
 
             if (nominaTotalBAUChartInstance) { nominaTotalBAUChartInstance.destroy(); nominaTotalBAUChartInstance = null; }
 
@@ -2995,7 +3003,7 @@
                     data: {
                         labels: sorted.map(([u]) => u),
                         datasets: [{
-                            data: sorted.map(([, d]) => d.total),
+                            data: sorted.map(([, d]) => d.costoTotal),
                             backgroundColor: sorted.map(([u]) => (typeof AREA_COLORS !== 'undefined' && AREA_COLORS[u]) || '#4b5563'),
                             borderWidth: 0
                         }]
@@ -3006,8 +3014,8 @@
                             legend: { display: true, position: 'right', labels: { color: '#8b949e', font: { size: 10 }, padding: 8, boxWidth: 12 } },
                             tooltip: { callbacks: { label: function(c) {
                                 const d = sorted[c.dataIndex][1];
-                                const pct = total > 0 ? ((c.raw / total) * 100).toFixed(1) : 0;
-                                return ' ' + c.label + ': ' + c.raw + ' (' + d.emp + ' emp + ' + d.esp + ' esp BAU) · ' + pct + '%';
+                                const pct = totalCosto > 0 ? ((c.raw / totalCosto) * 100).toFixed(1) : 0;
+                                return ' ' + c.label + ': ' + formatMoney(c.raw) + ' (' + formatMoney(d.costoEmp) + ' emp + ' + formatMoney(d.costoEsp) + ' esp) · ' + pct + '%';
                             }}}
                         }
                     }
@@ -3018,21 +3026,21 @@
                 if (sorted.length === 0) {
                     summaryDiv.innerHTML = '<div style="color:var(--tx2);font-size:11px;padding:12px;text-align:center">Sin datos de nómina.</div>';
                 } else {
-                    let sh = '<div style="font-size:10px;color:var(--tx2);margin-bottom:8px">Total BAU: <strong style="color:#e6edf3">'+total+'</strong> personas · <span style="color:#3fb950">'+totalEmp+' empleados</span> + <span style="color:#a78bfa">'+totalEsp+' especialistas BAU</span></div>';
-                    sh += '<table style="width:100%;font-size:11px"><thead><tr style="color:#8b949e;text-align:left"><th>UN</th><th style="text-align:center">Emp</th><th style="text-align:center">Esp BAU</th><th style="text-align:center">Total</th><th style="text-align:right">%</th></tr></thead><tbody>';
+                    let sh = '<div style="font-size:10px;color:var(--tx2);margin-bottom:8px">Total BAU mensual: <strong style="color:#e6edf3">'+formatMoney(totalCosto)+'</strong> · <span style="color:#3fb950">'+formatMoney(costoEmpTot)+' empleados</span> + <span style="color:#a78bfa">'+formatMoney(costoEspTot)+' especialistas</span> · '+totalHC+' personas</div>';
+                    sh += '<table style="width:100%;font-size:11px"><thead><tr style="color:#8b949e;text-align:left"><th>UN</th><th style="text-align:right">Empleados</th><th style="text-align:right">Esp BAU</th><th style="text-align:right">Total</th><th style="text-align:right">%</th></tr></thead><tbody>';
                     sorted.forEach(([un, d]) => {
-                        const pct = total > 0 ? ((d.total / total) * 100).toFixed(1) : '0';
+                        const pct = totalCosto > 0 ? ((d.costoTotal / totalCosto) * 100).toFixed(1) : '0';
                         const color = (typeof AREA_COLORS !== 'undefined' && AREA_COLORS[un]) || '#4b5563';
                         sh += '<tr style="border-bottom:1px solid #21262d">'
-                            + '<td style="padding:6px 4px"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:'+color+';margin-right:6px"></span>'+un+'</td>'
-                            + '<td style="padding:6px 4px;text-align:center;color:#3fb950">'+d.emp+'</td>'
-                            + '<td style="padding:6px 4px;text-align:center;color:'+(d.esp>0?'#a78bfa':'var(--tx2)')+'">'+d.esp+'</td>'
-                            + '<td style="padding:6px 4px;text-align:center;font-weight:600;color:#e6edf3">'+d.total+'</td>'
+                            + '<td style="padding:6px 4px"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:'+color+';margin-right:6px"></span>'+un+' <span style="color:var(--tx2);font-size:9px">('+d.emp+'e+'+d.esp+'b)</span></td>'
+                            + '<td style="padding:6px 4px;text-align:right;color:#3fb950">'+formatMoney(d.costoEmp)+'</td>'
+                            + '<td style="padding:6px 4px;text-align:right;color:'+(d.costoEsp>0?'#a78bfa':'var(--tx2)')+'">'+formatMoney(d.costoEsp)+'</td>'
+                            + '<td style="padding:6px 4px;text-align:right;font-weight:600;color:#e6edf3">'+formatMoney(d.costoTotal)+'</td>'
                             + '<td style="padding:6px 4px;text-align:right;color:#8b949e">'+pct+'%</td>'
                             + '</tr>';
                     });
                     sh += '</tbody></table>';
-                    sh += '<div style="margin-top:8px;font-size:9px;color:var(--tx2);line-height:1.5">Fuente: SOT Nómina. Suma colaboradores activos + especialistas freelance BAU. Distribución por headcount.</div>';
+                    sh += '<div style="margin-top:8px;font-size:9px;color:var(--tx2);line-height:1.5">Fuente: SOT Nómina. Costo mensual = Sueldo Neto empleados activos + Honorario Total especialistas BAU.</div>';
                     summaryDiv.innerHTML = sh;
                 }
             }
