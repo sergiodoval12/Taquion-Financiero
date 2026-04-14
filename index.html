@@ -4414,14 +4414,23 @@
             rwFullWeeks = _rwFull.weeks; rwFullWeek = _rwFull.wk;
             rwNoDebtWeeks = _rwNoDebt.weeks; rwNoDebtWeek = _rwNoDebt.wk;
 
-            // Totals for display
+            // Totals for display — acotados AL MISMO HORIZONTE de la proyección del runway
+            // (desde hoy hasta el fin de la última semana proyectada), para que sean comparables.
+            const _horizonEndKey = weekKeys.length ? (() => {
+                const d = new Date(weekKeys[weekKeys.length - 1]);
+                d.setDate(d.getDate() + 6);
+                return d.toISOString().slice(0, 10);
+            })() : _todayKey;
             (DATA.mov || []).forEach(m => {
-                if (!m.f || m.f < '2026-04') return;
+                if (!m.f || m.f < _todayKey || m.f > _horizonEndKey) return;
                 const cls = movClass(m);
                 if (cls === 'potencial') totalPotenciales += (m.v || 0);
                 if (cls === 'inversion') totalInversion += (m.v || 0);
                 if (cls === 'operativo' && isDebtPayment(m)) totalDeuda += (m.v || 0);
             });
+            // Meses del horizonte (para mostrar al usuario)
+            const _horizonMeses = weekKeys.length ? (weekKeys.length / 4.33).toFixed(1) : '0';
+            const _horizonLabel = weekKeys.length ? fmtDateAR(_horizonEndKey) : '—';
 
             // rwXxxWeeks: null = no break (runway > horizonte); 0 = break inmediato; N = N semanas sobrevividas
             const rwOpMeses = rwOpWeeks !== null ? (rwOpWeeks / 4.33).toFixed(1) : null;
@@ -4445,7 +4454,7 @@
                 alarmEl.style.background = '#fb923c55';
                 alarmEl.style.color = '#fb923c';
             } else {
-                alarmEl.textContent = 'Runway >6 meses';
+                alarmEl.textContent = 'Runway Operativo: OK hasta fin de proyección (' + _horizonLabel + ', ' + _horizonMeses + 'm)';
                 alarmEl.style.background = '#34d39955';
                 alarmEl.style.color = '#34d399';
             }
@@ -4475,21 +4484,21 @@
                 </div>
                 <div class="kpi" style="border-left:3px solid ${rwMesesNum <= 2 ? '#f87171' : rwMesesNum <= 4 ? '#fbbf24' : '#fb923c'}" title="Meses hasta que el saldo actual + flujos proyectados + descubierto sea < 0 (agotar el descubierto). Escenario operativo real con deuda, sin potenciales.">
                     <div class="kpi-label">Runway Operativo</div>
-                    <div class="kpi-value" style="color:${rwMesesNum <= 2 ? '#f87171' : rwMesesNum <= 4 ? '#fbbf24' : '#fb923c'};font-size:24px">${rwOpWeek ? rwOpMeses + 'm' : '>6m'}</div>
-                    <div class="kpi-sub">${rwOpWeek ? 'Quiebre sem ' + fmtDateAR(rwOpWeek).slice(0,5) : 'Mín: ' + formatARS(minOpConDesc)}</div>
+                    <div class="kpi-value" style="color:${rwMesesNum <= 2 ? '#f87171' : rwMesesNum <= 4 ? '#fbbf24' : '#fb923c'};font-size:24px">${rwOpWeek ? rwOpMeses + 'm' : 'OK hasta ' + _horizonLabel.slice(0,5)}</div>
+                    <div class="kpi-sub">${rwOpWeek ? 'Quiebre sem ' + fmtDateAR(rwOpWeek).slice(0,5) : 'Sobrevive horizonte (' + _horizonMeses + 'm)'}</div>
                     <div class="kpi-sub" style="font-size:8px;margin-top:2px">Con deuda, sin potenciales</div>
                 </div>
                 <div class="kpi" style="border-left:3px solid ${rwFullWeek ? '#fbbf24' : '#34d399'}" title="Runway operativo sumando los ingresos potenciales del pipeline.">
                     <div class="kpi-label">Runway c/ Potenciales</div>
-                    <div class="kpi-value" style="color:${rwFullWeek ? '#fbbf24' : '#34d399'};font-size:24px">${rwFullWeek ? rwFullMeses + 'm' : '>6m'}</div>
-                    <div class="kpi-sub">${rwFullWeek ? 'Quiebre sem ' + fmtDateAR(rwFullWeek).slice(0,5) : 'Mín: ' + formatARS(minFullConDesc)}</div>
+                    <div class="kpi-value" style="color:${rwFullWeek ? '#fbbf24' : '#34d399'};font-size:24px">${rwFullWeek ? rwFullMeses + 'm' : 'OK hasta ' + _horizonLabel.slice(0,5)}</div>
+                    <div class="kpi-sub">${rwFullWeek ? 'Quiebre sem ' + fmtDateAR(rwFullWeek).slice(0,5) : 'Sobrevive horizonte (' + _horizonMeses + 'm)'}</div>
                     <div class="kpi-sub" style="font-size:8px;margin-top:2px">Pipeline: ${formatARS(totalPotenciales)}</div>
                 </div>
-                <div class="kpi" style="border-left:3px solid #60a5fa" title="Runway si pausamos TODA la deuda (bancaria + GC). Muestra el impacto real del ahorro de deuda (~38MM/mes).">
+                <div class="kpi" style="border-left:3px solid #60a5fa" title="Runway si pausamos TODA la deuda (bancaria + GC + financiamiento AFIP + refi Santander). Muestra el impacto real del ahorro de deuda en el horizonte proyectado.">
                     <div class="kpi-label">Runway Op. Sin Deuda</div>
-                    <div class="kpi-value" style="color:${rwNoDebtNum <= 3 ? '#fb923c' : '#60a5fa'};font-size:24px">${rwNoDebtWeek ? rwNoDebtMeses + 'm' : '>6m'}</div>
-                    <div class="kpi-sub">${rwNoDebtWeek ? 'Quiebre sem ' + fmtDateAR(rwNoDebtWeek).slice(0,5) : 'Mín: ' + formatARS(minNoDebtConDesc)}</div>
-                    <div class="kpi-sub" style="font-size:8px;margin-top:2px">Ahorro deuda: ${formatARS(Math.abs(totalDeuda))}</div>
+                    <div class="kpi-value" style="color:${rwNoDebtNum <= 3 ? '#fb923c' : '#60a5fa'};font-size:24px">${rwNoDebtWeek ? rwNoDebtMeses + 'm' : 'OK hasta ' + _horizonLabel.slice(0,5)}</div>
+                    <div class="kpi-sub">${rwNoDebtWeek ? 'Quiebre sem ' + fmtDateAR(rwNoDebtWeek).slice(0,5) : 'Sobrevive horizonte (' + _horizonMeses + 'm)'}</div>
+                    <div class="kpi-sub" style="font-size:8px;margin-top:2px">Ahorro deuda en horizonte (${_horizonMeses}m): ${formatARS(Math.abs(totalDeuda))}</div>
                 </div>
             `;
 
