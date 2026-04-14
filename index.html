@@ -4357,9 +4357,15 @@
             let minNoDebtConDesc = disponibleConDesc, minNoDebtWeek = null;
             let totalPotenciales = 0, totalInversion = 0, totalDeuda = 0;
 
-            // Track última semana con colchón no-negativo para cada escenario (captura recuperación)
+            // Threshold de runway: el colchón puede bajar HASTA -descubierto antes de declarar quiebre.
+            // Racional: el saldo actual ya está profundamente negativo (~-158MM con cushion de solo 17MM),
+            // entonces medir "semana hasta cushion<0" da 0 para todos los escenarios y no muestra el impacto
+            // del ahorro de deuda. Con threshold=-descubierto, medimos "semana hasta necesitar un segundo
+            // descubierto equivalente", lo que refleja la capacidad real de absorción + el ahorro mensual.
+            const _runwayFloor = -descubierto; // ~-175MM
+
+            // Track última semana con cushion por encima del floor (captura recuperación)
             let lastOkOp = -1, lastOkFull = -1, lastOkNoDebt = -1;
-            const cdOpArr = [], cdFullArr = [], cdNoDebtArr = [];
 
             weekKeys.forEach((wk, i) => {
                 cashOp += (weeklyOp[wk] || 0);
@@ -4370,7 +4376,6 @@
                 const cdFull = cashFull + descubierto;
                 const cdNoDebt = cashNoDebt + descubierto;
                 const cdInv = cashInv + descubierto;
-                cdOpArr.push(cdOp); cdFullArr.push(cdFull); cdNoDebtArr.push(cdNoDebt);
                 const endD = new Date(wk); endD.setDate(endD.getDate() + 6);
                 const label = fmtDateAR(wk).slice(0,5) + '-' + fmtDateAR(endD.toISOString().slice(0,10)).slice(0,5);
                 projOp.push({ label, saldo: cashOp, conDesc: cdOp, wk });
@@ -4380,15 +4385,16 @@
                 if (cdOp < minOpConDesc) { minOpConDesc = cdOp; minOpWeek = wk; }
                 if (cdFull < minFullConDesc) { minFullConDesc = cdFull; minFullWeek = wk; }
                 if (cdNoDebt < minNoDebtConDesc) { minNoDebtConDesc = cdNoDebt; minNoDebtWeek = wk; }
-                if (cdOp >= 0) lastOkOp = i;
-                if (cdFull >= 0) lastOkFull = i;
-                if (cdNoDebt >= 0) lastOkNoDebt = i;
+                // Comparar contra el floor, no contra 0
+                if (cdOp >= _runwayFloor) lastOkOp = i;
+                if (cdFull >= _runwayFloor) lastOkFull = i;
+                if (cdNoDebt >= _runwayFloor) lastOkNoDebt = i;
             });
 
-            // Runway = última semana con colchón no-negativo + 1 (captura recuperación post-pago deuda)
+            // Runway = última semana por encima del floor + 1 (captura recuperación post-pago deuda)
             // Si el escenario nunca se quiebra dentro del horizonte, runway = null (horizonte completo OK)
-            // Si nunca llega a colchón positivo, runway = 0
-            function _calcRw(lastOk, arr) {
+            // Si nunca está por encima del floor, runway = 0
+            function _calcRw(lastOk) {
                 if (lastOk === -1) return { weeks: 0, wk: weekKeys[0] || null };
                 if (lastOk >= weekKeys.length - 1) {
                     // Nunca se quebró dentro del horizonte proyectado
@@ -4397,9 +4403,9 @@
                 // última semana OK + 1 = primera semana con quiebre permanente
                 return { weeks: lastOk + 1, wk: weekKeys[lastOk + 1] };
             }
-            const _rwOp = _calcRw(lastOkOp, cdOpArr);
-            const _rwFull = _calcRw(lastOkFull, cdFullArr);
-            const _rwNoDebt = _calcRw(lastOkNoDebt, cdNoDebtArr);
+            const _rwOp = _calcRw(lastOkOp);
+            const _rwFull = _calcRw(lastOkFull);
+            const _rwNoDebt = _calcRw(lastOkNoDebt);
             rwOpWeeks = _rwOp.weeks; rwOpWeek = _rwOp.wk;
             rwFullWeeks = _rwFull.weeks; rwFullWeek = _rwFull.wk;
             rwNoDebtWeeks = _rwNoDebt.weeks; rwNoDebtWeek = _rwNoDebt.wk;
@@ -4463,19 +4469,19 @@
                     <div class="kpi-value ${disponibleConDesc >= 0 ? 'positive' : 'negative'}">${formatARS(disponibleConDesc)}</div>
                     <div class="kpi-sub">Desc: ${formatARS(descubierto)}</div>
                 </div>
-                <div class="kpi" style="border-left:3px solid ${rwMesesNum <= 2 ? '#f87171' : rwMesesNum <= 4 ? '#fbbf24' : '#fb923c'}">
+                <div class="kpi" style="border-left:3px solid ${rwMesesNum <= 2 ? '#f87171' : rwMesesNum <= 4 ? '#fbbf24' : '#fb923c'}" title="Meses hasta que el saldo + descubierto caiga por debajo de -${formatARS(descubierto)} (necesitaríamos un 2do descubierto equivalente). Escenario operativo real con deuda, sin potenciales.">
                     <div class="kpi-label">Runway Operativo</div>
                     <div class="kpi-value" style="color:${rwMesesNum <= 2 ? '#f87171' : rwMesesNum <= 4 ? '#fbbf24' : '#fb923c'};font-size:24px">${rwOpWeek ? rwOpMeses + 'm' : '>6m'}</div>
                     <div class="kpi-sub">${rwOpWeek ? 'Quiebre sem ' + fmtDateAR(rwOpWeek).slice(0,5) : 'Mín: ' + formatARS(minOpConDesc)}</div>
                     <div class="kpi-sub" style="font-size:8px;margin-top:2px">Con deuda, sin potenciales</div>
                 </div>
-                <div class="kpi" style="border-left:3px solid ${rwFullWeek ? '#fbbf24' : '#34d399'}">
+                <div class="kpi" style="border-left:3px solid ${rwFullWeek ? '#fbbf24' : '#34d399'}" title="Runway operativo sumando los ingresos potenciales del pipeline.">
                     <div class="kpi-label">Runway c/ Potenciales</div>
                     <div class="kpi-value" style="color:${rwFullWeek ? '#fbbf24' : '#34d399'};font-size:24px">${rwFullWeek ? rwFullMeses + 'm' : '>6m'}</div>
                     <div class="kpi-sub">${rwFullWeek ? 'Quiebre sem ' + fmtDateAR(rwFullWeek).slice(0,5) : 'Mín: ' + formatARS(minFullConDesc)}</div>
                     <div class="kpi-sub" style="font-size:8px;margin-top:2px">Pipeline: ${formatARS(totalPotenciales)}</div>
                 </div>
-                <div class="kpi" style="border-left:3px solid #60a5fa">
+                <div class="kpi" style="border-left:3px solid #60a5fa" title="Runway si pausamos TODA la deuda (bancaria + GC). Muestra el impacto real del ahorro de deuda (~38MM/mes).">
                     <div class="kpi-label">Runway Op. Sin Deuda</div>
                     <div class="kpi-value" style="color:${rwNoDebtNum <= 3 ? '#fb923c' : '#60a5fa'};font-size:24px">${rwNoDebtWeek ? rwNoDebtMeses + 'm' : '>6m'}</div>
                     <div class="kpi-sub">${rwNoDebtWeek ? 'Quiebre sem ' + fmtDateAR(rwNoDebtWeek).slice(0,5) : 'Mín: ' + formatARS(minNoDebtConDesc)}</div>
