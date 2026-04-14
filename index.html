@@ -4314,8 +4314,10 @@
             const weeklyNoDebt = {}; // Operativo Sin Deuda Bancaria (sin cuotas de préstamos bancarios)
             const weeklyInv = {};    // Solo inversión (para referencia)
 
+            // Filtrar desde HOY (no hardcode) — los movimientos anteriores YA están en saldoActual (auto-roll del ancla)
+            const _todayKey = new Date().toISOString().slice(0, 10);
             (DATA.mov || []).forEach(m => {
-                if (!m.f || m.f < '2026-04-06') return;
+                if (!m.f || m.f < _todayKey) return;
                 const wk = getWeekMon(m.f);
                 if (!weeklyOp[wk]) weeklyOp[wk] = 0;
                 if (!weeklyFull[wk]) weeklyFull[wk] = 0;
@@ -4355,6 +4357,10 @@
             let minNoDebtConDesc = disponibleConDesc, minNoDebtWeek = null;
             let totalPotenciales = 0, totalInversion = 0, totalDeuda = 0;
 
+            // Track última semana con colchón no-negativo para cada escenario (captura recuperación)
+            let lastOkOp = -1, lastOkFull = -1, lastOkNoDebt = -1;
+            const cdOpArr = [], cdFullArr = [], cdNoDebtArr = [];
+
             weekKeys.forEach((wk, i) => {
                 cashOp += (weeklyOp[wk] || 0);
                 cashFull += (weeklyFull[wk] || 0);
@@ -4364,6 +4370,7 @@
                 const cdFull = cashFull + descubierto;
                 const cdNoDebt = cashNoDebt + descubierto;
                 const cdInv = cashInv + descubierto;
+                cdOpArr.push(cdOp); cdFullArr.push(cdFull); cdNoDebtArr.push(cdNoDebt);
                 const endD = new Date(wk); endD.setDate(endD.getDate() + 6);
                 const label = fmtDateAR(wk).slice(0,5) + '-' + fmtDateAR(endD.toISOString().slice(0,10)).slice(0,5);
                 projOp.push({ label, saldo: cashOp, conDesc: cdOp, wk });
@@ -4373,10 +4380,29 @@
                 if (cdOp < minOpConDesc) { minOpConDesc = cdOp; minOpWeek = wk; }
                 if (cdFull < minFullConDesc) { minFullConDesc = cdFull; minFullWeek = wk; }
                 if (cdNoDebt < minNoDebtConDesc) { minNoDebtConDesc = cdNoDebt; minNoDebtWeek = wk; }
-                if (cdOp < 0 && rwOpWeeks === null) { rwOpWeeks = i + 1; rwOpWeek = wk; }
-                if (cdFull < 0 && rwFullWeeks === null) { rwFullWeeks = i + 1; rwFullWeek = wk; }
-                if (cdNoDebt < 0 && rwNoDebtWeeks === null) { rwNoDebtWeeks = i + 1; rwNoDebtWeek = wk; }
+                if (cdOp >= 0) lastOkOp = i;
+                if (cdFull >= 0) lastOkFull = i;
+                if (cdNoDebt >= 0) lastOkNoDebt = i;
             });
+
+            // Runway = última semana con colchón no-negativo + 1 (captura recuperación post-pago deuda)
+            // Si el escenario nunca se quiebra dentro del horizonte, runway = null (horizonte completo OK)
+            // Si nunca llega a colchón positivo, runway = 0
+            function _calcRw(lastOk, arr) {
+                if (lastOk === -1) return { weeks: 0, wk: weekKeys[0] || null };
+                if (lastOk >= weekKeys.length - 1) {
+                    // Nunca se quebró dentro del horizonte proyectado
+                    return { weeks: null, wk: null };
+                }
+                // última semana OK + 1 = primera semana con quiebre permanente
+                return { weeks: lastOk + 1, wk: weekKeys[lastOk + 1] };
+            }
+            const _rwOp = _calcRw(lastOkOp, cdOpArr);
+            const _rwFull = _calcRw(lastOkFull, cdFullArr);
+            const _rwNoDebt = _calcRw(lastOkNoDebt, cdNoDebtArr);
+            rwOpWeeks = _rwOp.weeks; rwOpWeek = _rwOp.wk;
+            rwFullWeeks = _rwFull.weeks; rwFullWeek = _rwFull.wk;
+            rwNoDebtWeeks = _rwNoDebt.weeks; rwNoDebtWeek = _rwNoDebt.wk;
 
             // Totals for display
             (DATA.mov || []).forEach(m => {
@@ -4387,11 +4413,12 @@
                 if (cls === 'operativo' && isDebtPayment(m)) totalDeuda += (m.v || 0);
             });
 
-            const rwOpMeses = rwOpWeeks ? (rwOpWeeks / 4.33).toFixed(1) : null;
-            const rwFullMeses = rwFullWeeks ? (rwFullWeeks / 4.33).toFixed(1) : null;
-            const rwNoDebtMeses = rwNoDebtWeeks ? (rwNoDebtWeeks / 4.33).toFixed(1) : null;
-            const rwMesesNum = rwOpWeeks ? parseFloat(rwOpMeses) : 99;
-            const rwNoDebtNum = rwNoDebtWeeks ? parseFloat(rwNoDebtMeses) : 99;
+            // rwXxxWeeks: null = no break (runway > horizonte); 0 = break inmediato; N = N semanas sobrevividas
+            const rwOpMeses = rwOpWeeks !== null ? (rwOpWeeks / 4.33).toFixed(1) : null;
+            const rwFullMeses = rwFullWeeks !== null ? (rwFullWeeks / 4.33).toFixed(1) : null;
+            const rwNoDebtMeses = rwNoDebtWeeks !== null ? (rwNoDebtWeeks / 4.33).toFixed(1) : null;
+            const rwMesesNum = rwOpWeeks !== null ? parseFloat(rwOpMeses) : 99;
+            const rwNoDebtNum = rwNoDebtWeeks !== null ? parseFloat(rwNoDebtMeses) : 99;
 
             // Runway alarm — based on OPERATIVO (conservative)
             const alarmEl = document.getElementById('runwayAlarm');
