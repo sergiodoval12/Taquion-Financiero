@@ -1477,6 +1477,24 @@
                     </div>
                 </div>
 
+                <!-- Consolidado por Unidad de Negocio: Sueldos + Honorarios + Prov. BAU + Prov. CUENTA -->
+                <div class="card" style="margin-bottom:20px">
+                    <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+                        <span>Distribución por Unidad de Negocio — Consolidado
+                            <span title="Para el mes seleccionado, muestra el costo total por UN sumando:&#10;• Sueldos (nómina activa, sueldo neto por empleado asignado a esa UN)&#10;• Honorarios (egresos de freelance/honorarios imputados al CC)&#10;• Prov. BAU (egresos a proveedores con Cliente = Taquion o sin cliente)&#10;• Prov. CUENTA Proyecto (egresos con Cliente distinto a Taquion, i.e. proyectos vendibles)&#10;Incluye % peso y subtotales Vendibles vs Soporte." style="display:inline-block;width:13px;height:13px;border-radius:50%;background:#30363d;color:#e6edf3;font-size:9px;text-align:center;line-height:13px;cursor:help;margin-left:4px;font-weight:400">?</span>
+                        </span>
+                        <div style="display:flex;gap:8px;align-items:center">
+                            <select id="distUNRango" onchange="renderDistribucionUN()" style="background:#161b22;border:1px solid #30363d;color:#e6edf3;padding:4px 8px;border-radius:4px;font-size:11px">
+                                <option value="mes">Mes seleccionado</option>
+                                <option value="q">Trimestre</option>
+                                <option value="ytd">YTD</option>
+                            </select>
+                            <select id="distUNMes" onchange="renderDistribucionUN()" style="background:#161b22;border:1px solid #30363d;color:#e6edf3;padding:4px 8px;border-radius:4px;font-size:11px"></select>
+                        </div>
+                    </div>
+                    <div id="distUNContent" style="margin-top:10px"></div>
+                </div>
+
                 <!-- Proveedores agregados por Unidad de Negocio (CC) -->
                 <div class="card" style="margin-bottom:20px">
                     <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
@@ -2698,6 +2716,199 @@
         }
 
         // ============================================================
+        // DISTRIBUCIÓN POR UN — CONSOLIDADO
+        // Sueldos (nómina activa) + Honorarios + Proveedores BAU + CUENTA
+        // por UN, con % peso y subtotales Vendibles vs Soporte.
+        // ============================================================
+        const UN_VENDIBLES = new Set(['Insights','Inspire','Ignite','Cuentas','Comercial']);
+        const UN_SOPORTE = new Set(['Top Management','Tecnología','Administración','Capital Humano','Estructura Operativa','Financiero']);
+        function _clasifUN(un) {
+            if (UN_VENDIBLES.has(un)) return 'Vendible';
+            if (UN_SOPORTE.has(un)) return 'Soporte';
+            return 'Industria/Otro';
+        }
+        function _fillUN(un) {
+            if (UN_VENDIBLES.has(un)) return 'rgba(63,185,80,0.08)';
+            if (UN_SOPORTE.has(un)) return 'rgba(251,146,60,0.08)';
+            return 'rgba(88,166,255,0.08)';
+        }
+        function _borderUN(un) {
+            if (UN_VENDIBLES.has(un)) return '#3fb950';
+            if (UN_SOPORTE.has(un)) return '#fb923c';
+            return '#58a6ff';
+        }
+
+        function renderDistribucionUN() {
+            const selMes = document.getElementById('distUNMes');
+            const selRango = document.getElementById('distUNRango');
+            const cont = document.getElementById('distUNContent');
+            if (!selMes || !cont) return;
+
+            const mov = DATA.mov || [];
+            const egresos = mov.filter(m => m.side === 'E' || (m.v || 0) < 0);
+
+            // Populate month selector once
+            if (selMes.options.length === 0) {
+                const months = [...new Set(mov.map(m => (m.f || '').slice(0,7)).filter(Boolean))].sort().reverse();
+                const monthNames = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+                selMes.innerHTML = months.map(m => {
+                    const [y,mm] = m.split('-');
+                    return '<option value="'+m+'">'+monthNames[parseInt(mm)-1]+' '+y+'</option>';
+                }).join('');
+                const cur = new Date().toISOString().slice(0,7);
+                if (months.includes(cur)) selMes.value = cur;
+            }
+
+            const rango = selRango ? selRango.value : 'mes';
+            const mesSel = selMes.value;
+            const [ySel, mSel] = (mesSel || '').split('-').map(x => parseInt(x));
+
+            function inRange(fstr) {
+                if (!fstr) return false;
+                const [y,m] = fstr.split('-').map(x => parseInt(x));
+                if (rango === 'mes') return fstr.slice(0,7) === mesSel;
+                if (rango === 'q') {
+                    const q = Math.ceil(mSel/3);
+                    const qM = Math.ceil(m/3);
+                    return y === ySel && qM === q;
+                }
+                if (rango === 'ytd') return y === ySel && m <= mSel;
+                return false;
+            }
+
+            // Meses cubiertos para prorratear sueldos
+            const monthsCovered = new Set();
+            mov.forEach(m => { if (inRange(m.f)) monthsCovered.add((m.f||'').slice(0,7)); });
+            const nMeses = Math.max(1, monthsCovered.size || 1);
+
+            // 1) Sueldos: nómina activa × nº de meses del rango
+            const sueldosPorUN = {};
+            (NOMINA || []).filter(e => e.estado === 'Activo').forEach(e => {
+                const un = e.area || 'Sin asignar';
+                sueldosPorUN[un] = (sueldosPorUN[un] || 0) + getNeto(e) * nMeses;
+            });
+
+            // 2) Honorarios: egresos con detalle "Honorarios"
+            const honPorUN = {};
+            egresos.filter(m => inRange(m.f) && (m.d || '').toLowerCase() === 'honorarios').forEach(m => {
+                const un = getMovUnit(m) || 'Sin asignar';
+                honPorUN[un] = (honPorUN[un] || 0) + Math.abs(m.v || 0);
+            });
+
+            // 3) Proveedores: tipo=Proveedores y detalle != Honorarios; split BAU vs CUENTA
+            // CUENTA Proyecto = cliente distinto a Taquion (o proyecto populado)
+            const provBAU = {}, provCUE = {};
+            egresos.filter(m => inRange(m.f) && m.t === 'Proveedores' && (m.d || '').toLowerCase() !== 'honorarios').forEach(m => {
+                const un = getMovUnit(m) || 'Sin asignar';
+                const cli = (m.cli || m.cliente || '').toString().trim();
+                const proy = (m.proy || '').toString().trim();
+                const esCuenta = (cli && cli.toLowerCase() !== 'taquion') || !!proy;
+                const bucket = esCuenta ? provCUE : provBAU;
+                bucket[un] = (bucket[un] || 0) + Math.abs(m.v || 0);
+            });
+
+            // Union UNs
+            const allUNs = new Set([
+                ...Object.keys(sueldosPorUN),
+                ...Object.keys(honPorUN),
+                ...Object.keys(provBAU),
+                ...Object.keys(provCUE)
+            ]);
+
+            // Build rows
+            const rows = [...allUNs].map(un => {
+                const s = sueldosPorUN[un] || 0;
+                const h = honPorUN[un] || 0;
+                const b = provBAU[un] || 0;
+                const c = provCUE[un] || 0;
+                return { un, clasif: _clasifUN(un), s, h, b, c, total: s+h+b+c };
+            }).filter(r => r.total > 0).sort((a,b) => b.total - a.total);
+
+            const grand = rows.reduce((acc,r) => acc + r.total, 0);
+            const subVend = rows.filter(r => r.clasif === 'Vendible').reduce((a,r)=>a+r.total,0);
+            const subSop  = rows.filter(r => r.clasif === 'Soporte').reduce((a,r)=>a+r.total,0);
+            const subInd  = rows.filter(r => r.clasif === 'Industria/Otro').reduce((a,r)=>a+r.total,0);
+
+            if (rows.length === 0) {
+                cont.innerHTML = '<div style="color:var(--tx2);font-size:11px;padding:12px;text-align:center">Sin datos en el rango seleccionado.</div>';
+                return;
+            }
+
+            const rangoLabel = rango === 'mes' ? ('mes ' + mesSel) : (rango === 'q' ? ('Q'+Math.ceil(mSel/3)+' '+ySel+' ('+nMeses+' meses)') : ('YTD '+ySel+' ('+nMeses+' meses)'));
+
+            // Subtotal cards
+            let html = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:14px">'
+                + _distCard('Vendibles', subVend, grand, '#3fb950')
+                + _distCard('Soporte', subSop, grand, '#fb923c')
+                + (subInd > 0 ? _distCard('Industria/Otro', subInd, grand, '#58a6ff') : '')
+                + _distCard('TOTAL ' + rangoLabel, grand, grand, '#e6edf3', true)
+                + '</div>';
+
+            // Table
+            html += '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px;min-width:820px">'
+                + '<thead><tr style="background:#161b22;border-bottom:2px solid #30363d">'
+                + '<th style="text-align:left;padding:8px 10px;color:#8b949e;font-weight:600">Unidad</th>'
+                + '<th style="text-align:center;padding:8px 10px;color:#8b949e;font-weight:600">Clasif.</th>'
+                + '<th style="text-align:right;padding:8px 10px;color:#8b949e;font-weight:600">Sueldos</th>'
+                + '<th style="text-align:right;padding:8px 10px;color:#8b949e;font-weight:600">Honorarios</th>'
+                + '<th style="text-align:right;padding:8px 10px;color:#8b949e;font-weight:600">Prov. BAU</th>'
+                + '<th style="text-align:right;padding:8px 10px;color:#8b949e;font-weight:600">Prov. CUENTA</th>'
+                + '<th style="text-align:right;padding:8px 10px;color:#8b949e;font-weight:600">TOTAL</th>'
+                + '<th style="text-align:right;padding:8px 10px;color:#8b949e;font-weight:600">% Peso</th>'
+                + '</tr></thead><tbody>';
+
+            rows.forEach(r => {
+                const pct = grand > 0 ? (r.total/grand*100) : 0;
+                const bar = Math.min(100, pct).toFixed(1);
+                html += '<tr style="border-bottom:1px solid #21262d;background:'+_fillUN(r.un)+'">'
+                    + '<td style="padding:8px 10px;color:#e6edf3;border-left:3px solid '+_borderUN(r.un)+'"><strong>'+r.un+'</strong></td>'
+                    + '<td style="padding:8px 10px;text-align:center"><span style="font-size:9px;padding:2px 6px;border-radius:3px;background:'+(r.clasif==='Vendible'?'#23863630':r.clasif==='Soporte'?'#fb923c30':'#58a6ff30')+';color:'+(r.clasif==='Vendible'?'#3fb950':r.clasif==='Soporte'?'#fb923c':'#58a6ff')+'">'+r.clasif+'</span></td>'
+                    + '<td style="padding:8px 10px;text-align:right;color:#e6edf3">'+formatMoney(r.s)+'</td>'
+                    + '<td style="padding:8px 10px;text-align:right;color:#a78bfa">'+formatMoney(r.h)+'</td>'
+                    + '<td style="padding:8px 10px;text-align:right;color:#60a5fa">'+formatMoney(r.b)+'</td>'
+                    + '<td style="padding:8px 10px;text-align:right;color:#fbbf24">'+formatMoney(r.c)+'</td>'
+                    + '<td style="padding:8px 10px;text-align:right;color:#f87171;font-weight:600">'+formatMoney(r.total)+'</td>'
+                    + '<td style="padding:8px 10px;text-align:right;color:#e6edf3;min-width:90px"><div style="display:flex;align-items:center;gap:6px;justify-content:flex-end"><div style="width:50px;height:6px;background:#21262d;border-radius:3px;overflow:hidden"><div style="width:'+bar+'%;height:100%;background:'+_borderUN(r.un)+'"></div></div><span style="font-size:10px">'+pct.toFixed(1)+'%</span></div></td>'
+                    + '</tr>';
+            });
+
+            // Totals row
+            const tS = rows.reduce((a,r)=>a+r.s,0);
+            const tH = rows.reduce((a,r)=>a+r.h,0);
+            const tB = rows.reduce((a,r)=>a+r.b,0);
+            const tC = rows.reduce((a,r)=>a+r.c,0);
+            html += '<tr style="background:#161b22;border-top:2px solid #30363d;font-weight:600">'
+                + '<td colspan="2" style="padding:10px;color:#e6edf3">TOTAL</td>'
+                + '<td style="padding:10px;text-align:right;color:#e6edf3">'+formatMoney(tS)+'</td>'
+                + '<td style="padding:10px;text-align:right;color:#a78bfa">'+formatMoney(tH)+'</td>'
+                + '<td style="padding:10px;text-align:right;color:#60a5fa">'+formatMoney(tB)+'</td>'
+                + '<td style="padding:10px;text-align:right;color:#fbbf24">'+formatMoney(tC)+'</td>'
+                + '<td style="padding:10px;text-align:right;color:#f87171">'+formatMoney(grand)+'</td>'
+                + '<td style="padding:10px;text-align:right;color:#e6edf3">100.0%</td>'
+                + '</tr>';
+            html += '</tbody></table></div>';
+
+            html += '<div style="margin-top:8px;font-size:10px;color:var(--tx2);line-height:1.5">'
+                + '<strong style="color:#8b949e">Lecturas:</strong> '
+                + 'Sueldos = nómina activa × ' + nMeses + ' mes(es). '
+                + 'Honorarios = egresos con detalle="Honorarios" imputados al CC. '
+                + 'Prov. BAU = Tipo=Proveedores con Cliente=Taquion o sin cliente. '
+                + 'Prov. CUENTA = Tipo=Proveedores con Cliente distinto a Taquion o Proyecto cargado.'
+                + '</div>';
+
+            cont.innerHTML = html;
+        }
+
+        function _distCard(label, val, total, color, isTotal) {
+            const pct = total > 0 ? (val/total*100).toFixed(1) : '0.0';
+            return '<div style="background:#0d1117;border:1px solid #21262d;border-left:3px solid '+color+';border-radius:6px;padding:10px 12px">'
+                + '<div style="font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:0.5px">'+label+'</div>'
+                + '<div style="font-size:16px;font-weight:600;color:'+(isTotal?'#e6edf3':color)+';margin-top:2px">'+formatMoney(val)+'</div>'
+                + (isTotal ? '' : '<div style="font-size:10px;color:var(--tx2);margin-top:2px">'+pct+'% del total</div>')
+                + '</div>';
+        }
+
+        // ============================================================
         // PROVEEDORES POR UNIDAD DE NEGOCIO (CC)
         // Agrupa los egresos a proveedores cargados en BD Movimientos
         // por su Centro de Costo (=UN), para el mes seleccionado.
@@ -2942,6 +3153,8 @@
 
             // Render proveedores por UN (corre cada vez que se renderiza nómina)
             renderProveedoresUN();
+            // Render Distribución consolidada por UN
+            renderDistribucionUN();
 
             // Employee count
             const countSpan = document.getElementById('nominaCount');
