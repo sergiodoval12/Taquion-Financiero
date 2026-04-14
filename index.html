@@ -2630,7 +2630,8 @@
             {id:20,nombre:'Nicolas',apellido:'Medina',cuit:'20-42956744-1',lider:'Joaco',equipo:'BEHAVIORAL SCIENCE',area:'Insights',clasif:'VENDIBLE',tipo:'BAU',modalidad:'RRDD',empresa:'TQN',cargo:'',seniority:'',sueldoBruto:1325301,facturaMono:0,benTarjeta:220000,benConect:17550,benMono:0,benOS:0,sueldoNeto:1337550,fechaIngreso:'',estado:'Activo',notas:'10% aumento 6 meses'},
             {id:21,nombre:'Martin',apellido:'Villanueva',cuit:'23-36684329-9',lider:'Sol',equipo:'AM',area:'Cuentas',clasif:'VENDIBLE',tipo:'BAU',modalidad:'RRDD',empresa:'TQN',cargo:'',seniority:'',sueldoBruto:2409639,facturaMono:0,benTarjeta:500000,benConect:17550,benMono:0,benOS:0,sueldoNeto:2517550,fechaIngreso:'',estado:'Activo'},
             {id:22,nombre:'Agustina',apellido:'Ferreyra',cuit:'27-42663067-8',lider:'Sol',equipo:'AM',area:'Cuentas',clasif:'VENDIBLE',tipo:'BAU',modalidad:'RRDD',empresa:'TQN',cargo:'',seniority:'',sueldoBruto:1807228,facturaMono:0,benTarjeta:400000,benConect:17550,benMono:0,benOS:0,sueldoNeto:1917549,fechaIngreso:'',estado:'Activo'},
-            {id:23,nombre:'Matias',apellido:'Nogueira',cuit:'',lider:'Sergio',equipo:'LUMOS',area:'Inspire',clasif:'NO VENDIBLE',tipo:'BAU',modalidad:'Mixta',empresa:'TQN',cargo:'',seniority:'',sueldoBruto:1184000,facturaMono:2600000,benTarjeta:600000,benConect:17550,benMono:0,benOS:0,sueldoNeto:4200270,fechaIngreso:'',estado:'Activo'}
+            {id:23,nombre:'Matias',apellido:'Nogueira',cuit:'',lider:'Sergio',equipo:'LUMOS',area:'Inspire',clasif:'NO VENDIBLE',tipo:'BAU',modalidad:'Mixta',empresa:'TQN',cargo:'',seniority:'',sueldoBruto:1184000,facturaMono:2600000,benTarjeta:600000,benConect:17550,benMono:0,benOS:0,sueldoNeto:4200270,fechaIngreso:'',estado:'Activo'},
+            {id:24,nombre:'Jasleidiz',apellido:'Lesmes Oñate',cuit:'27-95902108-8',lider:'Lider Ignite',equipo:'SERVICIOS',area:'Ignite',clasif:'VENDIBLE',tipo:'BAU',modalidad:'Monotributo',empresa:'TQN',cargo:'Media Analyst',seniority:'',sueldoBruto:0,facturaMono:1927710,benTarjeta:0,benConect:0,benMono:0,benOS:0,sueldoNeto:1927710,fechaIngreso:'',estado:'Activo'}
         ];
 
         // === HONORARIOS (Especialistas / Freelance por Área — BAU / CUENTA) ===
@@ -2653,9 +2654,13 @@
 
         // Initialize NOMINA: use localStorage if available and non-empty, otherwise seed
         let NOMINA = JSON.parse(localStorage.getItem('tqn_nomina') || '[]');
-        if (NOMINA.length === 0) {
+        // Auto-migrate: si el seed local está desactualizado (faltan empleados), regenerar
+        const SEED_VERSION = 'v2-2026-04-14-id24';
+        const storedVersion = localStorage.getItem('tqn_nomina_version');
+        if (NOMINA.length === 0 || storedVersion !== SEED_VERSION) {
             NOMINA = JSON.parse(JSON.stringify(NOMINA_SEED));
             localStorage.setItem('tqn_nomina', JSON.stringify(NOMINA));
+            localStorage.setItem('tqn_nomina_version', SEED_VERSION);
         }
 
         function saveNomina() {
@@ -3032,7 +3037,7 @@
                         const pct = totalCosto > 0 ? ((d.costoTotal / totalCosto) * 100).toFixed(1) : '0';
                         const color = (typeof AREA_COLORS !== 'undefined' && AREA_COLORS[un]) || '#4b5563';
                         sh += '<tr style="border-bottom:1px solid #21262d">'
-                            + '<td style="padding:6px 4px"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:'+color+';margin-right:6px"></span>'+un+' <span style="color:var(--tx2);font-size:9px">('+d.emp+'e+'+d.esp+'b)</span></td>'
+                            + '<td style="padding:6px 4px"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:'+color+';margin-right:6px"></span>'+un+' <span style="color:var(--tx2);font-size:9px">('+d.emp+' emp · '+d.esp+' esp)</span></td>'
                             + '<td style="padding:6px 4px;text-align:right;color:#3fb950">'+formatMoney(d.costoEmp)+'</td>'
                             + '<td style="padding:6px 4px;text-align:right;color:'+(d.costoEsp>0?'#a78bfa':'var(--tx2)')+'">'+formatMoney(d.costoEsp)+'</td>'
                             + '<td style="padding:6px 4px;text-align:right;font-weight:600;color:#e6edf3">'+formatMoney(d.costoTotal)+'</td>'
