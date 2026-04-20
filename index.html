@@ -632,6 +632,7 @@
             <div class="nav-section">
                 <div class="nav-section-title">Equipo</div>
                 <div class="nav-item" onclick="showPage('nomina')">Nómina</div>
+                <div class="nav-item" onclick="showPage('herramientas')">Herramientas Tecnología</div>
             </div>
 
             <div class="nav-section">
@@ -757,6 +758,7 @@
                 <div style="display:flex;gap:8px;margin:16px 0;flex-wrap:wrap" id="deudaSubTabs">
                     <button class="secondary" onclick="deudaShowSection('bancaria')" id="deudaTabBancaria" style="font-weight:700;border-color:#58a6ff;color:#58a6ff">Deuda Bancaria</button>
                     <button class="secondary" onclick="deudaShowSection('gc')" id="deudaTabGC">Deuda GC</button>
+                    <button class="secondary" onclick="deudaShowSection('sd')" id="deudaTabSD" style="border-color:#a78bfa;color:#a78bfa">Deuda SD</button>
                     <button class="secondary" onclick="deudaShowSection('inversiones')" id="deudaTabInversiones" style="border-color:#34d399;color:#34d399">Inversiones SAFE</button>
                     <button class="secondary" onclick="deudaShowSection('simulador')" id="deudaTabSimulador" style="border-color:#fbbf24;color:#fbbf24">Simulador de Deuda</button>
                     <button class="secondary" onclick="deudaShowSection('auditoria')" id="deudaTabAuditoria" style="border-color:#f97316;color:#f97316">Auditoría</button>
@@ -816,6 +818,16 @@
                     <div class="chart-container">
                         <canvas id="deudaGCChart"></canvas>
                     </div>
+                </div>
+
+                <!-- SECTION: Deuda SD -->
+                <div id="deudaSecSd" class="deuda-section" style="display:none">
+                    <div class="reference-banner" style="border-color:#a78bfa;color:#a78bfa">
+                        Deuda acumulada del socio Sergio Doval — aportes de capital y pagos realizados con fondos propios a cuenta de la empresa.
+                    </div>
+                    <div class="kpi-grid" id="deudaSDKPIs"></div>
+                    <h2>Detalle de Movimientos</h2>
+                    <table id="deudaSDTable"></table>
                 </div>
 
                 <!-- SECTION: Simulador de Deuda -->
@@ -1526,6 +1538,47 @@
 
             </div>
 
+            <!-- HERRAMIENTAS TECNOLOGÍA PAGE -->
+            <div id="herramientas" class="page">
+                <h1>Herramientas de Tecnología</h1>
+                <div class="reference-banner">Stack tecnológico y suscripciones de la compañía · Fuente: SOT Solapa "Herramientas Tecnología"</div>
+
+                <!-- KPIs -->
+                <div id="herramientasKPIs" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:20px"></div>
+
+                <!-- Charts row -->
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
+                    <div class="card">
+                        <div class="card-title">Costo Anual por Área (USD)</div>
+                        <div style="height:300px"><canvas id="herramientasAreaChart"></canvas></div>
+                    </div>
+                    <div class="card">
+                        <div class="card-title">Costo Anual por Categoría (USD)</div>
+                        <div style="height:300px"><canvas id="herramientasCatChart"></canvas></div>
+                    </div>
+                </div>
+
+                <!-- Top tools chart -->
+                <div class="card" style="margin-bottom:20px">
+                    <div class="card-title">Top 10 Herramientas por Costo Anual (USD)</div>
+                    <div style="height:320px"><canvas id="herramientasTopChart"></canvas></div>
+                </div>
+
+                <!-- Tabla detalle -->
+                <div class="card" style="margin-bottom:20px">
+                    <div class="card-title">Detalle de Suscripciones</div>
+                    <div style="overflow-x:auto">
+                        <table id="herramientasTable" style="min-width:900px"></table>
+                    </div>
+                </div>
+
+                <!-- Análisis y Recomendaciones -->
+                <div class="card" style="margin-bottom:20px">
+                    <div class="card-title" style="color:#f0883e">Análisis y Recomendaciones</div>
+                    <div id="herramientasAnalisis" style="font-size:12px;line-height:1.7;color:#c9d1d9"></div>
+                </div>
+            </div>
+
             <!-- AUDITORÍA SOT PAGE -->
             <div id="auditoria" class="page">
                 <h1>Auditoría SOT</h1>
@@ -1884,6 +1937,7 @@
                     else if (page === 'whatif') renderWhatIf();
                     else if (page === 'movimientos') renderMovimientos();
                     else if (page === 'nomina') renderNomina();
+                    else if (page === 'herramientas') renderHerramientas();
                     else if (page === 'auditoria') renderAuditoria();
                     else if (page === 'checkDay') renderCheckDiario();
                 } catch (e) { console.warn('post-pull render error:', e); }
@@ -2326,6 +2380,7 @@
                 else if (page === 'whatif') renderWhatIf();
                 else if (page === 'movimientos') renderMovimientos();
                 else if (page === 'nomina') renderNomina();
+                else if (page === 'herramientas') renderHerramientas();
                 else if (page === 'auditoria') renderAuditoria();
                 else if (page === 'checkDay') renderCheckDiario();
             } catch (err) {
@@ -2467,7 +2522,7 @@
 
             // Mobile: close sidebar and update title
             document.querySelector('.sidebar')?.classList.remove('open');
-            const titles = { dashboard:'Dashboard', operacion:'Operación BAU', deuda:'Deuda', composicion:'Composición', bancarizado:'B/N Splits', semanal:'Semanal', whatif:'Sandbox', carga:'Carga', movimientos:'Movimientos', nomina:'Nómina', auditoria:'Auditoría SOT', checkDay:'Check Diario / Semanal' };
+            const titles = { dashboard:'Dashboard', operacion:'Operación BAU', deuda:'Deuda', composicion:'Composición', bancarizado:'B/N Splits', semanal:'Semanal', whatif:'Sandbox', carga:'Carga', movimientos:'Movimientos', nomina:'Nómina', herramientas:'Herramientas Tecnología', auditoria:'Auditoría SOT', checkDay:'Check Diario / Semanal' };
             const mpt = document.getElementById('mobilePageTitle');
             if (mpt) mpt.textContent = titles[pageId] || pageId;
 
@@ -2488,6 +2543,7 @@
                 else if (pageId === 'whatif') renderWhatIf();
                 else if (pageId === 'movimientos') renderMovimientos();
                 else if (pageId === 'nomina') renderNomina();
+                else if (pageId === 'herramientas') renderHerramientas();
                 else if (pageId === 'auditoria') renderAuditoria();
                 else if (pageId === 'checkDay') renderCheckDiario();
             }, 100);
@@ -2650,6 +2706,59 @@
             {id:'H13',nombre:'Alejo Raul',apellido:'Zubillaga',lider:'Lider Inspire',un:'Inspire',tipo:'CUENTA',cuentas:['Rosbaco','Boca'],honorario:1200000},
             {id:'H14',nombre:'Gisela Alicia',apellido:'Bongiorni',lider:'CCO',un:'Comercial',tipo:'BAU',cuentas:[],honorario:3500000},
             {id:'H15',nombre:'Maria Jose',apellido:'Montaño Coneo',lider:'Lider Inspire',un:'Inspire',tipo:'BAU',cuentas:[],honorario:1000000}
+        ];
+
+        // ============================================================
+        // HERRAMIENTAS TECNOLOGÍA SEED (SOT Solapa "Herramientas Tecnología")
+        // ============================================================
+        const HERRAMIENTAS_SEED = [
+            {herramienta:'Notion Labs',area:'Tecnología',responsable:'Felipe Pampin',precioUSD:32,frecuencia:'Mensual',usuarios:34,meses:12,totalAnualUSD:384,categoria:'Productividad',descripcion:'Espacio de Trabajo'},
+            {herramienta:'Digital Ocean',area:'Tecnología',responsable:'Felipe Pampin',precioUSD:80.18,frecuencia:'Mensual',usuarios:1,meses:12,totalAnualUSD:962.16,categoria:'Infraestructura',descripcion:'Alojamiento de máquinas virtuales'},
+            {herramienta:'Cloudflare',area:'Tecnología',responsable:'Felipe Pampin',precioUSD:10,frecuencia:'Mensual',usuarios:1,meses:12,totalAnualUSD:120,categoria:'Infraestructura',descripcion:'Dirección/link para herramientas de automatización'},
+            {herramienta:'Adobe',area:'Inspire',responsable:'Tiago Couce',precioUSD:105.62,frecuencia:'Mensual',usuarios:5,meses:12,totalAnualUSD:1267.39,categoria:'Diseño & Contenido',descripcion:'Crear, editar y gestionar contenido digital'},
+            {herramienta:'CapCut',area:'Inspire',responsable:'Tiago Couce',precioUSD:1.40,frecuencia:'Mensual',usuarios:2,meses:12,totalAnualUSD:16.80,categoria:'Diseño & Contenido',descripcion:'Crear y editar videos'},
+            {herramienta:'Dropbox',area:'Inspire',responsable:'Tiago Couce',precioUSD:45,frecuencia:'Mensual',usuarios:2,meses:12,totalAnualUSD:540,categoria:'Almacenamiento',descripcion:'Almacenamiento en la nube'},
+            {herramienta:'ElevenLabs',area:'Inspire',responsable:'Tiago Couce',precioUSD:5,frecuencia:'Mensual',usuarios:1,meses:12,totalAnualUSD:60,categoria:'IA',descripcion:'IA para generar voces'},
+            {herramienta:'Figma',area:'Inspire',responsable:'Tiago Couce',precioUSD:20,frecuencia:'Mensual',usuarios:1,meses:12,totalAnualUSD:240,categoria:'Diseño & Contenido',descripcion:'Diseñar interfaces en equipo'},
+            {herramienta:'Gamma App',area:'Inspire',responsable:'Tiago Couce',precioUSD:80,frecuencia:'Mensual',usuarios:1,meses:12,totalAnualUSD:960,categoria:'IA',descripcion:'Diseño IA para presentaciones'},
+            {herramienta:'Mirage Captions',area:'Inspire',responsable:'Tiago Couce',precioUSD:24.99,frecuencia:'Mensual',usuarios:1,meses:12,totalAnualUSD:299.88,categoria:'Diseño & Contenido',descripcion:'Subtítulos automáticos en videos'},
+            {herramienta:'Vercel',area:'Inspire',responsable:'Tiago Couce',precioUSD:20,frecuencia:'Mensual',usuarios:1,meses:12,totalAnualUSD:240,categoria:'Infraestructura',descripcion:'Deploy de aplicaciones web'},
+            {herramienta:'Digimind/Onclusive',area:'Insights',responsable:'Nicolas Aicardi',precioUSD:1500,frecuencia:'Anual',usuarios:1,meses:12,totalAnualUSD:18000,categoria:'Research & Analytics',descripcion:'Social listening e inteligencia de mercado'},
+            {herramienta:'Typeform',area:'Insights',responsable:'Agustina Correderas',precioUSD:192,frecuencia:'Anual',usuarios:1,meses:12,totalAnualUSD:2304,categoria:'Research & Analytics',descripcion:'Formularios y encuestas online'},
+            {herramienta:'Sortea2',area:'Insights',responsable:'Nicolas Medina',precioUSD:3.57,frecuencia:'Mensual',usuarios:1,meses:12,totalAnualUSD:42.84,categoria:'Research & Analytics',descripcion:'Transparencia en sorteos de encuestados'},
+            {herramienta:'Claude (Insights)',area:'Insights',responsable:'Agustina Correderas',precioUSD:20,frecuencia:'Mensual',usuarios:1,meses:12,totalAnualUSD:240,categoria:'IA',descripcion:'Modelo de inteligencia artificial'},
+            {herramienta:'ChatGPT (Insights)',area:'Insights',responsable:'Agustina Correderas',precioUSD:20,frecuencia:'Mensual',usuarios:1,meses:12,totalAnualUSD:240,categoria:'IA',descripcion:'Chat basado en IA'},
+            {herramienta:'SurveyMonkey',area:'Insights',responsable:'Agustina Correderas',precioUSD:25.69,frecuencia:'Anual',usuarios:1,meses:1,totalAnualUSD:25.69,categoria:'Research & Analytics',descripcion:'Encuestas online'},
+            {herramienta:'Power BI',area:'Insights',responsable:'Agustina Correderas',precioUSD:9.43,frecuencia:'Mensual',usuarios:3,meses:12,totalAnualUSD:113.20,categoria:'Research & Analytics',descripcion:'Visualización de datos'},
+            {herramienta:'Colppy',area:'Administración',responsable:'Santiago Estrada',precioUSD:222.90,frecuencia:'Mensual',usuarios:2,meses:12,totalAnualUSD:2674.79,categoria:'Gestión Administrativa',descripcion:'Gestión contable y administrativa'},
+            {herramienta:'Microsoft 365',area:'Administración',responsable:'Santiago Estrada',precioUSD:8.42,frecuencia:'Mensual',usuarios:4,meses:12,totalAnualUSD:101.07,categoria:'Productividad',descripcion:'Suite de productividad'},
+            {herramienta:'Netlify',area:'Administración',responsable:'Sergio Doval',precioUSD:20,frecuencia:'Mensual',usuarios:1,meses:12,totalAnualUSD:240,categoria:'Infraestructura',descripcion:'Hosting de páginas web'},
+            {herramienta:'Loom',area:'Administración',responsable:'Sergio Doval',precioUSD:24,frecuencia:'Mensual',usuarios:1,meses:12,totalAnualUSD:288,categoria:'Productividad',descripcion:'Grabación de pantalla y video'},
+            {herramienta:'Claude / Anthropic API',area:'Administración',responsable:'Santiago Estrada',precioUSD:165,frecuencia:'Mensual',usuarios:1,meses:12,totalAnualUSD:1980,categoria:'IA',descripcion:'API de IA de alto rendimiento'},
+            {herramienta:'ChatGPT (Admin)',area:'Administración',responsable:'Santiago Estrada',precioUSD:20,frecuencia:'Mensual',usuarios:4,meses:12,totalAnualUSD:240,categoria:'IA',descripcion:'Chat basado en IA'},
+            {herramienta:'Google Workspace',area:'Administración',responsable:'Santiago Estrada',precioUSD:653.40,frecuencia:'Mensual',usuarios:1,meses:12,totalAnualUSD:7840.80,categoria:'Productividad',descripcion:'Suite de productividad Google'},
+            {herramienta:'LinkedIn',area:'Administración',responsable:'Santiago Estrada',precioUSD:21.95,frecuencia:'Mensual',usuarios:2,meses:12,totalAnualUSD:263.40,categoria:'Comercial',descripcion:'Red social profesional'},
+            {herramienta:'DonWeb',area:'Ignite',responsable:'Lorena Rinaldini',precioUSD:2.43,frecuencia:'Mensual',usuarios:1,meses:12,totalAnualUSD:29.14,categoria:'Marketing Digital',descripcion:'Campañas de email marketing'},
+            {herramienta:'ChatGPT (Ignite)',area:'Ignite',responsable:'Lorena Rinaldini',precioUSD:20,frecuencia:'Mensual',usuarios:1,meses:12,totalAnualUSD:240,categoria:'IA',descripcion:'Chat basado en IA'},
+            {herramienta:'Apollo',area:'Ignite',responsable:'Lorena Rinaldini',precioUSD:59,frecuencia:'Mensual',usuarios:1,meses:12,totalAnualUSD:708,categoria:'Comercial',descripcion:'Inteligencia comercial y ventas'},
+            {herramienta:'Hostinger',area:'Ignite',responsable:'Lorena Rinaldini',precioUSD:89.59,frecuencia:'Mensual',usuarios:1,meses:12,totalAnualUSD:1075.09,categoria:'Infraestructura',descripcion:'Dominios y hosting'},
+            {herramienta:'Windsor',area:'Ignite',responsable:'Lorena Rinaldini',precioUSD:23,frecuencia:'Mensual',usuarios:1,meses:12,totalAnualUSD:276,categoria:'Marketing Digital',descripcion:'Conectar Looker Studio con métricas'},
+            {herramienta:'ChatGPT (Cuentas)',area:'Gestión de Cuentas',responsable:'Sol Rios Brinatti',precioUSD:20,frecuencia:'Mensual',usuarios:2,meses:12,totalAnualUSD:240,categoria:'IA',descripcion:'Chat basado en IA'},
+            {herramienta:'Claude (Cuentas)',area:'Gestión de Cuentas',responsable:'Sol Rios Brinatti',precioUSD:20,frecuencia:'Mensual',usuarios:1,meses:12,totalAnualUSD:240,categoria:'IA',descripcion:'Modelo de inteligencia artificial'}
+        ];
+
+        // Total mensual SOT: USD 3,564.57 | Total anual SOT: USD 42,492.26
+
+        // ============================================================
+        // DEUDA SD SEED (SOT Solapa "Deuda SD")
+        // ============================================================
+        const DEUDA_SD_SEED = [
+            {fecha:'2025-09-10',motivo:'Aporte de capital blanco para pago a DLA Piper',montoUSD:10000},
+            {fecha:'2025-11-17',motivo:'Pauta San Luis a JMaharbiz',montoUSD:1000},
+            {fecha:'2025-02-01',motivo:'Últimas 2 cuotas deuda arrastrada por no cobro de sueldo',montoUSD:4920},
+            {fecha:'2025-11-18',motivo:'Pago Fee\'s San Luis periodo oct-nov 2025',montoUSD:2600},
+            {fecha:'2025-12-09',motivo:'SD aporta U$1.300 para Fees',montoUSD:1300},
+            {fecha:'2025-12-11',motivo:'SD aporta U$1.200 para Fees',montoUSD:1200}
         ];
 
         // Initialize NOMINA: use localStorage if available and non-empty, otherwise seed
@@ -5926,6 +6035,153 @@
             document.getElementById('operacionTable').innerHTML = html;
         }
 
+        // ========= HERRAMIENTAS TECNOLOGÍA =========
+        let herramientasCharts = {};
+        function renderHerramientas() {
+            const tools = HERRAMIENTAS_SEED;
+            const totalAnual = tools.reduce((s,t) => s + t.totalAnualUSD, 0);
+            const totalMensual = totalAnual / 12;
+            const totalHerramientas = tools.length;
+            const totalGratuitas = tools.filter(t => t.totalAnualUSD === 0).length;
+
+            // KPIs
+            const kpiEl = document.getElementById('herramientasKPIs');
+            kpiEl.innerHTML = `
+                <div class="kpi-card"><div class="kpi-label">Herramientas Activas</div><div class="kpi-value">${totalHerramientas}</div></div>
+                <div class="kpi-card"><div class="kpi-label">Costo Mensual (USD)</div><div class="kpi-value">$${fmt(totalMensual)}</div></div>
+                <div class="kpi-card"><div class="kpi-label">Costo Anual (USD)</div><div class="kpi-value" style="color:#f0883e">$${fmt(totalAnual)}</div></div>
+                <div class="kpi-card"><div class="kpi-label">Gratuitas</div><div class="kpi-value" style="color:#34d399">${totalGratuitas}</div></div>
+            `;
+
+            // By area
+            const byArea = {};
+            tools.forEach(t => { byArea[t.area] = (byArea[t.area]||0) + t.totalAnualUSD; });
+            const areaEntries = Object.entries(byArea).sort((a,b) => b[1]-a[1]);
+            const areaColors = ['#58a6ff','#f0883e','#7c3aed','#34d399','#f87171','#fbbf24','#a5d8ff','#ff6b81'];
+
+            if (herramientasCharts.area) herramientasCharts.area.destroy();
+            herramientasCharts.area = new Chart(document.getElementById('herramientasAreaChart'), {
+                type: 'doughnut',
+                data: {
+                    labels: areaEntries.map(e => e[0]),
+                    datasets: [{data: areaEntries.map(e => e[1]), backgroundColor: areaColors.slice(0, areaEntries.length), borderWidth:0}]
+                },
+                options: {responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right',labels:{color:'#c9d1d9',font:{size:11},padding:8}},tooltip:{callbacks:{label:ctx=>`${ctx.label}: $${ctx.raw.toLocaleString('en',{maximumFractionDigits:0})} (${(ctx.raw/totalAnual*100).toFixed(1)}%)`}}}}
+            });
+
+            // By category
+            const byCat = {};
+            tools.forEach(t => { byCat[t.categoria] = (byCat[t.categoria]||0) + t.totalAnualUSD; });
+            const catEntries = Object.entries(byCat).sort((a,b) => b[1]-a[1]);
+            const catColors = ['#f0883e','#58a6ff','#34d399','#7c3aed','#fbbf24','#f87171','#a5d8ff','#ff6b81','#8b949e'];
+
+            if (herramientasCharts.cat) herramientasCharts.cat.destroy();
+            herramientasCharts.cat = new Chart(document.getElementById('herramientasCatChart'), {
+                type: 'doughnut',
+                data: {
+                    labels: catEntries.map(e => e[0]),
+                    datasets: [{data: catEntries.map(e => e[1]), backgroundColor: catColors.slice(0, catEntries.length), borderWidth:0}]
+                },
+                options: {responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right',labels:{color:'#c9d1d9',font:{size:11},padding:8}},tooltip:{callbacks:{label:ctx=>`${ctx.label}: $${ctx.raw.toLocaleString('en',{maximumFractionDigits:0})} (${(ctx.raw/totalAnual*100).toFixed(1)}%)`}}}}
+            });
+
+            // Top 10 chart
+            const paidTools = tools.filter(t => t.totalAnualUSD > 0).sort((a,b) => b.totalAnualUSD - a.totalAnualUSD).slice(0,10);
+            if (herramientasCharts.top) herramientasCharts.top.destroy();
+            herramientasCharts.top = new Chart(document.getElementById('herramientasTopChart'), {
+                type: 'bar',
+                data: {
+                    labels: paidTools.map(t => t.herramienta),
+                    datasets: [{label:'Costo Anual USD',data:paidTools.map(t=>t.totalAnualUSD),backgroundColor:'#58a6ff80',borderColor:'#58a6ff',borderWidth:1}]
+                },
+                options: {indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>`$${ctx.raw.toLocaleString('en',{maximumFractionDigits:0})}`}}},scales:{x:{grid:{color:'#30363d'},ticks:{color:'#8b949e',callback:v=>'$'+v.toLocaleString()}},y:{grid:{display:false},ticks:{color:'#c9d1d9',font:{size:11}}}}}
+            });
+
+            // Table
+            const tbl = document.getElementById('herramientasTable');
+            let html = '<thead><tr><th>Herramienta</th><th>Área</th><th>Categoría</th><th>Responsable</th><th>Usuarios</th><th>Frecuencia</th><th>Precio Unit. USD</th><th>Total Anual USD</th><th>% del Total</th></tr></thead><tbody>';
+            const sorted = [...tools].filter(t=>t.totalAnualUSD>0).sort((a,b)=>b.totalAnualUSD-a.totalAnualUSD);
+            sorted.forEach(t => {
+                const pct = (t.totalAnualUSD/totalAnual*100).toFixed(1);
+                const isHigh = t.totalAnualUSD > 1000;
+                html += `<tr><td style="font-weight:600">${t.herramienta}</td><td>${t.area}</td><td><span style="background:#30363d;padding:2px 6px;border-radius:3px;font-size:10px">${t.categoria}</span></td><td>${t.responsable}</td><td style="text-align:center">${t.usuarios}</td><td>${t.frecuencia}</td><td style="text-align:right">$${t.precioUSD.toLocaleString('en',{maximumFractionDigits:2})}</td><td style="text-align:right;font-weight:600;color:${isHigh?'#f0883e':'#c9d1d9'}">$${t.totalAnualUSD.toLocaleString('en',{maximumFractionDigits:0})}</td><td style="text-align:right">${pct}%</td></tr>`;
+            });
+            html += '</tbody>';
+            tbl.innerHTML = html;
+
+            // Analysis
+            const analisis = document.getElementById('herramientasAnalisis');
+            const top1 = paidTools[0];
+            const top1Pct = (top1.totalAnualUSD/totalAnual*100).toFixed(1);
+            const iaTools = tools.filter(t => t.categoria === 'IA');
+            const iaCost = iaTools.reduce((s,t) => s + t.totalAnualUSD, 0);
+            const iaPct = (iaCost/totalAnual*100).toFixed(1);
+            const chatgptTools = tools.filter(t => t.herramienta.toLowerCase().includes('chatgpt'));
+            const chatgptCost = chatgptTools.reduce((s,t) => s + t.totalAnualUSD, 0);
+            const claudeTools = tools.filter(t => t.herramienta.toLowerCase().includes('claude'));
+            const claudeCost = claudeTools.reduce((s,t) => s + t.totalAnualUSD, 0);
+            const dupliChatgpt = chatgptTools.length;
+            const researchTools = tools.filter(t => t.categoria === 'Research & Analytics');
+            const researchCost = researchTools.reduce((s,t) => s + t.totalAnualUSD, 0);
+
+            analisis.innerHTML = `
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+                    <div style="padding:14px;background:#161b22;border:1px solid #30363d;border-radius:8px">
+                        <h3 style="margin:0 0 8px;color:#f87171;font-size:13px">⚠️ Concentración de Costo</h3>
+                        <p style="margin:0"><strong>Digimind/Onclusive</strong> representa el <strong>${top1Pct}%</strong> del gasto total ($${fmt(top1.totalAnualUSD)}/año). Es la herramienta más cara por un margen muy amplio. Evaluar: ¿Se usa activamente? ¿El ROI justifica USD 18K/año? ¿Hay alternativas más económicas (Brandwatch, Meltwater lite, Talkwalker)?</p>
+                    </div>
+                    <div style="padding:14px;background:#161b22;border:1px solid #30363d;border-radius:8px">
+                        <h3 style="margin:0 0 8px;color:#fbbf24;font-size:13px">🤖 Gasto en IA: ${iaPct}% del total</h3>
+                        <p style="margin:0">Hay <strong>${iaTools.length} suscripciones de IA</strong> ($${fmt(iaCost)}/año): ${dupliChatgpt} licencias de ChatGPT ($${fmt(chatgptCost)}) + ${claudeTools.length} licencias de Claude ($${fmt(claudeCost)}). Considerar consolidar en un plan Team/Enterprise de un solo proveedor para reducir costos y simplificar gestión. Claude API ($1,980/año) ya cubre bastante — ¿se justifican las licencias individuales además?</p>
+                    </div>
+                    <div style="padding:14px;background:#161b22;border:1px solid #30363d;border-radius:8px">
+                        <h3 style="margin:0 0 8px;color:#34d399;font-size:13px">📊 Research & Analytics: $${fmt(researchCost)}/año</h3>
+                        <p style="margin:0">Las herramientas de research representan <strong>${(researchCost/totalAnual*100).toFixed(1)}%</strong> del gasto. Digimind domina esta categoría. Typeform + SurveyMonkey tienen funcionalidad superpuesta — ¿Se pueden unificar en una sola? Power BI tiene 3 usuarios pero costo bajo ($113/año), buen ROI.</p>
+                    </div>
+                    <div style="padding:14px;background:#161b22;border:1px solid #30363d;border-radius:8px">
+                        <h3 style="margin:0 0 8px;color:#58a6ff;font-size:13px">💡 Oportunidades de Optimización</h3>
+                        <p style="margin:0"><strong>Google Workspace ($7,841/año)</strong> es el 2do gasto más alto. Validar si los 34 usuarios de Notion + Google son todos activos. <strong>Gamma App ($960/año)</strong> para presentaciones IA — ¿Se puede reemplazar con Claude Artifacts o herramientas gratuitas? <strong>Dropbox ($540/año)</strong> — ¿Se puede migrar a Google Drive que ya pagan?</p>
+                    </div>
+                    <div style="padding:14px;background:#161b22;border:1px solid #30363d;border-radius:8px;grid-column:1/-1">
+                        <h3 style="margin:0 0 8px;color:#a78bfa;font-size:13px">🎯 Ahorro Potencial Estimado</h3>
+                        <p style="margin:0">Si se negocia o elimina: Digimind (renegociar -30% = -$5,400), consolidar IA (eliminar 2 ChatGPTs duplicados = -$480), eliminar Gamma/Dropbox si hay sustitutos = -$1,500, revisar Typeform vs SurveyMonkey = -$300 → <strong>Ahorro potencial: ~$7,700/año (~18% del gasto actual)</strong>. Sin contar la revisión profunda de Notion (34 usuarios a $32/mes = $384/año es buen precio, pero validar usuarios activos).</p>
+                    </div>
+                </div>
+            `;
+        }
+
+        // ========= DEUDA SD =========
+        function renderDeudaSD() {
+            const data = DEUDA_SD_SEED;
+            const totalUSD = data.reduce((s,d) => s + d.montoUSD, 0);
+            const tc = parseFloat(document.getElementById('tcUSD')?.value || 1400);
+            const totalARS = totalUSD * tc;
+
+            // KPIs
+            const kpiEl = document.getElementById('deudaSDKPIs');
+            if (kpiEl) {
+                kpiEl.innerHTML = `
+                    <div class="kpi-card"><div class="kpi-label">Total Deuda SD</div><div class="kpi-value" style="color:#a78bfa">USD ${totalUSD.toLocaleString('en')}</div></div>
+                    <div class="kpi-card"><div class="kpi-label">En Pesos (TC $${tc.toLocaleString()})</div><div class="kpi-value">$${fmt(totalARS)}</div></div>
+                    <div class="kpi-card"><div class="kpi-label">Cant. Aportes</div><div class="kpi-value">${data.length}</div></div>
+                    <div class="kpi-card"><div class="kpi-label">Último Aporte</div><div class="kpi-value" style="font-size:14px">${data.sort((a,b)=>b.fecha.localeCompare(a.fecha))[0].fecha}</div></div>
+                `;
+            }
+
+            // Table
+            const tbl = document.getElementById('deudaSDTable');
+            if (tbl) {
+                let html = '<thead><tr><th>Fecha</th><th>Motivo</th><th style="text-align:right">Monto USD</th><th style="text-align:right">Monto ARS (est.)</th></tr></thead><tbody>';
+                const sorted = [...data].sort((a,b)=>a.fecha.localeCompare(b.fecha));
+                sorted.forEach(d => {
+                    html += `<tr><td>${d.fecha}</td><td>${d.motivo}</td><td style="text-align:right;font-weight:600;color:#a78bfa">USD ${d.montoUSD.toLocaleString('en')}</td><td style="text-align:right">$${fmt(d.montoUSD * tc)}</td></tr>`;
+                });
+                html += `<tr style="font-weight:700;border-top:2px solid #58a6ff"><td colspan="2">TOTAL</td><td style="text-align:right;color:#a78bfa">USD ${totalUSD.toLocaleString('en')}</td><td style="text-align:right">$${fmt(totalARS)}</td></tr>`;
+                html += '</tbody>';
+                tbl.innerHTML = html;
+            }
+        }
+
         // ========= DEUDA CONSOLIDADA =========
         const DEUDA_SIM = {
             creditosNuevos: [],
@@ -5936,6 +6192,7 @@
         function renderDeuda() {
             renderDeudaBancaria();
             renderDeudaGC();
+            renderDeudaSD();
             renderDeudaConsolidadaKPIs();
             renderDeudaCreditosActivos();
             renderDeudaCreditosSim();
@@ -5949,7 +6206,7 @@
             document.getElementById(secId).style.display = 'block';
             const tabId = 'deudaTab' + section.charAt(0).toUpperCase() + section.slice(1);
             const tab = document.getElementById(tabId);
-            const colorMap = { simulador: '#fbbf24', auditoria: '#f97316' };
+            const colorMap = { simulador: '#fbbf24', auditoria: '#f97316', sd: '#a78bfa' };
             const tabColor = colorMap[section] || '#58a6ff';
             if (tab) { tab.style.fontWeight = '700'; tab.style.borderColor = tabColor; tab.style.color = tabColor; }
             if (section === 'simulador') {
