@@ -632,6 +632,7 @@
             <div class="nav-section">
                 <div class="nav-section-title">Equipo</div>
                 <div class="nav-item" onclick="showPage('nomina')">Nómina</div>
+                <div class="nav-item" onclick="showPage('especialistas')">Especialistas</div>
                 <div class="nav-item" onclick="showPage('herramientas')">Herramientas Tecnología</div>
             </div>
 
@@ -1536,11 +1537,87 @@
                     </div>
                 </div>
 
+
+            </div>
+
+            <div id="especialistas" class="page">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                    <h1 style="margin:0">Especialistas & Profesionales</h1>
+                    <button onclick="honShowAddModal()" style="background:#a78bfa;border:none;padding:8px 16px;border-radius:6px;color:#0d1117;font-weight:600;cursor:pointer">+ Agregar Especialista</button>
+                </div>
+                <div class="reference-banner">Nómina de especialistas y profesionales freelance · Fuente: SOT Solapa "Especialistas Profesionales"</div>
+                <div id="espKPIs" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:20px"></div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
+                    <div class="card"><div class="card-title">Honorarios por UN (ARS)</div><div style="height:300px"><canvas id="espUNChart"></canvas></div></div>
+                    <div class="card"><div class="card-title">Distribución BAU vs CUENTA</div><div style="height:300px"><canvas id="espTipoChart"></canvas></div></div>
+                </div>
+                <div class="card" style="margin-bottom:20px">
+                    <div class="card-title">Detalle de Especialistas</div>
+                    <div style="overflow-x:auto"><table id="espTable" style="min-width:900px"></table></div>
+                </div>
+                <div class="card" style="margin-bottom:20px">
+                    <div class="card-title">Consolidado Nómina + Especialistas por UN</div>
+                    <div id="espConsolidado"></div>
+                </div>
+
+                <!-- Modal Agregar Proveedor / Honorario -->
+                <div id="honAddModal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:9999;justify-content:center;align-items:center">
+                    <div style="background:#161b22;border:1px solid #30363d;border-radius:12px;padding:24px;width:90%;max-width:500px;max-height:85vh;overflow-y:auto">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+                            <h2 style="margin:0;color:#a78bfa">Agregar Proveedor / Freelance</h2>
+                            <button onclick="honCloseModal()" style="background:none;border:none;color:#8b949e;font-size:22px;cursor:pointer">&times;</button>
+                        </div>
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                            <div>
+                                <label style="font-size:11px;color:#8b949e">Nombre *</label>
+                                <input id="honF_nombre" style="width:100%;padding:8px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#c9d1d9" placeholder="Nombre">
+                            </div>
+                            <div>
+                                <label style="font-size:11px;color:#8b949e">Apellido *</label>
+                                <input id="honF_apellido" style="width:100%;padding:8px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#c9d1d9" placeholder="Apellido">
+                            </div>
+                            <div>
+                                <label style="font-size:11px;color:#8b949e">Unidad de Negocio *</label>
+                                <select id="honF_un" style="width:100%;padding:8px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#c9d1d9">
+                                    <option value="">Seleccionar...</option>
+                                    <option>Inspire</option><option>Insights</option><option>Ignite</option>
+                                    <option>Gestión de Cuentas</option><option>Comercial</option><option>Tecnología</option>
+                                    <option>Administración</option><option>Capital Humano</option><option>Top Management</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label style="font-size:11px;color:#8b949e">Tipo *</label>
+                                <select id="honF_tipo" style="width:100%;padding:8px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#c9d1d9">
+                                    <option value="BAU">BAU</option><option value="CUENTA">CUENTA</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label style="font-size:11px;color:#8b949e">Líder</label>
+                                <input id="honF_lider" style="width:100%;padding:8px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#c9d1d9" placeholder="Ej: Lider Inspire">
+                            </div>
+                            <div>
+                                <label style="font-size:11px;color:#8b949e">Honorario Mensual ARS</label>
+                                <input id="honF_honorario" type="number" step="1" style="width:100%;padding:8px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#c9d1d9" placeholder="0">
+                            </div>
+                            <div style="grid-column:1/-1">
+                                <label style="font-size:11px;color:#8b949e">Cuentas Asociadas <span style="color:#6e7681">(separar con coma)</span></label>
+                                <input id="honF_cuentas" style="width:100%;padding:8px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#c9d1d9" placeholder="Ej: Boca, Rosbaco">
+                            </div>
+                        </div>
+                        <div style="margin-top:16px;display:flex;gap:12px;justify-content:flex-end">
+                            <button onclick="honCloseModal()" style="padding:8px 16px;background:#21262d;border:1px solid #30363d;border-radius:6px;color:#c9d1d9;cursor:pointer">Cancelar</button>
+                            <button onclick="honAddProvider()" style="padding:8px 20px;background:#a78bfa;border:none;border-radius:6px;color:#0d1117;font-weight:600;cursor:pointer">Guardar</button>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <!-- HERRAMIENTAS TECNOLOGÍA PAGE -->
             <div id="herramientas" class="page">
-                <h1>Herramientas de Tecnología</h1>
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                    <h1 style="margin:0">Herramientas de Tecnología</h1>
+                    <button class="primary" onclick="htShowAddModal()" style="background:#34d399;border:none;padding:8px 16px;border-radius:6px;color:#0d1117;font-weight:600;cursor:pointer">+ Agregar Herramienta</button>
+                </div>
                 <div class="reference-banner">Stack tecnológico y suscripciones de la compañía · Fuente: SOT Solapa "Herramientas Tecnología"</div>
                 <div id="herramientasKPIs" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:20px"></div>
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
@@ -1550,6 +1627,72 @@
                 <div class="card" style="margin-bottom:20px"><div class="card-title">Top 10 Herramientas por Costo Anual (USD)</div><div style="height:320px"><canvas id="herramientasTopChart"></canvas></div></div>
                 <div class="card" style="margin-bottom:20px"><div class="card-title">Detalle de Suscripciones</div><div style="overflow-x:auto"><table id="herramientasTable" style="min-width:900px"></table></div></div>
                 <div class="card" style="margin-bottom:20px"><div class="card-title" style="color:#f0883e">Análisis y Recomendaciones</div><div id="herramientasAnalisis" style="font-size:12px;line-height:1.7;color:#c9d1d9"></div></div>
+
+                <!-- Modal Agregar Herramienta -->
+                <div id="htAddModal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:9999;justify-content:center;align-items:center">
+                    <div style="background:#161b22;border:1px solid #30363d;border-radius:12px;padding:24px;width:90%;max-width:560px;max-height:85vh;overflow-y:auto">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+                            <h2 style="margin:0;color:#58a6ff">Agregar Herramienta</h2>
+                            <button onclick="htCloseModal()" style="background:none;border:none;color:#8b949e;font-size:22px;cursor:pointer">&times;</button>
+                        </div>
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                            <div style="grid-column:1/-1">
+                                <label style="font-size:11px;color:#8b949e">Nombre de la herramienta *</label>
+                                <input id="htF_herramienta" style="width:100%;padding:8px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#c9d1d9" placeholder="Ej: Slack, Notion, etc.">
+                            </div>
+                            <div>
+                                <label style="font-size:11px;color:#8b949e">Área / Centro de Costo *</label>
+                                <select id="htF_area" style="width:100%;padding:8px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#c9d1d9">
+                                    <option value="">Seleccionar...</option>
+                                    <option>Tecnología</option><option>Inspire</option><option>Insights</option>
+                                    <option>Administración</option><option>Ignite</option><option>Gestión de Cuentas</option>
+                                    <option>Comercial</option><option>Top Management</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label style="font-size:11px;color:#8b949e">Responsable *</label>
+                                <input id="htF_responsable" style="width:100%;padding:8px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#c9d1d9" placeholder="Nombre y apellido">
+                            </div>
+                            <div>
+                                <label style="font-size:11px;color:#8b949e">Precio Unitario USD *</label>
+                                <input id="htF_precioUSD" type="number" step="0.01" style="width:100%;padding:8px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#c9d1d9" placeholder="0.00">
+                            </div>
+                            <div>
+                                <label style="font-size:11px;color:#8b949e">Frecuencia</label>
+                                <select id="htF_frecuencia" style="width:100%;padding:8px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#c9d1d9">
+                                    <option value="Mensual">Mensual</option><option value="Anual">Anual</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label style="font-size:11px;color:#8b949e">Usuarios</label>
+                                <input id="htF_usuarios" type="number" value="1" style="width:100%;padding:8px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#c9d1d9">
+                            </div>
+                            <div>
+                                <label style="font-size:11px;color:#8b949e">Meses Activos</label>
+                                <input id="htF_meses" type="number" value="12" style="width:100%;padding:8px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#c9d1d9">
+                            </div>
+                            <div>
+                                <label style="font-size:11px;color:#8b949e">Descripción</label>
+                                <input id="htF_desc" style="width:100%;padding:8px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#c9d1d9" placeholder="Para qué se usa">
+                            </div>
+                            <div>
+                                <label style="font-size:11px;color:#8b949e">Web / URL</label>
+                                <input id="htF_web" style="width:100%;padding:8px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#c9d1d9" placeholder="https://...">
+                            </div>
+                            <div>
+                                <label style="font-size:11px;color:#8b949e">Método de Pago</label>
+                                <select id="htF_pago" style="width:100%;padding:8px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#c9d1d9">
+                                    <option value="">Seleccionar...</option>
+                                    <option>Tarjeta</option><option>Transferencia</option><option>Otro</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div style="margin-top:16px;display:flex;gap:12px;justify-content:flex-end">
+                            <button onclick="htCloseModal()" style="padding:8px 16px;background:#21262d;border:1px solid #30363d;border-radius:6px;color:#c9d1d9;cursor:pointer">Cancelar</button>
+                            <button onclick="htAddTool()" style="padding:8px 20px;background:#34d399;border:none;border-radius:6px;color:#0d1117;font-weight:600;cursor:pointer">Guardar</button>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <!-- AUDITORÍA SOT PAGE -->
@@ -1789,7 +1932,7 @@
 
         // ========= GOOGLE SHEETS SYNC =========
         const SHEETS_CONFIG = {
-            apiUrl: 'https://script.google.com/macros/s/AKfycbxSr89MtxL-Hyj2o8vlDBAbdhbGvXT0botdH8iIKjaW0iS3qKFF1bB2wkOsKTv1MrQVaw/exec',
+            apiUrl: 'https://script.google.com/macros/s/AKfycbwz3IlWiQ9PLjhPpaQijM3HAtJLneS6mmt4Rb42_NFOGVON-ZjVq2uGBIBCmnLIcvGFgA/exec',
             enabled: true,
             lastSync: null,
             syncing: false,
@@ -1907,6 +2050,12 @@
                     DATA.deudaSD = sheetData.sd;
                 }
 
+                // Update especialistas if available
+                if (sheetData.hon && Array.isArray(sheetData.hon) && sheetData.hon.length > 0) {
+                    ESPECIALISTAS = sheetData.hon;
+                    saveEspecialistas();
+                }
+
                 SHEETS_CONFIG.lastSync = new Date().toISOString();
                 // Refresh current page (universal switch)
                 const page = APP.currentPage || 'dashboard';
@@ -1920,6 +2069,7 @@
                     else if (page === 'whatif') renderWhatIf();
                     else if (page === 'movimientos') renderMovimientos();
                     else if (page === 'nomina') renderNomina();
+                    else if (page === 'especialistas') renderEspecialistas();
                     else if (page === 'herramientas') renderHerramientas();
                     else if (page === 'auditoria') renderAuditoria();
                     else if (page === 'checkDay') renderCheckDiario();
@@ -2363,6 +2513,7 @@
                 else if (page === 'whatif') renderWhatIf();
                 else if (page === 'movimientos') renderMovimientos();
                 else if (page === 'nomina') renderNomina();
+                else if (page === 'especialistas') renderEspecialistas();
                 else if (page === 'herramientas') renderHerramientas();
                 else if (page === 'auditoria') renderAuditoria();
                 else if (page === 'checkDay') renderCheckDiario();
@@ -2505,7 +2656,7 @@
 
             // Mobile: close sidebar and update title
             document.querySelector('.sidebar')?.classList.remove('open');
-            const titles = { dashboard:'Dashboard', operacion:'Operación BAU', deuda:'Deuda', composicion:'Composición', bancarizado:'B/N Splits', semanal:'Semanal', whatif:'Sandbox', carga:'Carga', movimientos:'Movimientos', nomina:'Nómina', herramientas:'Herramientas Tecnología', auditoria:'Auditoría SOT', checkDay:'Check Diario / Semanal' };
+            const titles = { dashboard:'Dashboard', operacion:'Operación BAU', deuda:'Deuda', composicion:'Composición', bancarizado:'B/N Splits', semanal:'Semanal', whatif:'Sandbox', carga:'Carga', movimientos:'Movimientos', nomina:'Nómina', especialistas:'Especialistas',herramientas:'Herramientas Tecnología', auditoria:'Auditoría SOT', checkDay:'Check Diario / Semanal' };
             const mpt = document.getElementById('mobilePageTitle');
             if (mpt) mpt.textContent = titles[pageId] || pageId;
 
@@ -2526,6 +2677,7 @@
                 else if (pageId === 'whatif') renderWhatIf();
                 else if (pageId === 'movimientos') renderMovimientos();
                 else if (pageId === 'nomina') renderNomina();
+                else if (pageId === 'especialistas') renderEspecialistas();
                 else if (pageId === 'herramientas') renderHerramientas();
                 else if (pageId === 'auditoria') renderAuditoria();
                 else if (pageId === 'checkDay') renderCheckDiario();
@@ -2673,22 +2825,20 @@
             {id:24,nombre:'Jasleidiz',apellido:'Lesmes Oñate',cuit:'27-95902108-8',lider:'Lider Ignite',equipo:'SERVICIOS',area:'Ignite',clasif:'VENDIBLE',tipo:'BAU',modalidad:'Monotributo',empresa:'TQN',cargo:'Media Analyst',seniority:'',sueldoBruto:0,facturaMono:1927710,benTarjeta:0,benConect:0,benMono:0,benOS:0,sueldoNeto:1927710,fechaIngreso:'',estado:'Activo'}
         ];
 
-        // === HONORARIOS (Especialistas / Freelance por Área — BAU / CUENTA) ===
-        // Fuente: SOT Nómina, bloque "Nómina de Especialistas / Profesionales por Área BAU"
-        const HONORARIOS_SEED = [
-            {id:'H1',nombre:'Rodrigo Nahuel',apellido:'Artigas',lider:'Lider Inspire',un:'Inspire',tipo:'CUENTA',cuentas:['Suterh','Todo Un país'],honorario:1850000},
-            {id:'H2',nombre:'Betzabeth Cristina',apellido:'Balzan Vale',lider:'Lider Ignite',un:'Ignite',tipo:'CUENTA',cuentas:['Rosbaco','Boca','Froneri','Todo Un país'],honorario:881300},
-            {id:'H3',nombre:'Nicolas Jorge',apellido:'Bavoleo',lider:'COO',un:'Gestión de Cuentas',tipo:'CUENTA',cuentas:['Boca'],honorario:1200000},
-            {id:'H4',nombre:'Solana Lucia',apellido:'Cuevas',lider:'Lider Ignite',un:'Ignite',tipo:'BAU',cuentas:[],honorario:1400000},
-            {id:'H5',nombre:'Fara Emilia Paula',apellido:'Gonzalez',lider:'Lider Inspire',un:'Inspire',tipo:'BAU',cuentas:[],honorario:737750},
-            {id:'H6',nombre:'Sofia Julieta',apellido:'Griolli',lider:'Lider Inspire',un:'Inspire',tipo:'CUENTA',cuentas:['Suterh'],honorario:1810000},
-            {id:'H7',nombre:'Victoria',apellido:'Lupo',lider:'Lider Insights',un:'Insights',tipo:'BAU',cuentas:[],honorario:3000000},
-            {id:'H10',nombre:'Christian Alberto',apellido:'Savloff',lider:'Lider Inspire',un:'Inspire',tipo:'BAU',cuentas:[],honorario:3000000},
-            {id:'H11',nombre:'Elena Celeste',apellido:'Targonol',lider:'Lider Inspire',un:'Inspire',tipo:'BAU',cuentas:[],honorario:2225250},
-            {id:'H12',nombre:'Julieta Mabel',apellido:'Torres',lider:'Lider Inspire',un:'Inspire',tipo:'BAU',cuentas:[],honorario:1300000},
-            {id:'H13',nombre:'Alejo Raul',apellido:'Zubillaga',lider:'Lider Inspire',un:'Inspire',tipo:'CUENTA',cuentas:['Rosbaco','Boca'],honorario:1200000},
-            {id:'H14',nombre:'Gisela Alicia',apellido:'Bongiorni',lider:'CCO',un:'Comercial',tipo:'BAU',cuentas:[],honorario:3500000},
-            {id:'H15',nombre:'Maria Jose',apellido:'Montaño Coneo',lider:'Lider Inspire',un:'Inspire',tipo:'BAU',cuentas:[],honorario:1000000}
+        const ESPECIALISTAS_SEED = [
+            {id:1,nombre:'Rodrigo Nahuel',apellido:'Artigas',dni:'40351293',cuit:'20-40351293-2',lider:'Lider Inspire',un:'Inspire',tipo:'CUENTA',cuentas:['Suterh','Todo Un país'],honorario:1850000},
+            {id:2,nombre:'Betzabeth Cristina',apellido:'Balzan Vale',dni:'95822665',cuit:'27-95822665-4',lider:'Lider Ignite',un:'Ignite',tipo:'CUENTA',cuentas:['Rosbaco','Boca','Froneri','Todo Un pais'],honorario:881300},
+            {id:3,nombre:'Nicolas Jorge',apellido:'Bavoleo',dni:'36073921',cuit:'20-36073921-0',lider:'COO',un:'Gestión de Cuentas',tipo:'CUENTA',cuentas:['Boca'],honorario:1200000},
+            {id:4,nombre:'Solana Lucia',apellido:'Cuevas',dni:'38028749',cuit:'27-38028749-3',lider:'Lider Ignite',un:'Ignite',tipo:'BAU',cuentas:[],honorario:1400000},
+            {id:5,nombre:'Fara Emilia Paula',apellido:'Gonzalez',dni:'43326429',cuit:'27-43326429-6',lider:'Lider Inspire',un:'Inspire',tipo:'BAU',cuentas:[],honorario:737750},
+            {id:6,nombre:'Sofia Julieta',apellido:'Griolli',dni:'45173416',cuit:'23-45173416-4',lider:'Lider Inspire',un:'Inspire',tipo:'CUENTA',cuentas:['Suterh'],honorario:1810000},
+            {id:7,nombre:'Victoria',apellido:'Lupo',dni:'29370236',cuit:'27-29370236-0',lider:'Lider Insights',un:'Insights',tipo:'BAU',cuentas:[],honorario:3000000},
+            {id:10,nombre:'Christian Alberto',apellido:'Savloff',dni:'32618018',cuit:'20-32618018-2',lider:'Lider Inspire',un:'Inspire',tipo:'BAU',cuentas:[],honorario:3000000},
+            {id:11,nombre:'Elena Celeste',apellido:'Targonol',dni:'32438576',cuit:'27-32438576-8',lider:'Lider Inspire',un:'Inspire',tipo:'BAU',cuentas:[],honorario:2225250},
+            {id:12,nombre:'Julieta Mabel',apellido:'Torres',dni:'40937370',cuit:'23-40937370-4',lider:'Lider Inspire',un:'Inspire',tipo:'BAU',cuentas:[],honorario:1300000},
+            {id:13,nombre:'Alejo Raul',apellido:'Zubillaga',dni:'30655578',cuit:'20-30655578-3',lider:'Lider Inspire',un:'Inspire',tipo:'CUENTA',cuentas:['Rosbaco','Boca'],honorario:1200000},
+            {id:14,nombre:'Gisela Alicia',apellido:'Bongiorni',dni:'24083916',cuit:'23-24083916-4',lider:'CCO',un:'Comercial',tipo:'BAU',cuentas:[],honorario:3500000},
+            {id:15,nombre:'Maria Jose',apellido:'Montaño Coneo',dni:'95664128',cuit:'23-95664128-4',lider:'Lider Inspire',un:'Inspire',tipo:'BAU',cuentas:[],honorario:1000000}
         ];
 
         const HERRAMIENTAS_SEED = [
@@ -2751,12 +2901,27 @@
             localStorage.setItem('tqn_nomina', JSON.stringify(NOMINA));
         }
 
+        // Initialize ESPECIALISTAS: mutable, with localStorage + seed fallback
+        let ESPECIALISTAS = JSON.parse(localStorage.getItem('tqn_especialistas') || '[]');
+        const espStoredVersion = localStorage.getItem('tqn_especialistas_version');
+        if (ESPECIALISTAS.length === 0 || espStoredVersion !== SEED_VERSION) {
+            ESPECIALISTAS = JSON.parse(JSON.stringify(ESPECIALISTAS_SEED));
+            localStorage.setItem('tqn_especialistas', JSON.stringify(ESPECIALISTAS));
+            localStorage.setItem('tqn_especialistas_version', SEED_VERSION);
+        }
+
+        function saveEspecialistas() {
+            localStorage.setItem('tqn_especialistas', JSON.stringify(ESPECIALISTAS));
+        }
+
         function resetNominaToSeed() {
             if (!confirm('¿Resetear la nómina a los datos originales de Abril 2026?\nSe perderán todos los cambios manuales.')) return;
             NOMINA = JSON.parse(JSON.stringify(NOMINA_SEED));
+            ESPECIALISTAS = JSON.parse(JSON.stringify(ESPECIALISTAS_SEED));
             saveNomina();
+            saveEspecialistas();
             renderNomina();
-            showNotification('Nómina reseteada a datos de Abril 2026');
+            showNotification('Nómina y especialistas reseteados a datos de Abril 2026');
         }
 
         function addEmpleado(emp) {
@@ -2804,6 +2969,195 @@
             renderNomina();
         }
 
+        // === HONORARIOS CRUD ===
+        function honShowAddModal() {
+            var m = document.getElementById('honAddModal');
+            m.style.display = 'flex';
+            ['honF_nombre','honF_apellido','honF_lider','honF_honorario','honF_cuentas'].forEach(function(id){
+                document.getElementById(id).value = '';
+            });
+            document.getElementById('honF_un').selectedIndex = 0;
+            document.getElementById('honF_tipo').value = 'BAU';
+        }
+
+        function honCloseModal() {
+            document.getElementById('honAddModal').style.display = 'none';
+        }
+
+        function honAddProvider() {
+            var nombre = document.getElementById('honF_nombre').value.trim();
+            var apellido = document.getElementById('honF_apellido').value.trim();
+            var un = document.getElementById('honF_un').value;
+            var tipo = document.getElementById('honF_tipo').value;
+
+            if (!nombre) { alert('Ingresá el nombre'); return; }
+            if (!apellido) { alert('Ingresá el apellido'); return; }
+            if (!un) { alert('Seleccioná la unidad de negocio'); return; }
+
+            var cuentasStr = document.getElementById('honF_cuentas').value.trim();
+            var cuentas = cuentasStr ? cuentasStr.split(',').map(function(c){ return c.trim(); }).filter(Boolean) : [];
+
+            var prov = {
+                id: 'H' + Date.now(),
+                nombre: nombre,
+                apellido: apellido,
+                lider: document.getElementById('honF_lider').value.trim() || ('Lider ' + un),
+                un: un,
+                tipo: tipo,
+                cuentas: cuentas,
+                honorario: parseInt(document.getElementById('honF_honorario').value) || 0
+            };
+
+            ESPECIALISTAS.push(prov);
+            saveEspecialistas();
+            honCloseModal();
+            renderEspecialistas();
+            showNotification('Especialista "' + nombre + ' ' + apellido + '" agregado');
+
+            // Push to Sheet
+            if (SHEETS_CONFIG.enabled && SHEETS_CONFIG.apiUrl) {
+                fetch(SHEETS_CONFIG.apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                    body: JSON.stringify({ action: 'add_especialista', provider: prov })
+                }).then(function(r){ return r.json(); }).then(function(res){
+                    if (res.error) console.log('Especialista push error:', res.error);
+                    else sheetsSyncStatus('✅ Especialista "' + nombre + '" agregado al SOT', '#34d399');
+                    setTimeout(function(){ sheetsPullData(); }, 1000);
+                }).catch(function(err){ console.log('Especialista push failed:', err.message); });
+            }
+        }
+
+        function honDelete(id) {
+            var prov = ESPECIALISTAS.find(function(h){ return h.id === id; });
+            if (!prov) return;
+            if (!confirm('¿Eliminar a "' + prov.nombre + ' ' + prov.apellido + '" del listado de proveedores?')) return;
+
+            ESPECIALISTAS = ESPECIALISTAS.filter(function(h){ return h.id !== id; });
+            saveEspecialistas();
+            renderEspecialistas();
+            showNotification('Especialista "' + prov.nombre + ' ' + prov.apellido + '" eliminado');
+
+            // Push to Sheet
+            if (SHEETS_CONFIG.enabled && SHEETS_CONFIG.apiUrl) {
+                fetch(SHEETS_CONFIG.apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                    body: JSON.stringify({ action: 'delete_especialista', row: prov._row || 0, id: id, nombre: prov.nombre + ' ' + prov.apellido })
+                }).then(function(r){ return r.json(); }).then(function(res){
+                    if (res.error) console.log('Especialista delete error:', res.error);
+                    else sheetsSyncStatus('✅ Especialista eliminado del SOT', '#34d399');
+                    setTimeout(function(){ sheetsPullData(); }, 1000);
+                }).catch(function(err){ console.log('Especialista delete failed:', err.message); });
+            }
+        }
+
+        // === RENDER ESPECIALISTAS PAGE ===
+        var _espCharts = { un: null, tipo: null };
+
+        function renderEspecialistas() {
+            var data = ESPECIALISTAS || [];
+            var totalHon = data.reduce(function(s,h){ return s + (h.honorario || 0); }, 0);
+            var bauCount = data.filter(function(h){ return h.tipo === 'BAU'; }).length;
+            var cuentaCount = data.filter(function(h){ return h.tipo === 'CUENTA'; }).length;
+            var bauCost = data.filter(function(h){ return h.tipo === 'BAU'; }).reduce(function(s,h){ return s + (h.honorario||0); }, 0);
+            var cuentaCost = data.filter(function(h){ return h.tipo === 'CUENTA'; }).reduce(function(s,h){ return s + (h.honorario||0); }, 0);
+
+            // KPIs
+            document.getElementById('espKPIs').innerHTML =
+                '<div class="kpi-card"><div class="kpi-label">Total Especialistas</div><div class="kpi-value">'+data.length+'</div><div class="kpi-sub">'+bauCount+' BAU · '+cuentaCount+' CUENTA</div></div>' +
+                '<div class="kpi-card"><div class="kpi-label">Honorarios Totales / mes</div><div class="kpi-value" style="color:#a78bfa">'+formatMoney(totalHon)+'</div></div>' +
+                '<div class="kpi-card"><div class="kpi-label">Costo BAU / mes</div><div class="kpi-value">'+formatMoney(bauCost)+'</div><div class="kpi-sub">Asesoramiento a la UN</div></div>' +
+                '<div class="kpi-card"><div class="kpi-label">Costo CUENTA / mes</div><div class="kpi-value">'+formatMoney(cuentaCost)+'</div><div class="kpi-sub">Asignados a cliente</div></div>';
+
+            // Chart: by UN
+            var byUN = {};
+            data.forEach(function(h){ byUN[h.un] = (byUN[h.un]||0) + (h.honorario||0); });
+            var unEntries = Object.entries(byUN).sort(function(a,b){ return b[1]-a[1]; });
+            var unColors = ['#a78bfa','#58a6ff','#f0883e','#34d399','#fbbf24','#f87171','#ff6b81'];
+            if (_espCharts.un) _espCharts.un.destroy();
+            var ctx1 = document.getElementById('espUNChart');
+            if (ctx1) {
+                _espCharts.un = new Chart(ctx1, {
+                    type:'doughnut',
+                    data:{labels:unEntries.map(function(e){return e[0];}),datasets:[{data:unEntries.map(function(e){return e[1];}),backgroundColor:unColors.slice(0,unEntries.length),borderWidth:0}]},
+                    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right',labels:{color:'#c9d1d9',font:{size:11},padding:8}},tooltip:{callbacks:{label:function(ctx){return ctx.label+': '+formatMoney(ctx.raw)+' ('+(ctx.raw/totalHon*100).toFixed(1)+'%)';}}}}}
+                });
+            }
+
+            // Chart: BAU vs CUENTA
+            if (_espCharts.tipo) _espCharts.tipo.destroy();
+            var ctx2 = document.getElementById('espTipoChart');
+            if (ctx2) {
+                _espCharts.tipo = new Chart(ctx2, {
+                    type:'doughnut',
+                    data:{labels:['BAU','CUENTA'],datasets:[{data:[bauCost,cuentaCost],backgroundColor:['#60a5fa','#fbbf24'],borderWidth:0}]},
+                    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right',labels:{color:'#c9d1d9',font:{size:12},padding:12}},tooltip:{callbacks:{label:function(ctx){return ctx.label+': '+formatMoney(ctx.raw)+' ('+(ctx.raw/totalHon*100).toFixed(1)+'%)';}}}}}
+                });
+            }
+
+            // Table
+            var sorted = data.slice().sort(function(a,b){ return (b.honorario||0)-(a.honorario||0); });
+            var html = '<thead><tr><th>Nombre</th><th>UN</th><th>Tipo</th><th>Líder</th><th>CUIT</th><th style="text-align:right">Honorario ARS</th><th>Cuentas</th><th style="text-align:center;width:40px"></th></tr></thead><tbody>';
+            sorted.forEach(function(h){
+                var tipoColor = h.tipo === 'CUENTA' ? '#fbbf24' : '#60a5fa';
+                var tipoBg = h.tipo === 'CUENTA' ? '#fbbf2420' : '#60a5fa20';
+                var honId = String(h.id || '').replace(/'/g,"\\'");
+                html += '<tr>'
+                    + '<td style="font-weight:600">'+h.nombre+' '+h.apellido+'</td>'
+                    + '<td>'+h.un+'</td>'
+                    + '<td style="text-align:center"><span style="font-size:9px;padding:2px 6px;border-radius:3px;background:'+tipoBg+';color:'+tipoColor+';font-weight:600">'+h.tipo+'</span></td>'
+                    + '<td style="color:#8b949e">'+h.lider+'</td>'
+                    + '<td style="font-size:10px;color:#8b949e">'+(h.cuit||'')+'</td>'
+                    + '<td style="text-align:right;font-weight:600;color:#a78bfa">'+(h.honorario > 0 ? formatMoney(h.honorario) : '—')+'</td>'
+                    + '<td style="font-size:10px;color:#8b949e">'+(h.cuentas && h.cuentas.length > 0 ? h.cuentas.join(' · ') : '—')+'</td>'
+                    + '<td style="text-align:center"><button onclick="honDelete(\''+honId+'\')" style="background:none;border:none;color:#f87171;cursor:pointer;font-size:13px;padding:2px 6px" title="Eliminar">✕</button></td>'
+                    + '</tr>';
+            });
+            html += '<tr style="font-weight:700;border-top:2px solid #a78bfa"><td colspan="5">TOTAL</td><td style="text-align:right;color:#a78bfa">'+formatMoney(totalHon)+'</td><td colspan="2"></td></tr>';
+            html += '</tbody>';
+            document.getElementById('espTable').innerHTML = html;
+
+            // Consolidado Nómina + Especialistas
+            renderEspConsolidado();
+        }
+
+        function renderEspConsolidado() {
+            var cont = document.getElementById('espConsolidado');
+            if (!cont) return;
+            var empleados = (NOMINA || []).filter(function(e){ return e.estado === 'Activo'; });
+            var especialistas = ESPECIALISTAS || [];
+
+            var byUN = {};
+            empleados.forEach(function(e){
+                var un = e.area || 'Sin asignar';
+                if (!byUN[un]) byUN[un] = {un:un, hcEmp:0, costoEmp:0, hcEsp:0, costoEsp:0};
+                byUN[un].hcEmp++;
+                byUN[un].costoEmp += getNeto(e);
+            });
+            especialistas.forEach(function(h){
+                var un = h.un || 'Sin asignar';
+                if (!byUN[un]) byUN[un] = {un:un, hcEmp:0, costoEmp:0, hcEsp:0, costoEsp:0};
+                byUN[un].hcEsp++;
+                byUN[un].costoEsp += (h.honorario || 0);
+            });
+
+            var rows = Object.values(byUN).sort(function(a,b){ return (b.costoEmp+b.costoEsp)-(a.costoEmp+a.costoEsp); });
+            var totalEmp = rows.reduce(function(s,r){ return s+r.costoEmp; },0);
+            var totalEsp = rows.reduce(function(s,r){ return s+r.costoEsp; },0);
+            var totalAll = totalEmp + totalEsp;
+
+            var html = '<table style="width:100%;font-size:11px"><thead><tr style="color:#8b949e"><th style="text-align:left">UN</th><th style="text-align:center">HC Emp</th><th style="text-align:right">Costo Emp/mes</th><th style="text-align:center">HC Esp</th><th style="text-align:right">Costo Esp/mes</th><th style="text-align:right">Total/mes</th><th style="text-align:right">% Peso</th></tr></thead><tbody>';
+            rows.forEach(function(r){
+                var total = r.costoEmp + r.costoEsp;
+                var pct = totalAll > 0 ? (total/totalAll*100).toFixed(1) : '0.0';
+                html += '<tr><td style="font-weight:600">'+r.un+'</td><td style="text-align:center">'+r.hcEmp+'</td><td style="text-align:right">'+formatMoney(r.costoEmp)+'</td><td style="text-align:center;color:#a78bfa">'+r.hcEsp+'</td><td style="text-align:right;color:#a78bfa">'+formatMoney(r.costoEsp)+'</td><td style="text-align:right;font-weight:600">'+formatMoney(total)+'</td><td style="text-align:right;color:#8b949e">'+pct+'%</td></tr>';
+            });
+            html += '<tr style="font-weight:700;border-top:2px solid #30363d"><td>TOTAL</td><td style="text-align:center">'+rows.reduce(function(s,r){return s+r.hcEmp;},0)+'</td><td style="text-align:right">'+formatMoney(totalEmp)+'</td><td style="text-align:center;color:#a78bfa">'+rows.reduce(function(s,r){return s+r.hcEsp;},0)+'</td><td style="text-align:right;color:#a78bfa">'+formatMoney(totalEsp)+'</td><td style="text-align:right">'+formatMoney(totalAll)+'</td><td style="text-align:right">100%</td></tr>';
+            html += '</tbody></table>';
+            cont.innerHTML = html;
+        }
+
         // === RENDER NÓMINA ===
         let nominaAreaChartInstance = null;
 
@@ -2843,7 +3197,7 @@
 
             // Fuente ÚNICA: SOT Nómina (empleados + honorarios). NO usa BD Movimientos.
             const empleados = (NOMINA || []).filter(e => e.estado === 'Activo');
-            const honorarios = HONORARIOS_SEED || [];
+            const honorarios = ESPECIALISTAS || [];
 
             // Agrupar empleados por UN
             const byUN = {};
@@ -2937,33 +3291,6 @@
                 + '</tr>';
             html += '</tbody></table></div>';
 
-            // Detalle Honorarios
-            html += '<div style="margin-top:20px">'
-                + '<div style="font-size:12px;font-weight:600;color:#e6edf3;margin-bottom:8px">Detalle de Honorarios Freelance (SOT Nómina)</div>'
-                + '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px;min-width:700px">'
-                + '<thead><tr style="background:#161b22;border-bottom:2px solid #30363d">'
-                + '<th style="text-align:left;padding:6px 10px;color:#8b949e;font-weight:600">Nombre</th>'
-                + '<th style="text-align:left;padding:6px 10px;color:#8b949e;font-weight:600">UN</th>'
-                + '<th style="text-align:center;padding:6px 10px;color:#8b949e;font-weight:600">Tipo</th>'
-                + '<th style="text-align:left;padding:6px 10px;color:#8b949e;font-weight:600">Líder</th>'
-                + '<th style="text-align:left;padding:6px 10px;color:#8b949e;font-weight:600">Cuentas Asociadas</th>'
-                + '</tr></thead><tbody>';
-            honorarios.slice().sort((a,b) => {
-                if (a.tipo !== b.tipo) return a.tipo === 'CUENTA' ? -1 : 1;
-                return a.un.localeCompare(b.un);
-            }).forEach(h => {
-                const tipoColor = h.tipo === 'CUENTA' ? '#fbbf24' : '#60a5fa';
-                const tipoBg = h.tipo === 'CUENTA' ? '#fbbf2420' : '#60a5fa20';
-                html += '<tr style="border-bottom:1px solid #21262d">'
-                    + '<td style="padding:6px 10px;color:#e6edf3">'+h.nombre+' '+h.apellido+'</td>'
-                    + '<td style="padding:6px 10px;color:#e6edf3">'+h.un+'</td>'
-                    + '<td style="padding:6px 10px;text-align:center"><span style="font-size:9px;padding:2px 6px;border-radius:3px;background:'+tipoBg+';color:'+tipoColor+';font-weight:600">'+h.tipo+'</span></td>'
-                    + '<td style="padding:6px 10px;color:var(--tx2)">'+h.lider+'</td>'
-                    + '<td style="padding:6px 10px;color:var(--tx2);font-size:10px">'+(h.cuentas.length > 0 ? h.cuentas.join(' · ') : '—')+'</td>'
-                    + '</tr>';
-            });
-            html += '</tbody></table></div></div>';
-
             html += '<div style="margin-top:10px;font-size:10px;color:var(--tx2);line-height:1.5">'
                 + '<strong style="color:#8b949e">Fuente única:</strong> SOT Nómina (bloque empleados + bloque Especialistas/Freelance por Área BAU). No incluye información de BD Movimientos. '
                 + 'Sueldo Neto = bruto + factura monotributo + beneficios (tarjeta prepaga, conectividad, OS, monotributo). '
@@ -2984,7 +3311,7 @@
             const summaryDiv = document.getElementById('especialistasBAUSummary');
             if (!ctx && !summaryDiv) return;
 
-            const bau = (HONORARIOS_SEED || []).filter(h => h.tipo === 'BAU');
+            const bau = (ESPECIALISTAS || []).filter(h => h.tipo === 'BAU');
             const byUN = {};
             bau.forEach(h => {
                 const un = h.un || 'Sin asignar';
@@ -3059,7 +3386,7 @@
             if (!ctx && !summaryDiv) return;
 
             const empleados = (NOMINA || []).filter(e => e.estado === 'Activo');
-            const bau = (HONORARIOS_SEED || []).filter(h => h.tipo === 'BAU');
+            const bau = (ESPECIALISTAS || []).filter(h => h.tipo === 'BAU');
 
             const byUN = {};
             empleados.forEach(e => {
@@ -6078,15 +6405,17 @@
                 options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{color:'#30363d'},ticks:{color:'#8b949e',callback:function(v){return '$'+v.toLocaleString();}}},y:{grid:{display:false},ticks:{color:'#c9d1d9',font:{size:11}}}}}
             });
 
-            // Table
-            var sorted = tools.filter(function(t){return t.totalAnualUSD>0;}).sort(function(a,b){return b.totalAnualUSD-a.totalAnualUSD;});
-            var html = '<thead><tr><th>Herramienta</th><th>Área</th><th>Categoría</th><th>Responsable</th><th>Usuarios</th><th>Frecuencia</th><th style="text-align:right">Precio Unit. USD</th><th style="text-align:right">Total Anual USD</th><th style="text-align:right">% Total</th></tr></thead><tbody>';
-            sorted.forEach(function(t){
-                var pct = (t.totalAnualUSD/totalAnual*100).toFixed(1);
+            // Table (all tools, sorted by cost desc)
+            var sorted = tools.slice().sort(function(a,b){return b.totalAnualUSD-a.totalAnualUSD;});
+            var html = '<thead><tr><th>Herramienta</th><th>Área</th><th>Categoría</th><th>Responsable</th><th>Usuarios</th><th>Frecuencia</th><th style="text-align:right">Precio Unit. USD</th><th style="text-align:right">Total Anual USD</th><th style="text-align:right">% Total</th><th style="text-align:center;width:40px"></th></tr></thead><tbody>';
+            sorted.forEach(function(t, idx){
+                var pct = totalAnual > 0 ? (t.totalAnualUSD/totalAnual*100).toFixed(1) : '0.0';
                 var hi = t.totalAnualUSD > 1000;
-                html += '<tr><td style="font-weight:600">'+t.herramienta+'</td><td>'+t.area+'</td><td><span style="background:#30363d;padding:2px 6px;border-radius:3px;font-size:10px">'+t.categoria+'</span></td><td>'+t.responsable+'</td><td style="text-align:center">'+t.usuarios+'</td><td>'+t.frecuencia+'</td><td style="text-align:right">$'+t.precioUSD.toFixed(2)+'</td><td style="text-align:right;font-weight:600;color:'+(hi?'#f0883e':'#c9d1d9')+'">'+fmtU(t.totalAnualUSD)+'</td><td style="text-align:right">'+pct+'%</td></tr>';
+                var rowRef = t._row || 0;
+                html += '<tr><td style="font-weight:600">'+t.herramienta+'</td><td>'+t.area+'</td><td><span style="background:#30363d;padding:2px 6px;border-radius:3px;font-size:10px">'+t.categoria+'</span></td><td>'+t.responsable+'</td><td style="text-align:center">'+t.usuarios+'</td><td>'+t.frecuencia+'</td><td style="text-align:right">$'+t.precioUSD.toFixed(2)+'</td><td style="text-align:right;font-weight:600;color:'+(hi?'#f0883e':'#c9d1d9')+'">'+fmtU(t.totalAnualUSD)+'</td><td style="text-align:right">'+pct+'%</td>';
+                html += '<td style="text-align:center"><button onclick="htDeleteTool(\''+t.herramienta.replace(/'/g,"\\'")+'\','+rowRef+')" style="background:none;border:none;color:#f87171;cursor:pointer;font-size:14px;padding:2px 6px" title="Eliminar herramienta">✕</button></td></tr>';
             });
-            html += '<tr style="font-weight:700;border-top:2px solid #58a6ff"><td colspan="7">TOTAL</td><td style="text-align:right;color:#f0883e">'+fmtU(totalAnual)+'</td><td></td></tr>';
+            html += '<tr style="font-weight:700;border-top:2px solid #58a6ff"><td colspan="7">TOTAL</td><td style="text-align:right;color:#f0883e">'+fmtU(totalAnual)+'</td><td colspan="2"></td></tr>';
             html += '</tbody>';
             document.getElementById('herramientasTable').innerHTML = html;
 
@@ -6117,6 +6446,104 @@
                 '<h3 style="margin:0 0 8px;color:#a78bfa;font-size:13px">Ahorro Potencial Estimado</h3>' +
                 '<p style="margin:0">Renegociar Digimind (-30% = -$5,400) + consolidar IA (eliminar 2 ChatGPTs = -$480) + eliminar Gamma/Dropbox si hay sustitutos (-$1,500) + unificar encuestas (-$300) = <strong>~$7,700/año de ahorro (~18% del gasto actual)</strong>.</p></div>' +
                 '</div>';
+        }
+
+        // ========= HERRAMIENTAS CRUD =========
+        function htShowAddModal() {
+            var m = document.getElementById('htAddModal');
+            m.style.display = 'flex';
+            // Clear form
+            ['htF_herramienta','htF_area','htF_responsable','htF_precioUSD','htF_usuarios','htF_meses','htF_desc','htF_web','htF_pago'].forEach(function(id){
+                var el = document.getElementById(id);
+                if (el.tagName === 'SELECT') el.selectedIndex = 0;
+                else if (id === 'htF_usuarios') el.value = '1';
+                else if (id === 'htF_meses') el.value = '12';
+                else el.value = '';
+            });
+            document.getElementById('htF_frecuencia').value = 'Mensual';
+        }
+
+        function htCloseModal() {
+            document.getElementById('htAddModal').style.display = 'none';
+        }
+
+        async function htAddTool() {
+            var herr = document.getElementById('htF_herramienta').value.trim();
+            var area = document.getElementById('htF_area').value;
+            var resp = document.getElementById('htF_responsable').value.trim();
+            var precio = parseFloat(document.getElementById('htF_precioUSD').value) || 0;
+
+            if (!herr) { alert('Ingresá el nombre de la herramienta'); return; }
+            if (!area) { alert('Seleccioná un área / centro de costo'); return; }
+            if (!resp) { alert('Ingresá el responsable'); return; }
+            if (precio <= 0) { alert('Ingresá el precio unitario en USD'); return; }
+
+            var tool = {
+                herramienta: herr,
+                area: area,
+                responsable: resp,
+                precioUSD: precio,
+                frecuencia: document.getElementById('htF_frecuencia').value,
+                usuarios: parseInt(document.getElementById('htF_usuarios').value) || 1,
+                meses: parseInt(document.getElementById('htF_meses').value) || 12,
+                desc: document.getElementById('htF_desc').value.trim(),
+                web: document.getElementById('htF_web').value.trim(),
+                pago: document.getElementById('htF_pago').value
+            };
+            tool.totalAnualUSD = tool.precioUSD * tool.usuarios * tool.meses;
+
+            // Add locally
+            if (!DATA.herramientas) DATA.herramientas = HERRAMIENTAS_SEED.slice();
+            DATA.herramientas.push(tool);
+
+            htCloseModal();
+            renderHerramientas();
+
+            // Push to Sheet
+            if (SHEETS_CONFIG.enabled && SHEETS_CONFIG.apiUrl) {
+                try {
+                    var result = await fetch(SHEETS_CONFIG.apiUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                        body: JSON.stringify({ action: 'add_herramienta', tool: tool })
+                    }).then(function(r){ return r.json(); });
+                    if (result.error) throw new Error(result.error);
+                    sheetsSyncStatus('✅ Herramienta "' + herr + '" agregada al SOT', '#34d399');
+                    // Re-pull to get _row references
+                    setTimeout(function(){ sheetsPullData(); }, 1000);
+                } catch(err) {
+                    sheetsSyncStatus('⚠ Guardado local OK, pero error al sincronizar: ' + err.message, '#fbbf24');
+                }
+            }
+        }
+
+        async function htDeleteTool(nombre, sheetRow) {
+            if (!confirm('¿Eliminar "' + nombre + '" del listado de herramientas?\n\nEsto la borra del SOT.')) return;
+
+            // Remove locally
+            var list = (DATA.herramientas && DATA.herramientas.length > 0) ? DATA.herramientas : HERRAMIENTAS_SEED.slice();
+            DATA.herramientas = list.filter(function(t) {
+                return !(t.herramienta === nombre && (sheetRow === 0 || t._row === sheetRow));
+            });
+
+            renderHerramientas();
+
+            // Delete from Sheet
+            if (sheetRow > 0 && SHEETS_CONFIG.enabled && SHEETS_CONFIG.apiUrl) {
+                try {
+                    var result = await fetch(SHEETS_CONFIG.apiUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                        body: JSON.stringify({ action: 'delete_herramienta', row: sheetRow })
+                    }).then(function(r){ return r.json(); });
+                    if (result.error) throw new Error(result.error);
+                    sheetsSyncStatus('✅ Herramienta "' + nombre + '" eliminada del SOT', '#34d399');
+                    // Re-pull to refresh _row references
+                    setTimeout(function(){ sheetsPullData(); }, 1000);
+                } catch(err) {
+                    sheetsSyncStatus('⚠ Eliminada localmente, pero error en SOT: ' + err.message, '#fbbf24');
+                }
+            }
         }
 
         // ========= DEUDA SD =========

@@ -28,6 +28,8 @@ function doGet(e) {
       result = getHerramientas(ss);
     } else if (action === 'deuda_sd') {
       result = getDeudaSD(ss);
+    } else if (action === 'honorarios' || action === 'especialistas') {
+      result = getEspecialistas(ss);
     } else if (action === 'all') {
       result = {
         mov: getMovimientos(ss),
@@ -37,6 +39,7 @@ function doGet(e) {
         catCC: getCatalogoCC(ss),
         ht: getHerramientas(ss),
         sd: getDeudaSD(ss),
+        hon: getEspecialistas(ss),
         meta: { lastSync: new Date().toISOString(), source: 'Google Sheets' }
       };
     } else if (action === 'ping') {
@@ -100,6 +103,14 @@ function doPost(e) {
       result = updateCatalogoCC(ss, body.rowIndex, body.field, body.value);
     } else if (action === 'seed_catalogo_cc') {
       result = seedCatalogoCC(ss, body.rows);
+    } else if (action === 'add_herramienta') {
+      result = addHerramienta(ss, body.tool);
+    } else if (action === 'delete_herramienta') {
+      result = deleteHerramienta(ss, body.row);
+    } else if (action === 'add_honorario' || action === 'add_especialista') {
+      result = addEspecialista(ss, body.provider);
+    } else if (action === 'delete_honorario' || action === 'delete_especialista') {
+      result = deleteEspecialista(ss, body.row, body.id, body.nombre);
     } else {
       result = { error: 'Unknown action: ' + action };
     }
@@ -561,6 +572,237 @@ function getHerramientas(ss) {
     });
   }
   return rows;
+}
+
+// ============================================================
+// HERRAMIENTAS CRUD
+// ============================================================
+function addHerramienta(ss, tool) {
+  const ws = ss.getSheetByName(SHEET_HT);
+  if (!ws) throw new Error('Sheet "' + SHEET_HT + '" no encontrada');
+
+  // Read headers to map columns
+  const headers = ws.getRange(1, 1, 1, ws.getLastColumn()).getValues()[0].map(h => String(h || '').trim().toLowerCase());
+
+  // Find last data row (skip total rows at bottom)
+  const lastRow = ws.getLastRow();
+  let insertRow = lastRow + 1;
+  // Check if last rows are totals - if so, insert before them
+  for (let r = lastRow; r > 1; r--) {
+    const val = String(ws.getRange(r, 1).getValue() || '').toLowerCase();
+    if (val.includes('total') || val.includes('chequear') || val === '') {
+      insertRow = r;
+    } else {
+      break;
+    }
+  }
+
+  // Build row array matching headers
+  const newRow = headers.map(h => {
+    if (h === 'herramienta') return tool.herramienta || '';
+    if (h === 'web') return tool.web || '';
+    if (h.includes('que hace') || h.includes('para que')) return tool.desc || '';
+    if (h.includes('centro') && h.includes('costo')) return tool.area || '';
+    if (h === 'responsable') return tool.responsable || '';
+    if (h.includes('precio') && h.includes('dolar')) return tool.precioUSD || 0;
+    if (h.includes('precio') && h.includes('peso')) return tool.precioARS || 0;
+    if (h === 'usuarios') return tool.usuarios || 1;
+    if (h === 'meses') return tool.meses || 12;
+    if (h.includes('mensual') || h.includes('anual') || h.includes('frecuencia')) return tool.frecuencia || 'Mensual';
+    if (h === 'monto total') return (tool.precioUSD || 0) * (tool.usuarios || 1) * (tool.meses || 12);
+    if (h.includes('tarjeta') || h.includes('transferencia') || h.includes('pago')) return tool.pago || '';
+    if (h.includes('día') || h.includes('dia')) return tool.diaPago || '';
+    return '';
+  });
+
+  ws.insertRowBefore(insertRow);
+  ws.getRange(insertRow, 1, 1, newRow.length).setValues([newRow]);
+
+  return { ok: true, added: 1, row: insertRow, herramienta: tool.herramienta };
+}
+
+function deleteHerramienta(ss, rowNum) {
+  const ws = ss.getSheetByName(SHEET_HT);
+  if (!ws) throw new Error('Sheet "' + SHEET_HT + '" no encontrada');
+  if (!rowNum || rowNum < 2) throw new Error('Fila inválida: ' + rowNum);
+
+  const herr = ws.getRange(rowNum, 1).getValue();
+  ws.deleteRow(rowNum);
+  return { ok: true, deleted: 1, row: rowNum, herramienta: herr };
+}
+
+// ============================================================
+// ESPECIALISTAS / PROFESIONALES
+// ============================================================
+const SHEET_ESP = 'Especialistas  Profesionales x ';
+
+function getEspecialistas(ss) {
+  // Try exact name first, then partial match
+  let ws = ss.getSheetByName(SHEET_ESP);
+  if (!ws) {
+    const sheets = ss.getSheets();
+    for (let i = 0; i < sheets.length; i++) {
+      if (sheets[i].getName().toLowerCase().includes('especialistas')) {
+        ws = sheets[i];
+        break;
+      }
+    }
+  }
+  if (!ws) return [];
+
+  const lastRow = ws.getLastRow();
+  const lastCol = Math.min(ws.getLastColumn(), 25);
+  if (lastRow < 3) return [];
+
+  // Find header row (row with 'ID' in col 1)
+  let headerRow = 0;
+  for (let r = 1; r <= Math.min(5, lastRow); r++) {
+    const v = String(ws.getRange(r, 1).getValue() || '').trim();
+    if (v === 'ID') { headerRow = r; break; }
+  }
+  if (!headerRow) return [];
+
+  const headers = ws.getRange(headerRow, 1, 1, lastCol).getValues()[0].map(h => String(h || '').trim().toLowerCase());
+
+  // Map columns
+  const col = {};
+  headers.forEach((h, i) => {
+    if (h === 'id') col.id = i;
+    else if (h === 'nombre') col.nombre = i;
+    else if (h === 'apellido') col.apellido = i;
+    else if (h === 'dni') col.dni = i;
+    else if (h === 'cuit') col.cuit = i;
+    else if (h.includes('líder') || h.includes('lider')) col.lider = i;
+    else if (h === 'un') col.un = i;
+    else if (h === 'tipo') col.tipo = i;
+    else if (h.includes('cuenta 1')) col.cuenta1 = i;
+    else if (h.includes('cuenta 2')) col.cuenta2 = i;
+    else if (h.includes('cuenta 3')) col.cuenta3 = i;
+    else if (h.includes('cuenta 4')) col.cuenta4 = i;
+    else if (h.includes('honorario')) col.honorario = i;
+  });
+
+  const data = ws.getRange(headerRow + 1, 1, lastRow - headerRow, lastCol).getValues();
+  const rows = [];
+  for (let r = 0; r < data.length; r++) {
+    const row = data[r];
+    const nombre = col.nombre !== undefined ? String(row[col.nombre] || '').trim() : '';
+    if (!nombre) continue;
+    if (nombre.toLowerCase().includes('total')) continue;
+
+    const cuentas = [];
+    [col.cuenta1, col.cuenta2, col.cuenta3, col.cuenta4].forEach(c => {
+      if (c !== undefined && row[c]) {
+        const v = String(row[c]).trim();
+        if (v) cuentas.push(v);
+      }
+    });
+
+    rows.push({
+      id: col.id !== undefined ? (Number(row[col.id]) || r + 1) : r + 1,
+      nombre: nombre,
+      apellido: col.apellido !== undefined ? String(row[col.apellido] || '').trim() : '',
+      dni: col.dni !== undefined ? String(row[col.dni] || '').replace(/\.0$/, '').trim() : '',
+      cuit: col.cuit !== undefined ? String(row[col.cuit] || '').replace(/\u00a0/g, '').trim() : '',
+      lider: col.lider !== undefined ? String(row[col.lider] || '').trim() : '',
+      un: col.un !== undefined ? String(row[col.un] || '').trim() : '',
+      tipo: col.tipo !== undefined ? String(row[col.tipo] || '').trim() : 'BAU',
+      cuentas: cuentas,
+      honorario: col.honorario !== undefined ? (Number(row[col.honorario]) || 0) : 0,
+      _row: headerRow + 1 + r
+    });
+  }
+  return rows;
+}
+
+function addEspecialista(ss, prov) {
+  let ws = ss.getSheetByName(SHEET_ESP);
+  if (!ws) {
+    const sheets = ss.getSheets();
+    for (let i = 0; i < sheets.length; i++) {
+      if (sheets[i].getName().toLowerCase().includes('especialistas')) {
+        ws = sheets[i]; break;
+      }
+    }
+  }
+  if (!ws) throw new Error('Sheet de Especialistas no encontrada');
+
+  const lastRow = ws.getLastRow();
+  const lastCol = Math.min(ws.getLastColumn(), 25);
+
+  // Find header row
+  let headerRow = 0;
+  for (let r = 1; r <= Math.min(5, lastRow); r++) {
+    if (String(ws.getRange(r, 1).getValue() || '').trim() === 'ID') { headerRow = r; break; }
+  }
+  if (!headerRow) throw new Error('No se encontró la fila de headers');
+
+  const headers = ws.getRange(headerRow, 1, 1, lastCol).getValues()[0].map(h => String(h || '').trim().toLowerCase());
+
+  // Find insert row (before TOTAL rows)
+  let insertRow = lastRow + 1;
+  for (let r = lastRow; r > headerRow; r--) {
+    const val = String(ws.getRange(r, 1).getValue() || '').trim().toLowerCase();
+    const val2 = String(ws.getRange(r, 2).getValue() || '').trim().toLowerCase();
+    if (!val && !val2) { insertRow = r; }
+    else if (val.includes('total') || val2.includes('total')) { insertRow = r; }
+    else break;
+  }
+
+  // Build row
+  const newId = prov.id || Date.now();
+  const newRow = headers.map(h => {
+    if (h === 'id') return newId;
+    if (h === 'nombre') return prov.nombre || '';
+    if (h === 'apellido') return prov.apellido || '';
+    if (h === 'dni') return prov.dni || '';
+    if (h === 'cuit') return prov.cuit || '';
+    if (h.includes('líder') || h.includes('lider')) return prov.lider || '';
+    if (h === 'un') return prov.un || '';
+    if (h === 'tipo') return prov.tipo || 'BAU';
+    if (h.includes('cuenta 1')) return (prov.cuentas && prov.cuentas[0]) || '';
+    if (h.includes('cuenta 2')) return (prov.cuentas && prov.cuentas[1]) || '';
+    if (h.includes('cuenta 3')) return (prov.cuentas && prov.cuentas[2]) || '';
+    if (h.includes('cuenta 4')) return (prov.cuentas && prov.cuentas[3]) || '';
+    if (h.includes('honorario')) return prov.honorario || 0;
+    return '';
+  });
+
+  ws.insertRowBefore(insertRow);
+  ws.getRange(insertRow, 1, 1, newRow.length).setValues([newRow]);
+  return { ok: true, added: 1, row: insertRow, nombre: (prov.nombre || '') + ' ' + (prov.apellido || '') };
+}
+
+function deleteEspecialista(ss, rowNum, id, nombre) {
+  let ws = ss.getSheetByName(SHEET_ESP);
+  if (!ws) {
+    const sheets = ss.getSheets();
+    for (let i = 0; i < sheets.length; i++) {
+      if (sheets[i].getName().toLowerCase().includes('especialistas')) {
+        ws = sheets[i]; break;
+      }
+    }
+  }
+  if (!ws) throw new Error('Sheet de Especialistas no encontrada');
+
+  // If we have a valid row number, use it directly
+  if (rowNum && rowNum > 1) {
+    const herr = ws.getRange(rowNum, 2).getValue();
+    ws.deleteRow(rowNum);
+    return { ok: true, deleted: 1, row: rowNum, nombre: herr };
+  }
+
+  // Fallback: find by ID or name
+  const lastRow = ws.getLastRow();
+  for (let r = 2; r <= lastRow; r++) {
+    const rowId = Number(ws.getRange(r, 1).getValue()) || 0;
+    const rowNombre = String(ws.getRange(r, 2).getValue() || '') + ' ' + String(ws.getRange(r, 3).getValue() || '');
+    if ((id && rowId === Number(id)) || (nombre && rowNombre.trim() === nombre.trim())) {
+      ws.deleteRow(r);
+      return { ok: true, deleted: 1, row: r, nombre: rowNombre.trim() };
+    }
+  }
+  throw new Error('Especialista no encontrado: ' + (nombre || id));
 }
 
 // ============================================================
