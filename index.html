@@ -1789,7 +1789,7 @@
 
         // ========= GOOGLE SHEETS SYNC =========
         const SHEETS_CONFIG = {
-            apiUrl: 'https://script.google.com/macros/s/AKfycbxThlkxo48cHrcwxMNAcSyd_X-pczckyDJBSgWPio8UGF4yRxXpq8XRqetwvYXEAnDKmA/exec',
+            apiUrl: 'https://script.google.com/macros/s/AKfycbxSr89MtxL-Hyj2o8vlDBAbdhbGvXT0botdH8iIKjaW0iS3qKFF1bB2wkOsKTv1MrQVaw/exec',
             enabled: true,
             lastSync: null,
             syncing: false,
@@ -1895,6 +1895,16 @@
                     if (Array.isArray(sheetData.bd.monthly)) {
                         DATA.bd_monthly = sheetData.bd.monthly;
                     }
+                }
+
+                // Update herramientas if available
+                if (sheetData.ht && Array.isArray(sheetData.ht) && sheetData.ht.length > 0) {
+                    DATA.herramientas = sheetData.ht;
+                }
+
+                // Update deuda SD if available
+                if (sheetData.sd && Array.isArray(sheetData.sd) && sheetData.sd.length > 0) {
+                    DATA.deudaSD = sheetData.sd;
                 }
 
                 SHEETS_CONFIG.lastSync = new Date().toISOString();
@@ -6003,7 +6013,26 @@
         // ========= HERRAMIENTAS TECNOLOGÍA =========
         let _htCharts = {};
         function renderHerramientas() {
-            const tools = HERRAMIENTAS_SEED;
+            var tools = (DATA.herramientas && DATA.herramientas.length > 0) ? DATA.herramientas : HERRAMIENTAS_SEED;
+            // Normalize: live data might not have 'categoria', so derive it
+            tools = tools.map(function(t) {
+                if (t.categoria) return t;
+                var c = Object.assign({}, t);
+                var a = (c.area || '').toLowerCase();
+                var h = (c.herramienta || '').toLowerCase();
+                if (h.includes('chatgpt') || h.includes('claude') || h.includes('elevenlabs') || h.includes('gamma')) c.categoria = 'IA';
+                else if (a.includes('insight')) c.categoria = 'Research & Analytics';
+                else if (h.includes('adobe') || h.includes('figma') || h.includes('capcut') || h.includes('mirage')) c.categoria = 'Diseño & Contenido';
+                else if (h.includes('digital ocean') || h.includes('cloudflare') || h.includes('vercel') || h.includes('netlify') || h.includes('hostinger')) c.categoria = 'Infraestructura';
+                else if (h.includes('notion') || h.includes('google workspace') || h.includes('microsoft') || h.includes('loom')) c.categoria = 'Productividad';
+                else if (h.includes('dropbox')) c.categoria = 'Almacenamiento';
+                else if (h.includes('apollo') || h.includes('linkedin')) c.categoria = 'Comercial';
+                else if (h.includes('colppy')) c.categoria = 'Gestión Administrativa';
+                else if (h.includes('donweb') || h.includes('windsor')) c.categoria = 'Marketing Digital';
+                else if (h.includes('typeform') || h.includes('surveymonkey') || h.includes('power bi') || h.includes('sortea') || h.includes('digimind')) c.categoria = 'Research & Analytics';
+                else c.categoria = a || 'Otros';
+                return c;
+            });
             const totalAnual = tools.reduce((s,t) => s + t.totalAnualUSD, 0);
             const totalMensual = totalAnual / 12;
             const numPaid = tools.filter(t => t.totalAnualUSD > 0).length;
@@ -6092,7 +6121,7 @@
 
         // ========= DEUDA SD =========
         function renderDeudaSD() {
-            var data = DEUDA_SD_SEED;
+            var data = (DATA.deudaSD && DATA.deudaSD.length > 0) ? DATA.deudaSD : DEUDA_SD_SEED;
             var totalUSD = data.reduce(function(s,d){return s+d.montoUSD;},0);
             var tcEl = document.getElementById('tcUSD');
             var tc = tcEl ? parseFloat(tcEl.value) || 1400 : 1400;

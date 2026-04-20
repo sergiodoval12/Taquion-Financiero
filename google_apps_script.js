@@ -1,16 +1,11 @@
-// ============================================================
-// TAQUION CF — Google Apps Script API v2
-// ============================================================
-// Pegar este código en: Extensiones → Apps Script del Google Sheet
-// Deploy: Nueva implementación → Web App → "Cualquiera con el enlace"
-// ============================================================
-
 // Sheet names - must match exactly
 const SHEET_MOV = 'BD Movimientos';
 const SHEET_GC = 'Deuda GC';
 const SHEET_BD = 'Deuda Bancaria';
 const SHEET_NOM = 'Nómina';
 const SHEET_CC = 'Catálogo CC';
+const SHEET_HT = 'Herramientas Tecnología';
+const SHEET_SD = 'Deuda SD';
 
 // ---- GET (Read) ----
 function doGet(e) {
@@ -29,6 +24,10 @@ function doGet(e) {
       result = getNomina(ss);
     } else if (action === 'catalogo_cc') {
       result = getCatalogoCC(ss);
+    } else if (action === 'herramientas') {
+      result = getHerramientas(ss);
+    } else if (action === 'deuda_sd') {
+      result = getDeudaSD(ss);
     } else if (action === 'all') {
       result = {
         mov: getMovimientos(ss),
@@ -36,6 +35,8 @@ function doGet(e) {
         bd: getDeudaBancaria(ss),
         nom: getNomina(ss),
         catCC: getCatalogoCC(ss),
+        ht: getHerramientas(ss),
+        sd: getDeudaSD(ss),
         meta: { lastSync: new Date().toISOString(), source: 'Google Sheets' }
       };
     } else if (action === 'ping') {
@@ -124,22 +125,15 @@ function getMovimientos(ss) {
 
   const range = ws.getRange(1, 1, lastRow, lastCol);
   const data = range.getValues();
-  // BULLETPROOF date fix: ademas de getValues(), pedimos getDisplayValues()
-  // que devuelve los strings exactos que se ven en la celda (sin TZ involved).
-  // Asi parseamos la fecha desde el display string y eliminamos cualquier
-  // off-by-one por timezone, sea cual sea la config del Sheet o del script.
   const display = range.getDisplayValues();
   const headers = data[0].map(h => String(h).trim().toLowerCase());
   const tz = ss.getSpreadsheetTimeZone() || 'America/Argentina/Buenos_Aires';
 
-  // Helper: parsear "DD/MM/YYYY" o "YYYY-MM-DD" o "DD-MM-YYYY" -> "YYYY-MM-DD"
   function parseDisplayDate(s) {
     if (!s) return '';
     s = String(s).trim();
-    // ISO ya
     let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
     if (m) return m[1] + '-' + ('0'+m[2]).slice(-2) + '-' + ('0'+m[3]).slice(-2);
-    // DD/MM/YYYY o DD-MM-YYYY o DD.MM.YYYY
     m = s.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})/);
     if (m) {
       let yr = m[3];
@@ -149,13 +143,6 @@ function getMovimientos(ss) {
     return '';
   }
 
-  // Map columns by header name
-  // IMPORTANT: order matters — more specific matches must come BEFORE generic ones
-  // Schema:
-  //   en  ← "Entidad" or "Entidad / Cliente" (a quién le pagás / proveedor)
-  //   cli ← "Cliente" or "Cliente Final" (para quién es el gasto)
-  //   proy← "Proyecto" (proyecto del cliente)
-  //   cc  ← "Centro de Costo" (uno de los 11)
   const colMap = {};
   headers.forEach((h, i) => {
     if (h === 'fecha') colMap.f = i;
@@ -167,9 +154,7 @@ function getMovimientos(ss) {
     else if (h === 'marco') colMap.m = i;
     else if (h === 'detalle') colMap.d = i;
     else if (h === 'item') colMap.i = i;
-    // Entidad must match BEFORE generic 'cliente' check
     else if (h === 'entidad' || h === 'entidad / cliente' || h === 'entidad/cliente' || h === 'proveedor') colMap.en = i;
-    // Cliente Final / Cliente — destinatario del valor (no proveedor)
     else if (h === 'cliente' || h === 'cliente final' || h === 'cliente_final') colMap.cli = i;
     else if (h === 'proyecto' || h === 'proyecto / iniciativa') colMap.proy = i;
     else if (h.includes('monto') && h.includes('orig') || h === 'movimiento_orig') colMap.v = i;
@@ -184,28 +169,23 @@ function getMovimientos(ss) {
   const rows = [];
   for (let r = 1; r < data.length; r++) {
     const row = data[r];
-    // Skip empty rows
     if (!row[colMap.f] && !row[colMap.v] && !row[colMap.v_div]) continue;
 
-    // Parse fecha desde el display string (bulletproof, sin TZ involved)
     let fecha = '';
     if (colMap.f !== undefined && display[r] && display[r][colMap.f]) {
       fecha = parseDisplayDate(display[r][colMap.f]);
     }
-    // Fallback: si por alg\u00fan motivo el display est\u00e1 vac\u00edo pero el value es Date
     if (!fecha && row[colMap.f] instanceof Date) {
       fecha = Utilities.formatDate(row[colMap.f], tz, 'yyyy-MM-dd');
     } else if (!fecha && row[colMap.f]) {
       fecha = String(row[colMap.f]).slice(0, 10);
     }
 
-    // Parse estado: "REAL" → "R", "PROYECTADO" → "P"
     let estado = String(row[colMap.eo] || '').trim().toUpperCase();
     if (estado === 'REAL') estado = 'R';
     else if (estado === 'PROYECTADO' || estado === 'PROY') estado = 'P';
     else if (estado !== 'R' && estado !== 'P') estado = 'P';
 
-    // Parse value: prefer Monto Original, fallback to Monto (K) * 1000
     let valor = 0;
     if (colMap.v !== undefined && row[colMap.v] !== '' && row[colMap.v] !== null) {
       valor = Number(row[colMap.v]) || 0;
@@ -214,7 +194,7 @@ function getMovimientos(ss) {
     }
 
     rows.push({
-      _row: r + 1, // 1-indexed sheet row (for updates)
+      _row: r + 1,
       f: fecha,
       eo: estado,
       emp: String(row[colMap.emp] || '').trim(),
@@ -264,7 +244,6 @@ function getDeudaGC(ss) {
     return '';
   }
 
-  // Parse original composition (rows 3-11 area)
   const orig = {};
   const resumen = {};
   const schedule = [];
@@ -273,7 +252,6 @@ function getDeudaGC(ss) {
     const cellA = String(data[r][0] || '').trim();
     const cellB = data[r][1];
 
-    // Original composition
     if (cellA.includes('Credito GMC') && cellA.includes('Capital')) orig.credito_gmc_capital_usd = Number(cellB) || 0;
     else if (cellA.includes('Credito GMC') && cellA.includes('Interes')) orig.credito_gmc_intereses = Number(cellB) || 0;
     else if (cellA.includes('Inversora GJ')) orig.credito_inv_gj_usd = Number(cellB) || 0;
@@ -283,7 +261,6 @@ function getDeudaGC(ss) {
     else if (cellA.includes('Pago Anticipado') && !cellA.includes('Cronograma')) orig.pago_anticipado_usd = Math.abs(Number(cellB) || 0);
     else if (cellA.includes('DEUDA REESTRUCTURADA')) orig.deuda_reestructurada_usd = Number(cellB) || 0;
 
-    // Resumen
     else if (cellA.includes('Total Reestructurado')) resumen.total_usd = Number(cellB) || 0;
     else if (cellA.includes('Pagado')) {
       const match = cellA.match(/(\d+)\s*cuota/);
@@ -296,10 +273,8 @@ function getDeudaGC(ss) {
       if (match) resumen.cuotas_pendientes = parseInt(match[1]);
     }
 
-    // Schedule rows: detect by # column being a number
     const numCol = data[r][0];
     if (typeof numCol === 'number' && numCol >= 1 && numCol <= 50) {
-      // This is a schedule row: #, Fecha, USD, ARS, Destino, Tipo, Estado
       let fecha = '';
       if (display[r] && display[r][1]) {
         fecha = parseDisplayDate(display[r][1]);
@@ -332,15 +307,6 @@ function getDeudaGC(ss) {
 }
 
 function getDeudaBancaria(ss) {
-  // New structure (2026+): two stacked tables in "Deuda Bancaria" sheet
-  //   Table 1: CUOTAS PRESTAMOS BANCARIOS TAQUION  -> total cuota = capital + interés
-  //   Table 2: SOLO CAPITAL PRESTAMOS BANCARIOS TAQUION -> solo capital
-  // Each table: row0 title | row1 entidad headers | row2 CAPITAL TOMADO | row3 referencia | rowN schedule... | rowTotal
-  // Returns: { loans: [...], monthly: [...], bd: [...], bdl: [] }
-  //   loans: per-loan detail with full schedule
-  //   monthly: aggregated {mes, cuota, capital, interes} for all loans
-  //   bd: legacy array {mes, cap, int, total} for backward compat with renderCashflow etc.
-  //   bdl: empty array (LMS no longer tracked separately in this sheet)
   const empty = { loans: [], monthly: [], bd: [], bdl: [], tqn: [], lms: [] };
   const ws = ss.getSheetByName(SHEET_BD);
   if (!ws) return empty;
@@ -351,13 +317,8 @@ function getDeudaBancaria(ss) {
 
   const nCols = Math.max(lastCol, 7);
   const data = ws.getRange(1, 1, lastRow, nCols).getValues();
-  // También leemos los display values SOLO de la columna A para parsear las fechas
-  // sin sufrir corrimientos de timezone (la sheet usa el truco "jun-25" donde
-  // "25" es el AÑO 2025, no el día). Confiar en la cadena que el usuario ve
-  // en pantalla es mucho más robusto que reconstruir desde un Date object.
   const displayColA = ws.getRange(1, 1, lastRow, 1).getDisplayValues().map(function(r){return r[0];});
 
-  // Locate table anchors
   let t1Start = -1, t2Start = -1;
   for (let r = 0; r < data.length; r++) {
     const cellA = String(data[r][0] || '').toUpperCase();
@@ -366,36 +327,24 @@ function getDeudaBancaria(ss) {
   }
   if (t1Start === -1) return empty;
 
-  // Mapa de meses en castellano e inglés
   const MESES_MAP = {
     ene:'01',jan:'01',feb:'02',mar:'03',abr:'04',apr:'04',
     may:'05',jun:'06',jul:'07',ago:'08',aug:'08',
     sep:'09',sept:'09',oct:'10',nov:'11',dic:'12',dec:'12'
   };
 
-  // Parser de fechas para la sheet "Deuda Bancaria".
-  // INVARIANTE de la sheet: las celdas de mes son Date objects donde
-  //   - el AÑO almacenado es siempre 2026 (bogus, ignorar)
-  //   - el MES es el mes real
-  //   - el DÍA codifica el AÑO REAL (25=2025, 26=2026, 27=2027, 28=2028)
-  // Esto es porque el usuario tipea "jun-25" y Sheets lo interpreta como 25/06/{año actual}.
   function parseMesCell(v, display) {
-    // 1) Si v es Date, SIEMPRE usar día-como-año (sin caer en getFullYear).
-    //    Usamos accessors UTC para evitar corrimientos por timezone.
     if (v instanceof Date) {
       const d = v.getUTCDate();
       const mo = v.getUTCMonth() + 1;
-      // Si el día está en el rango legacy (20-40), día = año
       if (d >= 20 && d <= 40) {
         const year = 2000 + d;
         return year + '-' + (mo < 10 ? '0' + mo : mo);
       }
-      // Si por algún motivo el día NO está en ese rango, usar el año real del Date
       const fy = v.getUTCFullYear();
       return fy + '-' + (mo < 10 ? '0' + mo : mo);
     }
 
-    // 2) Excel serial date (number)
     if (typeof v === 'number') {
       if (v > 30000 && v < 80000) {
         const epoch = new Date(Date.UTC(1899, 11, 30));
@@ -410,11 +359,9 @@ function getDeudaBancaria(ss) {
       return '';
     }
 
-    // 3) String: parsear formatos varios (incluido el display value)
     const s = String((v != null && v !== '') ? v : (display || '')).trim().toLowerCase();
     if (!s) return '';
 
-    // "yyyy-mm" o "yyyy-mm-dd" → si tiene día y está en 20-40, día=año
     const m1 = s.match(/^(\d{4})[\-\/](\d{1,2})(?:[\-\/](\d{1,2}))?/);
     if (m1) {
       const dd = m1[3] ? parseInt(m1[3], 10) : 0;
@@ -422,7 +369,6 @@ function getDeudaBancaria(ss) {
       if (dd >= 20 && dd <= 40) return (2000 + dd) + '-' + mm;
       return m1[1] + '-' + mm;
     }
-    // "dd/mm/yyyy"
     const m2 = s.match(/^(\d{1,2})[\-\/](\d{1,2})[\-\/](\d{4})$/);
     if (m2) {
       const dd = parseInt(m2[1], 10);
@@ -430,7 +376,6 @@ function getDeudaBancaria(ss) {
       if (dd >= 20 && dd <= 40) return (2000 + dd) + '-' + mm;
       return m2[3] + '-' + mm;
     }
-    // "jun-25", "abr-26", "ene 27" (mes en castellano o inglés + año 2 dígitos)
     const m3 = s.match(/^([a-záéíóú]{3,9})[\-\s\.\/]+(\d{2,4})$/);
     if (m3) {
       const mesKey = m3[1].slice(0,3).replace(/[áéíóú]/g, function(c){return {'á':'a','é':'e','í':'i','ó':'o','ú':'u'}[c];});
@@ -441,7 +386,6 @@ function getDeudaBancaria(ss) {
         return yr + '-' + mesNum;
       }
     }
-    // "Abril 2026" / "abr 2026"
     const m4 = s.match(/(ene|feb|mar|abr|may|jun|jul|ago|sep|oct|nov|dic|jan|apr|aug|dec)[a-z]*\s+(\d{4})/);
     if (m4) return m4[2] + '-' + MESES_MAP[m4[1]];
 
@@ -477,7 +421,6 @@ function getDeudaBancaria(ss) {
     let blanks = 0;
     for (let r = startRow + 4; r < data.length; r++) {
       const first = data[r][0];
-      // Stop only on the next table's title rows
       if (typeof first === 'string') {
         const fu = first.toUpperCase();
         if (fu.indexOf('TOTAL') >= 0) break;
@@ -486,7 +429,6 @@ function getDeudaBancaria(ss) {
       }
       if (first == null || first === '') {
         blanks++;
-        // Allow up to 4 consecutive blank rows inside the schedule before breaking
         if (blanks >= 4 && schedule.length > 0) break;
         continue;
       }
@@ -502,13 +444,10 @@ function getDeudaBancaria(ss) {
     return { loans: loans, schedule: schedule };
   }
 
-  // Antes estaba cappeado en 5 columnas → si hay 6+ créditos se perdían.
-  // Subimos a 20 (mucho más que cualquier escenario realista de la operación)
   const MAX_LOAN_COLS = 20;
   const t1 = parseTable(t1Start, MAX_LOAN_COLS);
   const t2 = t2Start >= 0 ? parseTable(t2Start, MAX_LOAN_COLS) : { loans: [], schedule: [] };
 
-  // Pull TNA from T2 title row (cells 2..5 contain "TNA 45%" etc)
   if (t2Start >= 0) {
     const tnaRow = data[t2Start] || [];
     t1.loans.forEach(function(loan) {
@@ -518,7 +457,6 @@ function getDeudaBancaria(ss) {
         if (m && c === loan.col) { loan.tna = parseFloat(m[1].replace(',', '.')) / 100; break; }
       }
     });
-    // Enrich referencia with more descriptive text from T2 (row t2Start+1)
     const t2refRow = data[t2Start + 1] || [];
     t1.loans.forEach(function(loan) {
       const r2 = String(t2refRow[loan.col] || '').trim();
@@ -526,7 +464,6 @@ function getDeudaBancaria(ss) {
     });
   }
 
-  // Combine schedules per loan and aggregate monthly
   const monthlyMap = {};
   t1.loans.forEach(function(loan) {
     loan.schedule = [];
@@ -552,12 +489,136 @@ function getDeudaBancaria(ss) {
 
   const monthly = Object.keys(monthlyMap).sort().map(function(k) { return monthlyMap[k]; });
 
-  // Legacy `bd` array: {mes, cap, int, total} for existing cashflow / KPI code
   const bd = monthly.map(function(m) {
     return { mes: m.mes, cap: m.capital, int: m.interes, total: m.cuota };
   });
 
   return { loans: t1.loans, monthly: monthly, bd: bd, bdl: [], tqn: bd, lms: [] };
+}
+
+// ============================================================
+// HERRAMIENTAS TECNOLOGÍA
+// ============================================================
+function getHerramientas(ss) {
+  const ws = ss.getSheetByName(SHEET_HT);
+  if (!ws) return [];
+  const lastRow = ws.getLastRow();
+  const lastCol = ws.getLastColumn();
+  if (lastRow < 2 || lastCol < 1) return [];
+
+  const data = ws.getRange(1, 1, lastRow, Math.min(lastCol, 15)).getValues();
+  const headers = data[0].map(h => String(h || '').trim().toLowerCase());
+
+  // Map columns by header
+  const colMap = {};
+  headers.forEach((h, i) => {
+    if (h === 'herramienta') colMap.herr = i;
+    else if (h === 'web') colMap.web = i;
+    else if (h.includes('que hace') || h.includes('para que')) colMap.desc = i;
+    else if (h.includes('centro') && h.includes('costo')) colMap.area = i;
+    else if (h === 'responsable') colMap.resp = i;
+    else if (h.includes('precio') && h.includes('peso')) colMap.precioARS = i;
+    else if (h.includes('precio') && h.includes('dolar')) colMap.precioUSD = i;
+    else if (h.includes('mensual') || h.includes('anual') || h.includes('precio mensual')) {
+      if (colMap.freq === undefined) colMap.freq = i;
+    }
+    else if (h === 'usuarios') colMap.usuarios = i;
+    else if (h === 'meses') colMap.meses = i;
+    else if (h === 'monto total') colMap.total = i;
+    else if (h.includes('tarjeta') || h.includes('transferencia')) colMap.pago = i;
+    else if (h.includes('día') || h.includes('dia')) colMap.diaPago = i;
+  });
+
+  const rows = [];
+  for (let r = 1; r < data.length; r++) {
+    const row = data[r];
+    const herr = String(row[colMap.herr] || '').trim();
+    if (!herr) continue;
+    // Skip total/summary/note rows
+    if (herr.toLowerCase().includes('total') || herr.toLowerCase().includes('chequear')) continue;
+
+    const precioUSD = Number(row[colMap.precioUSD]) || 0;
+    const precioARS = colMap.precioARS !== undefined ? (Number(row[colMap.precioARS]) || 0) : 0;
+    const usuarios = Number(row[colMap.usuarios]) || 1;
+    const meses = Number(row[colMap.meses]) || 12;
+    const totalAnual = colMap.total !== undefined ? (Number(row[colMap.total]) || 0) : (precioUSD * usuarios * meses);
+    const freq = colMap.freq !== undefined ? String(row[colMap.freq] || '').trim() : 'Mensual';
+
+    rows.push({
+      herramienta: herr,
+      web: colMap.web !== undefined ? String(row[colMap.web] || '').trim() : '',
+      desc: colMap.desc !== undefined ? String(row[colMap.desc] || '').trim() : '',
+      area: colMap.area !== undefined ? String(row[colMap.area] || '').trim() : '',
+      responsable: colMap.resp !== undefined ? String(row[colMap.resp] || '').trim() : '',
+      precioUSD: precioUSD,
+      precioARS: precioARS,
+      frecuencia: freq,
+      usuarios: usuarios,
+      meses: meses,
+      totalAnualUSD: totalAnual,
+      pago: colMap.pago !== undefined ? String(row[colMap.pago] || '').trim() : '',
+      _row: r + 1
+    });
+  }
+  return rows;
+}
+
+// ============================================================
+// DEUDA SD
+// ============================================================
+function getDeudaSD(ss) {
+  const ws = ss.getSheetByName(SHEET_SD);
+  if (!ws) return [];
+  const lastRow = ws.getLastRow();
+  if (lastRow < 5) return [];
+
+  const data = ws.getRange(1, 1, lastRow, 3).getValues();
+  const display = ws.getRange(1, 1, lastRow, 3).getDisplayValues();
+  const tz = ss.getSpreadsheetTimeZone() || 'America/Argentina/Buenos_Aires';
+
+  function parseDisplayDate(s) {
+    if (!s) return '';
+    s = String(s).trim();
+    var m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (m) return m[1] + '-' + ('0'+m[2]).slice(-2) + '-' + ('0'+m[3]).slice(-2);
+    m = s.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})/);
+    if (m) {
+      var yr = m[3];
+      if (yr.length === 2) yr = (parseInt(yr) > 50 ? '19' : '20') + yr;
+      return yr + '-' + ('0'+m[2]).slice(-2) + '-' + ('0'+m[1]).slice(-2);
+    }
+    return '';
+  }
+
+  // Find the header row (Fecha, motivo, $)
+  var startRow = -1;
+  for (var r = 0; r < data.length; r++) {
+    var a = String(data[r][0] || '').trim().toLowerCase();
+    if (a === 'fecha') { startRow = r + 1; break; }
+  }
+  if (startRow < 0) return [];
+
+  var rows = [];
+  for (var r = startRow; r < data.length; r++) {
+    var row = data[r];
+    var monto = Number(row[2]);
+    if (!monto) continue;
+
+    var fecha = '';
+    if (display[r] && display[r][0]) fecha = parseDisplayDate(display[r][0]);
+    if (!fecha && row[0] instanceof Date) {
+      fecha = Utilities.formatDate(row[0], tz, 'yyyy-MM-dd');
+    }
+    if (!fecha) continue;
+
+    rows.push({
+      fecha: fecha,
+      motivo: String(row[1] || '').trim(),
+      montoUSD: monto,
+      _row: r + 1
+    });
+  }
+  return rows;
 }
 
 // ============================================================
@@ -578,9 +639,7 @@ function getMovHeaders(ws) {
     else if (hl === 'marco') map.m = i;
     else if (hl === 'detalle') map.d = i;
     else if (hl === 'item') map.i = i;
-    // Entidad / proveedor
     else if (hl === 'entidad' || hl === 'entidad / cliente' || hl === 'entidad/cliente' || hl === 'proveedor') map.en = i;
-    // Cliente final (destinatario del valor)
     else if (hl === 'cliente' || hl === 'cliente final' || hl === 'cliente_final') map.cli = i;
     else if (hl === 'proyecto' || hl === 'proyecto / iniciativa') map.proy = i;
     else if ((hl.includes('monto') && hl.includes('orig')) || hl === 'movimiento_orig') map.v = i;
@@ -601,9 +660,7 @@ function updateMovimiento(ss, rowIndex, field, value) {
   const { headers, map } = getMovHeaders(ws);
 
   if (field === 'v' || field === 'value') {
-    // Update Monto Original
     if (map.v !== undefined) ws.getRange(rowIndex, map.v + 1).setValue(value);
-    // Also update Monto (K)
     if (map.v_div !== undefined) ws.getRange(rowIndex, map.v_div + 1).setValue(value / 1000);
     return { ok: true, row: rowIndex, field: 'v', value };
   }
@@ -619,7 +676,6 @@ function updateMovimiento(ss, rowIndex, field, value) {
     return { ok: true, row: rowIndex, field: 'eo', value };
   }
 
-  // Support all other movement fields
   const directFields = { emp: 'emp', t: 't', i: 'i', en: 'en', d: 'd', cat: 'cat', m: 'm', bn: 'bn', fp: 'fp', moneda: 'moneda', tc: 'tc', cc: 'cc', cli: 'cli', proy: 'proy', factura: 'factura' };
   if (directFields[field] !== undefined) {
     const colKey = directFields[field];
@@ -633,7 +689,6 @@ function updateMovimiento(ss, rowIndex, field, value) {
   return { error: 'Unknown field: ' + field };
 }
 
-// ─── Helper: normaliza fecha a "YYYY-MM-DD" para comparar ───
 function _movFechaToYmd(v) {
   if (!v) return '';
   if (v instanceof Date) {
@@ -643,10 +698,8 @@ function _movFechaToYmd(v) {
     return y + '-' + (m < 10 ? '0' + m : m) + '-' + (d < 10 ? '0' + d : d);
   }
   const s = String(v);
-  // Try ISO YYYY-MM-DD prefix
   const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (iso) return iso[0];
-  // Try DD/MM/YYYY
   const dmy = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
   if (dmy) {
     const d = dmy[1].padStart(2, '0');
@@ -656,20 +709,15 @@ function _movFechaToYmd(v) {
   return s;
 }
 
-// ─── Helper: encuentra la fila donde insertar un mov por fecha ───
-// Devuelve el rowIndex DESPUÉS del cual insertar (1-based, donde 1 es el header).
-// Estrategia: insertar después de la última fila cuya fecha sea <= nueva fecha.
-// Si no hay ninguna fila <= nueva fecha, insertar después del header (= en fila 2).
 function _findInsertRowForDate(ws, fechaCol, newFechaYmd) {
   const lastRow = ws.getLastRow();
-  if (lastRow < 2) return 1; // sheet vacía → insertar después de header
-  // Leer toda la columna de fechas de una sola vez
+  if (lastRow < 2) return 1;
   const values = ws.getRange(2, fechaCol + 1, lastRow - 1, 1).getValues();
-  let insertAfter = 1; // header row
+  let insertAfter = 1;
   for (let i = 0; i < values.length; i++) {
     const ymd = _movFechaToYmd(values[i][0]);
     if (ymd && ymd <= newFechaYmd) {
-      insertAfter = i + 2; // +2 porque empezamos en row 2 (i=0 → row 2)
+      insertAfter = i + 2;
     }
   }
   return insertAfter;
@@ -683,8 +731,6 @@ function addMovimientos(ss, rows) {
   let added = 0;
   const insertedRows = [];
 
-  // Procesamos uno a uno porque cada inserción shiftea las filas siguientes
-  // y necesitamos recalcular el punto de inserción cada vez.
   rows.forEach(mov => {
     const rowArr = new Array(count).fill('');
     if (map.f !== undefined) rowArr[map.f] = mov.f || '';
@@ -707,17 +753,14 @@ function addMovimientos(ss, rows) {
     if (map.proy !== undefined) rowArr[map.proy] = mov.proy || '';
     if (map.factura !== undefined) rowArr[map.factura] = mov.factura || '';
 
-    // Encontrar dónde insertar según la fecha del nuevo mov
     const newFechaYmd = _movFechaToYmd(mov.f);
     let insertAfter;
     if (!newFechaYmd || map.f === undefined) {
-      // Sin fecha → al final
       insertAfter = ws.getLastRow();
     } else {
       insertAfter = _findInsertRowForDate(ws, map.f, newFechaYmd);
     }
 
-    // Insertar fila nueva justo después de insertAfter
     ws.insertRowAfter(insertAfter);
     const newRowIndex = insertAfter + 1;
     ws.getRange(newRowIndex, 1, 1, count).setValues([rowArr]);
@@ -732,22 +775,11 @@ function deleteMovimiento(ss, rowIndex) {
   const ws = ss.getSheetByName(SHEET_MOV);
   if (!ws) return { error: 'Sheet not found' };
   if (rowIndex < 2) return { error: 'Cannot delete header row' };
-
-  // Borrado REAL: elimina la fila completa del SOT (no zero-out).
-  // Importante: esto shiftea hacia arriba todas las filas posteriores,
-  // por lo que cualquier referencia cacheada en el frontend a rowIndex
-  // de filas posteriores queda desactualizada hasta el próximo refresh.
   ws.deleteRow(rowIndex);
-
   return { ok: true, row: rowIndex, deleted: true };
 }
 
 function batchUpdate(ss, changes) {
-  // Procesar en orden seguro para evitar que delete/insert shifteen los rowIndex
-  // de operaciones siguientes:
-  //   1) Todos los UPDATE (no shiftean)
-  //   2) Todos los DELETE en orden DESCENDENTE de rowIndex (así borrar uno no afecta los demás)
-  //   3) Todos los INSERT al final (siempre se calculan contra la sheet ya actualizada)
   let applied = 0;
   const updates = changes.filter(c => c.type === 'update');
   const deletes = changes.filter(c => c.type === 'delete').slice().sort((a, b) => b.rowIndex - a.rowIndex);
@@ -769,7 +801,7 @@ function updateGCEstado(ss, cuotaNum, estado) {
 
   for (let r = 0; r < data.length; r++) {
     if (data[r][0] === cuotaNum) {
-      ws.getRange(r + 1, 7).setValue(estado); // Column G = Estado
+      ws.getRange(r + 1, 7).setValue(estado);
       return { ok: true, cuota: cuotaNum, estado };
     }
   }
@@ -780,10 +812,6 @@ function updateGCEstado(ss, cuotaNum, estado) {
 // SEED (one-time bulk load)
 // ============================================================
 
-// Full column list for BD Movimientos
-// IMPORTANT: 'Entidad' = a quién le pagás (proveedor); 'Cliente' = para quién es el gasto; 'Proyecto' = proyecto del cliente
-// Note: 'Monto USD' fue removido — Monto Original + Moneda son la fuente de verdad,
-// la conversión a pesos/dólares se hace en la app según la vista activa.
 const MOV_ALL_HEADERS = ['Fecha','Estado','Empresa','B/N','Categoría','Tipo','Marco','Detalle','Item','Entidad','Monto (K)','Monto Original','Moneda','TC','Forma Pago','Centro de Costo','Cliente','Proyecto','Factura'];
 
 function seedMovimientos(ss, rows) {
@@ -834,13 +862,12 @@ function seedMovimientos(ss, rows) {
 }
 
 // ============================================================
-// ENSURE STRUCTURE — adds missing columns/sheets without losing data
+// ENSURE STRUCTURE
 // ============================================================
 
 function ensureStructure(ss) {
   const report = { movColumns: [], nomCreated: false };
 
-  // 1) Ensure BD Movimientos has all columns
   let wsMov = ss.getSheetByName(SHEET_MOV);
   if (wsMov) {
     const lastCol = wsMov.getLastColumn();
@@ -848,7 +875,6 @@ function ensureStructure(ss) {
     const existingLower = existingHeaders.map(h => h.toLowerCase());
 
     MOV_ALL_HEADERS.forEach(header => {
-      // Check if this header already exists (case-insensitive, with common aliases)
       const hLower = header.toLowerCase();
       const exists = existingLower.some(eh =>
         eh === hLower ||
@@ -856,7 +882,6 @@ function ensureStructure(ss) {
         (hLower === 'moneda' && eh === 'moneda') ||
         (hLower === 'tc' && (eh === 'tc' || eh === 'tipo_cambio' || eh === 'tipo cambio')) ||
         (hLower === 'centro de costo' && (eh === 'centro_costo' || eh === 'centro de costo' || eh === 'centro de costos')) ||
-        // Backwards compat: existing 'Entidad / Cliente' header satisfies the new 'Entidad' column
         (hLower === 'entidad' && (eh === 'entidad' || eh === 'entidad / cliente' || eh === 'entidad/cliente' || eh === 'proveedor')) ||
         (hLower === 'cliente' && (eh === 'cliente' || eh === 'cliente final' || eh === 'cliente_final')) ||
         (hLower === 'proyecto' && eh === 'proyecto') ||
@@ -871,7 +896,6 @@ function ensureStructure(ss) {
       }
     });
   } else {
-    // Create BD Movimientos with all headers
     wsMov = ss.insertSheet(SHEET_MOV);
     wsMov.getRange(1, 1, 1, MOV_ALL_HEADERS.length).setValues([MOV_ALL_HEADERS]);
     wsMov.getRange(1, 1, 1, MOV_ALL_HEADERS.length).setFontWeight('bold').setBackground('#1f2937').setFontColor('#ffffff');
@@ -879,7 +903,6 @@ function ensureStructure(ss) {
     report.movColumns = MOV_ALL_HEADERS;
   }
 
-  // 2) Ensure Nómina sheet exists
   let wsNom = ss.getSheetByName(SHEET_NOM);
   if (!wsNom) {
     wsNom = ss.insertSheet(SHEET_NOM);
@@ -890,14 +913,12 @@ function ensureStructure(ss) {
     report.nomCreated = true;
   }
 
-  // 3) Ensure Catálogo CC exists with the 11 cost centers + 9 industrias precargadas
   let wsCC = ss.getSheetByName(SHEET_CC);
   if (!wsCC) {
     wsCC = ss.insertSheet(SHEET_CC);
     wsCC.getRange(1, 1, 1, CC_HEADERS.length).setValues([CC_HEADERS]);
     wsCC.getRange(1, 1, 1, CC_HEADERS.length).setFontWeight('bold').setBackground('#1f2937').setFontColor('#ffffff');
     wsCC.setFrozenRows(1);
-    // Precarga del borrador
     if (CC_SEED && CC_SEED.length > 0) {
       wsCC.getRange(2, 1, CC_SEED.length, CC_HEADERS.length).setValues(CC_SEED);
     }
@@ -905,8 +926,6 @@ function ensureStructure(ss) {
     report.ccCreated = true;
     report.ccRows = CC_SEED.length;
   } else {
-    // El catálogo ya existe — chequeamos que estén las Industrias.
-    // Si faltan, las agregamos sin pisar lo existente.
     const lastRow = wsCC.getLastRow();
     const existingCCs = lastRow >= 2
       ? wsCC.getRange(2, 1, lastRow - 1, 1).getValues().map(r => String(r[0] || '').trim().toLowerCase())
@@ -922,9 +941,10 @@ function ensureStructure(ss) {
     }
   }
 
-  // 4) Ensure Deuda GC exists (just check)
   report.deudaGC = !!ss.getSheetByName(SHEET_GC);
   report.deudaBD = !!ss.getSheetByName(SHEET_BD);
+  report.herramientas = !!ss.getSheetByName(SHEET_HT);
+  report.deudaSD = !!ss.getSheetByName(SHEET_SD);
 
   return { ok: true, report, ts: new Date().toISOString() };
 }
@@ -1168,15 +1188,11 @@ function seedNomina(ss, rows) {
 }
 
 // ============================================================
-// CATÁLOGO CC — Manual de Centros de Costo
-// ============================================================
-// Sirve como fuente de verdad y "manual de entendimiento" del modelo de costos.
-// Vive como pestaña aparte en el mismo Sheet, editable a mano por el CFO.
+// CATÁLOGO CC
 // ============================================================
 
 const CC_HEADERS = ['Centro de Costo','Tipo','Descripción','Qué incluye','Qué NO incluye','Reglas de asignación','Ejemplos'];
 
-// Borrador inicial — el CFO lo edita y refina con el tiempo
 const CC_SEED = [
   ['Insights', 'Vendible',
    'Behavioral Science: investigación cuali y cuanti, paneles, herramientas de research y data',
@@ -1244,8 +1260,6 @@ const CC_SEED = [
    'Servicios contables (Administración)',
    'Si es un costo o ingreso vinculado a un instrumento financiero o deuda',
    'Galicia, Macro, Santander, BBVA, Ciudad, Bind, Mills, Guido Comparada'],
-  // INDUSTRIAS — se usan en la columna Centro de Costo cuando el movimiento es un INGRESO
-  // (sirven para taggear de dónde viene la facturación por vertical de negocio).
   ['Public Affairs', 'Industria',
    'Ingresos vinculados a Public Affairs / Asuntos Públicos',
    'Facturación de proyectos de public affairs, lobby, gobierno, asuntos regulatorios',
@@ -1302,7 +1316,6 @@ const CC_SEED = [
    'Desarrolladoras, constructoras, brokers inmobiliarios']
 ];
 
-// Lista plana de industrias (para validaciones y selectores en la app)
 const INDUSTRIAS_LIST = [
   'Public Affairs',
   'Turismo',
