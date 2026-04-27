@@ -1133,6 +1133,11 @@
                     <div style="height:340px;"><canvas id="semanalChart"></canvas></div>
                 </div>
 
+                <div class="card" style="margin-bottom:18px">
+                    <div class="card-title">Resumen Ejecutivo y Saldos <span style="font-size:10px;color:var(--tx2);font-weight:400">— Vista numérica tipo cashflow</span></div>
+                    <div id="semanalResumen" style="overflow-x:auto"></div>
+                </div>
+
                 <div class="card">
                     <div class="card-title">Detalle por Semana <span style="font-size:10px;color:var(--tx2);font-weight:400">— Agrupado por tipo de movimiento</span></div>
                     <div id="semanalDetail"></div>
@@ -2523,7 +2528,8 @@
         }
 
         // Today string for forward-only conversion rule
-        const TODAY_STR = new Date().toISOString().slice(0, 10); // 'YYYY-MM-DD'
+        // Usar fecha LOCAL (no UTC) para evitar desfasaje en Argentina (UTC-3)
+        const TODAY_STR = (function(){ const d=new Date(); return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2); })();
 
         // Convert ARS value to USD at MEP rate
         function arsToUSD(value) {
@@ -5056,11 +5062,15 @@
             const disponibleConDesc = saldoActual + descubierto;
 
             function getWeekMon(dateStr) {
-                const d = new Date(dateStr);
+                // Parseo local-safe (no UTC) para evitar desfasaje de timezone
+                const p = dateStr.split('-');
+                const d = new Date(parseInt(p[0]), parseInt(p[1]) - 1, parseInt(p[2]));
                 const day = d.getDay();
-                const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-                const mon = new Date(d); mon.setDate(diff);
-                return mon.toISOString().slice(0, 10);
+                const diff = day === 0 ? -6 : 1 - day;
+                d.setDate(d.getDate() + diff);
+                const m = ('0' + (d.getMonth() + 1)).slice(-2);
+                const dd = ('0' + d.getDate()).slice(-2);
+                return d.getFullYear() + '-' + m + '-' + dd;
             }
 
             // Classify each movement (uses global isCapitalInjection)
@@ -8657,9 +8667,10 @@
                     applied += itemMov.length;
                 } else if (change.action === 'delay') {
                     itemMov.forEach(m => {
-                        const d = new Date(m.f);
+                        const _p = m.f.split('-');
+                        const d = new Date(parseInt(_p[0]), parseInt(_p[1]) - 1, parseInt(_p[2]));
                         d.setDate(d.getDate() + change.value);
-                        m.f = d.toISOString().slice(0, 10);
+                        m.f = d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
                     });
                     applied += itemMov.length;
                 } else if (change.action === 'multiply') {
@@ -8838,11 +8849,21 @@
         }
 
         // ========= ACUERDOS DE DESCUBIERTO BANCARIO =========
-        const DESCUBIERTO_BANCOS = [
+        const DESCUBIERTO_BANCOS_SEED = [
             { banco: 'Galicia', limite: 73622095, tna: 53, tipo: 'Taquion Linea descubierto aprobado', notas: 'Descubierto en cuenta corriente' },
             { banco: 'Galicia', limite: 2326000, tna: 60, tipo: 'Lumos Linea descubierto aprobado', notas: 'Descubierto en cuenta corriente' },
             { banco: 'Macro', limite: 100000000, tna: 49, tipo: 'Taquion Linea descubierto aprobado', notas: 'Descubierto en cuenta corriente' }
         ];
+        // Persistencia: cargar desde localStorage o usar seed
+        let DESCUBIERTO_BANCOS = JSON.parse(localStorage.getItem('tqn_descubiertos') || 'null');
+        if (!DESCUBIERTO_BANCOS || localStorage.getItem('tqn_descubiertos_version') !== SEED_VERSION) {
+            DESCUBIERTO_BANCOS = JSON.parse(JSON.stringify(DESCUBIERTO_BANCOS_SEED));
+            localStorage.setItem('tqn_descubiertos', JSON.stringify(DESCUBIERTO_BANCOS));
+            localStorage.setItem('tqn_descubiertos_version', SEED_VERSION);
+        }
+        function saveDescubiertos() {
+            localStorage.setItem('tqn_descubiertos', JSON.stringify(DESCUBIERTO_BANCOS));
+        }
 
         function sbRenderDescubierto() {
             let total = DESCUBIERTO_BANCOS.reduce((s, b) => s + b.limite, 0);
@@ -8874,6 +8895,7 @@
             const notas = prompt('Notas:', '') || '';
             if (!confirm('¿Agregar descubierto de ' + banco + ' por ' + formatARS(limite) + '?')) return;
             DESCUBIERTO_BANCOS.push({ banco, limite, tna, tipo: 'Descubierto', notas });
+            saveDescubiertos();
             sbRenderDescubierto();
         }
 
@@ -8886,6 +8908,7 @@
             if (!confirm('¿Cambiar ' + b.banco + ' de ' + formatARS(b.limite) + ' a ' + formatARS(newLimite) + '?')) return;
             b.limite = newLimite;
             b.tna = newTna;
+            saveDescubiertos();
             sbRenderDescubierto();
         }
 
@@ -8893,6 +8916,7 @@
             const b = DESCUBIERTO_BANCOS[idx];
             if (!confirm('¿Eliminar el descubierto de ' + b.banco + ' (' + formatARS(b.limite) + ')?')) return;
             DESCUBIERTO_BANCOS.splice(idx, 1);
+            saveDescubiertos();
             sbRenderDescubierto();
         }
 
@@ -10526,6 +10550,89 @@
             });
 
             document.getElementById('semanalDetail').innerHTML = detailHtml;
+
+            // ─── RESUMEN EJECUTIVO Y SALDOS (tabla numérica tipo Excel) ───
+            {
+                const futureWeeks = weekKeys.filter(w => w >= currentWeekKey);
+                const _fmtW = w => { const e = _ymdToDate(w); e.setDate(e.getDate() + 6); return fmtDateAR(w).slice(0,5) + ' - ' + fmtDateAR(_dateToYmd(e)).slice(0,5); };
+                const _s = 'style="padding:6px 10px;font-size:11px;text-align:right;border-bottom:1px solid #30363d;white-space:nowrap"';
+                const _sL = 'style="padding:6px 10px;font-size:11px;text-align:left;border-bottom:1px solid #30363d;white-space:nowrap;font-weight:600;color:#e6edf3;position:sticky;left:0;background:#161b22;z-index:1"';
+                const _sH = 'style="padding:6px 10px;font-size:10px;text-align:center;border-bottom:2px solid #484f58;color:#8b949e;white-space:nowrap;font-weight:600"';
+                const _sHL = 'style="padding:6px 10px;font-size:10px;text-align:left;border-bottom:2px solid #484f58;color:#8b949e;white-space:nowrap;font-weight:700;position:sticky;left:0;background:#161b22;z-index:1"';
+
+                const _v = (val, bold, inv) => {
+                    if (val === 0) return '<span style="color:#8b949e">$ -</span>';
+                    const color = val > 0 ? (inv ? '#f87171' : '#34d399') : (inv ? '#34d399' : '#f87171');
+                    const fmt = formatARS(Math.abs(val));
+                    const sign = val < 0 ? '-' : '';
+                    return '<span style="color:' + color + (bold ? ';font-weight:700' : '') + '">' + sign + fmt + '</span>';
+                };
+
+                // Compute rows
+                let cumSaldo = startCash;
+                let rHtml = '<table style="width:100%;border-collapse:collapse;background:#161b22">';
+                // Header row
+                rHtml += '<tr><td ' + _sHL + '>Resumen Ejecutivo y Saldos</td>';
+                futureWeeks.forEach(w => { rHtml += '<td ' + _sH + '>' + _fmtW(w) + '</td>'; });
+                rHtml += '</tr>';
+
+                // Row: Saldo Inicio Semana
+                rHtml += '<tr><td ' + _sL + '>Saldo Inicio Semana</td>';
+                let tempCum = startCash;
+                futureWeeks.forEach((w, i) => {
+                    const val = i === 0 ? startCash : tempCum;
+                    rHtml += '<td ' + _s + '>' + _v(val, true) + '</td>';
+                    tempCum += weeks[w].ing + weeks[w].egr;
+                });
+                rHtml += '</tr>';
+
+                // Row: Ingresos (Cobranza)
+                rHtml += '<tr><td ' + _sL + ' style="padding-left:20px !important;font-weight:400;color:#c9d1d9;position:sticky;left:0;background:#161b22;z-index:1">Ingresos Operativos</td>';
+                futureWeeks.forEach(w => { rHtml += '<td ' + _s + '>' + _v(weeks[w].ing) + '</td>'; });
+                rHtml += '</tr>';
+
+                // Row: Egresos Operativos
+                rHtml += '<tr><td ' + _sL + ' style="padding-left:20px !important;font-weight:400;color:#c9d1d9;position:sticky;left:0;background:#161b22;z-index:1">Egresos Operativos</td>';
+                futureWeeks.forEach(w => { rHtml += '<td ' + _s + '>' + _v(weeks[w].egrOp, false, true) + '</td>'; });
+                rHtml += '</tr>';
+
+                // Row: Fee's Cobranza
+                rHtml += '<tr><td ' + _sL + ' style="padding-left:20px !important;font-weight:400;color:#c9d1d9;position:sticky;left:0;background:#161b22;z-index:1">Fee\'s / Comisiones</td>';
+                futureWeeks.forEach(w => { rHtml += '<td ' + _s + '>' + _v(weeks[w].fees, false, true) + '</td>'; });
+                rHtml += '</tr>';
+
+                // Row: Pagos Deuda
+                rHtml += '<tr><td ' + _sL + ' style="padding-left:20px !important;font-weight:400;color:#c9d1d9;position:sticky;left:0;background:#161b22;z-index:1">Pagos Deuda (GC+Banc)</td>';
+                futureWeeks.forEach(w => { rHtml += '<td ' + _s + '>' + _v(weeks[w].deuda, false, true) + '</td>'; });
+                rHtml += '</tr>';
+
+                // Row: Delta Semanal (neto)
+                rHtml += '<tr style="border-top:2px solid #484f58"><td ' + _sL + '>Delta Semanal (Neto)</td>';
+                futureWeeks.forEach(w => {
+                    const delta = weeks[w].ing + weeks[w].egr;
+                    rHtml += '<td ' + _s + '>' + _v(delta, true) + '</td>';
+                });
+                rHtml += '</tr>';
+
+                // Row: Saldo Final Semana
+                rHtml += '<tr style="background:#0d1117"><td ' + _sL + ' style="background:#0d1117;font-weight:700;color:#fbbf24">Saldo Final Semana</td>';
+                futureWeeks.forEach(w => {
+                    const sf = saldoFinalPorSemana[w];
+                    rHtml += '<td ' + _s + ' style="font-weight:700">' + _v(sf || 0, true) + '</td>';
+                });
+                rHtml += '</tr>';
+
+                // Row: Con Descubierto
+                rHtml += '<tr style="background:#0d1117"><td ' + _sL + ' style="background:#0d1117;color:#a78bfa">Saldo + Descubierto Bancario</td>';
+                futureWeeks.forEach(w => {
+                    const sf = (saldoFinalPorSemana[w] || 0) + descubiertoTotal;
+                    rHtml += '<td ' + _s + ' style="font-weight:700">' + _v(sf, true) + '</td>';
+                });
+                rHtml += '</tr>';
+
+                rHtml += '</table>';
+                document.getElementById('semanalResumen').innerHTML = rHtml;
+            }
         }
 
 
