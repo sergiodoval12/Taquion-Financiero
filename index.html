@@ -5139,12 +5139,14 @@
                     weeklyFull[wk] += v;
                 } else if (cls === 'inversion') {
                     weeklyInv[wk] += v;
-                    // Aportes de capital impactan la caja real — incluirlos en TODOS los
-                    // escenarios de runway. Para P&L se separan, pero para proyección de
-                    // caja la plata es fungible: una vez en el banco, es disponible.
-                    weeklyOp[wk] += v;
-                    weeklyFull[wk] += v;
-                    weeklyNoDebt[wk] += v;
+                    // Aportes de capital: solo los que ya ocurrieron (fecha <= hoy) impactan
+                    // el runway. Los futuros (tramos pendientes, aportes no confirmados) se
+                    // excluyen porque dependen de decisiones que aún no se tomaron.
+                    if (m.f <= _todayKey) {
+                        weeklyOp[wk] += v;
+                        weeklyFull[wk] += v;
+                        weeklyNoDebt[wk] += v;
+                    }
                 }
             });
 
