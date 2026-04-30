@@ -2353,7 +2353,8 @@
         function calcSaldoBancarioHoy() {
             const ancla = (CAJA && typeof CAJA.saldoEnCurso === 'number') ? CAJA.saldoEnCurso : 0;
             const corte = (CAJA && CAJA.anclaFechaCorte) || (CAJA && CAJA.semanaEnCurso) || '';
-            const hoy = new Date().toISOString().slice(0, 10);
+            const _d = new Date();
+            const hoy = _d.getFullYear()+'-'+('0'+(_d.getMonth()+1)).slice(-2)+'-'+('0'+_d.getDate()).slice(-2);
             let delta = 0;      // movs desde el día del ancla hasta ayer inclusive (excluye hoy)
             let nMovs = 0;
             let deltaHoy = 0;   // movs con fecha == hoy (día en curso)
@@ -5117,7 +5118,7 @@
             const weeklyInv = {};    // Solo inversión (para referencia)
 
             // Filtrar desde HOY (no hardcode) — los movimientos anteriores YA están en saldoActual (auto-roll del ancla)
-            const _todayKey = new Date().toISOString().slice(0, 10);
+            const _todayKey = (function(){ const d=new Date(); return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2); })();
             (DATA.mov || []).forEach(m => {
                 if (!m.f || m.f < _todayKey) return;
                 const wk = getWeekMon(m.f);
@@ -5138,6 +5139,12 @@
                     weeklyFull[wk] += v;
                 } else if (cls === 'inversion') {
                     weeklyInv[wk] += v;
+                    // Aportes de capital impactan la caja real — incluirlos en TODOS los
+                    // escenarios de runway. Para P&L se separan, pero para proyección de
+                    // caja la plata es fungible: una vez en el banco, es disponible.
+                    weeklyOp[wk] += v;
+                    weeklyFull[wk] += v;
+                    weeklyNoDebt[wk] += v;
                 }
             });
 
