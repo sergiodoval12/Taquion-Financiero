@@ -984,6 +984,22 @@
                     <div id="costosList"></div>
                 </div>
 
+                <!-- ESPEJO: Posición de Caja & Runway (Escenario Sandbox) -->
+                <div style="margin:0 0 16px;padding:16px;background:linear-gradient(135deg,#161b22,#1a1f2e);border:2px solid #fbbf24;border-radius:10px">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+                        <h2 style="margin:0;font-size:18px;color:#e6edf3">Posición de Caja & Runway <span style="font-size:12px;color:#fbbf24">(Escenario Sandbox)</span></h2>
+                        <span id="sbRunwayAlarm" style="font-size:12px;padding:3px 10px;border-radius:12px;font-weight:700"></span>
+                    </div>
+                    <p style="font-size:11px;color:var(--tx2);margin:0 0 12px">Espejo de la pantalla principal recalculado con los cambios del sandbox. Compará estos números con el Dashboard real.</p>
+                    <div class="kpi-grid" id="sbRunwayKPIs"></div>
+                    <div class="kpi-grid" id="sbRunwayKPIs2" style="margin-top:10px"></div>
+                    <div style="display:grid;grid-template-columns:180px 1fr;gap:16px;margin-top:16px;align-items:center">
+                        <div style="text-align:center"><canvas id="sbRunwayDonut" width="170" height="170"></canvas></div>
+                        <div style="height:220px"><canvas id="sbRunwayTripleChart"></canvas></div>
+                    </div>
+                    <div class="kpi-grid" id="sbRunwayKPIs3" style="margin-top:10px"></div>
+                </div>
+
                 <!-- Proyección Acumulada en Vivo -->
                 <div style="margin:0 0 16px;padding:16px;background:#161b22;border:1px solid #30363d;border-radius:10px">
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
@@ -8179,6 +8195,7 @@
             sbRenderPersonal();
             sbRenderDespidos();
             sbRenderCostos();
+            sbRenderRunwayMirror();
             sbRenderLiveProjection();
         }
 
@@ -8435,6 +8452,7 @@
             sbRenderChanges();
             sbRenderKPIs();
             sbRenderChart();
+            sbRenderRunwayMirror();
             sbRenderLiveProjection();
             sbFilterItems();
         }
@@ -9578,6 +9596,389 @@
                         </div>
                     </div>
                 `;
+            }
+        }
+
+        // ========= ESPEJO RUNWAY (mirror del dashboard principal con ajustes sandbox) =========
+        function sbBuildAdjustedMovs() {
+            // Aplica los cambios del sandbox sobre DATA.mov para generar movimientos ajustados
+            // Paso 1: clonar movimientos futuros
+            const _todayStr = (function(){ const d=new Date(); return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2); })();
+            const adjMovs = (DATA.mov || []).map(m => Object.assign({}, m));
+
+            // Paso 2: construir lookup de cambios por mes+item
+            if (!APP.sandbox || !APP.sandbox.changes.length) return adjMovs;
+
+            // Mapear SB_DATA items a movimientos
+            // Cada cambio tiene tipoIdx, itemIdx, month, action, value
+            // SB_DATA.types[tipoIdx].items[itemIdx].n = nombre del item
+            // SB_DATA.types[tipoIdx].items[itemIdx].ms[month] = [{f, v, en}]
+            // Necesitamos mapear de vuelta a los movimientos
+            const changes = APP.sandbox.changes;
+
+            // Agrupar cambios por item+mes
+            const changeMap = {};
+            changes.forEach(c => {
+                const tipo = SB_DATA.types[c.tipoIdx];
+                const item = tipo ? tipo.items[c.itemIdx] : null;
+                if (!item) return;
+                const key = c.tipoIdx + '|' + c.itemIdx + '|' + c.month;
+                changeMap[key] = c;
+            });
+
+            // Para cada movimiento futuro, ver si hay un cambio que lo afecte
+            adjMovs.forEach(m => {
+                if (!m.f || m.eo !== 'P') return; // solo PROYECTADO
+                const mes = m.f.slice(0, 7);
+
+                // Buscar en SB_DATA cuál tipo+item corresponde
+                for (let tIdx = 0; tIdx < SB_DATA.types.length; tIdx++) {
+                    const tipo = SB_DATA.types[tIdx];
+                    for (let iIdx = 0; iIdx < tipo.items.length; iIdx++) {
+                        const item = tipo.items[iIdx];
+                        const records = item.ms[mes];
+                        if (!records) continue;
+                        // Verificar si este movimiento corresponde a este item
+                        const match = records.some(r => Math.abs(r.v - m.v) < 1 && r.en === m.en);
+                        if (!match) continue;
+
+                        const key = tIdx + '|' + iIdx + '|' + mes;
+                        const change = changeMap[key];
+                        if (!change) continue;
+
+                        if (change.action === 'remove') {
+                            m._sbRemoved = true;
+                        } else if (change.action === 'multiply') {
+                            m.v = m.v * (change.value / 100);
+                        } else if (change.action === 'set_amount') {
+                            // Distribuir proporcionalmente si hay múltiples registros
+                            const totalOrig = records.reduce((s, r) => s + r.v, 0);
+                            if (totalOrig !== 0) m.v = m.v * (change.value / totalOrig);
+                        } else if (change.action === 'delay') {
+                            const d = new Date(m.f);
+                            d.setDate(d.getDate() + change.value);
+                            m.f = d.getFullYear() + '-' + ('0'+(d.getMonth()+1)).slice(-2) + '-' + ('0'+d.getDate()).slice(-2);
+                        }
+                        return; // ya matcheó
+                    }
+                }
+            });
+
+            // Agregar simulaciones de personal, costos, inversiones, despidos
+            const _addSimMov = (fecha, valor, item, entidad, tipo, cat, marco) => {
+                adjMovs.push({
+                    f: fecha, eo: 'P', emp: 'TQN', bn: 'B',
+                    cat: cat || (valor >= 0 ? 'Ingreso' : 'Egresos'),
+                    t: tipo || (valor >= 0 ? 'Cobranza' : 'Proveedores'),
+                    m: marco || 'BAU', d: '', i: item, en: entidad, v: valor
+                });
+            };
+
+            // Inversiones simuladas
+            (typeof SB_INVERSIONES !== 'undefined' ? SB_INVERSIONES : []).forEach(inv => {
+                _addSimMov(inv.fecha, inv.monto, 'SB: ' + inv.concepto, inv.concepto, 'Cobranza', 'Ingreso', 'BAU');
+            });
+
+            // Personal simulado (costo mensual futuro)
+            (typeof SB_PERSONAL !== 'undefined' ? SB_PERSONAL : []).forEach(p => {
+                const start = p.inicio || _todayStr;
+                for (let mo = 0; mo < 12; mo++) {
+                    const d = new Date(start);
+                    d.setMonth(d.getMonth() + mo);
+                    const f = d.getFullYear() + '-' + ('0'+(d.getMonth()+1)).slice(-2) + '-28';
+                    if (f > '2026-12-31') break;
+                    _addSimMov(f, -Math.abs(p.costoMensual || 0), 'SB Personal: ' + (p.nombre||''), p.nombre||'', 'Sueldos y Jornales', 'Egresos', 'BAU');
+                }
+            });
+
+            // Costos simulados (costo mensual futuro)
+            (typeof SB_COSTOS !== 'undefined' ? SB_COSTOS : []).forEach(c => {
+                const start = c.inicio || _todayStr;
+                for (let mo = 0; mo < (c.meses || 12); mo++) {
+                    const d = new Date(start);
+                    d.setMonth(d.getMonth() + mo);
+                    const f = d.getFullYear() + '-' + ('0'+(d.getMonth()+1)).slice(-2) + '-15';
+                    if (f > '2026-12-31') break;
+                    _addSimMov(f, -Math.abs(c.montoMensual || 0), 'SB Costo: ' + (c.concepto||''), c.concepto||'', 'Proveedores', 'Egresos', 'BAU');
+                }
+            });
+
+            // Despidos simulados (indemnización puntual + ahorro mensual)
+            (typeof SB_DESPIDOS !== 'undefined' ? SB_DESPIDOS : []).forEach(dp => {
+                if (dp.fechaDespido && dp.costoTotal) {
+                    _addSimMov(dp.fechaDespido, -Math.abs(dp.costoTotal), 'SB Despido: ' + (dp.nombre||''), dp.nombre||'', 'Sueldos y Jornales', 'Egresos', 'BAU');
+                }
+                if (dp.fechaDespido && dp.ahorroMensual) {
+                    const start = dp.fechaDespido;
+                    for (let mo = 1; mo <= 12; mo++) {
+                        const d = new Date(start);
+                        d.setMonth(d.getMonth() + mo);
+                        const f = d.getFullYear() + '-' + ('0'+(d.getMonth()+1)).slice(-2) + '-28';
+                        if (f > '2026-12-31') break;
+                        _addSimMov(f, Math.abs(dp.ahorroMensual), 'SB Ahorro Desvincul: ' + (dp.nombre||''), dp.nombre||'', 'Sueldos y Jornales', 'Ingreso', 'BAU');
+                    }
+                }
+            });
+
+            return adjMovs.filter(m => !m._sbRemoved);
+        }
+
+        function sbRenderRunwayMirror() {
+            initSandbox();
+            const _saldoInfo = calcSaldoBancarioHoy();
+            const saldoActual = _saldoInfo.saldoHoy;
+            const descubierto = CAJA.descubiertoAprobado;
+            const disponibleConDesc = saldoActual + descubierto;
+
+            // Usar movimientos ajustados por sandbox
+            const adjMovs = sbBuildAdjustedMovs();
+
+            // Replicar lógica exacta del dashboard principal (sección Posición de Caja & Runway)
+            function _getWeekMon(dateStr) {
+                const p = dateStr.split('-');
+                const d = new Date(parseInt(p[0]), parseInt(p[1]) - 1, parseInt(p[2]));
+                const day = d.getDay();
+                const diff = day === 0 ? -6 : 1 - day;
+                d.setDate(d.getDate() + diff);
+                return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+            }
+
+            const _todayKey = (function(){ const d=new Date(); return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2); })();
+
+            const weeklyOp = {}, weeklyFull = {}, weeklyNoDebt = {}, weeklyInv = {};
+
+            adjMovs.forEach(m => {
+                if (!m.f || m.f < _todayKey) return;
+                const wk = _getWeekMon(m.f);
+                if (!weeklyOp[wk]) weeklyOp[wk] = 0;
+                if (!weeklyFull[wk]) weeklyFull[wk] = 0;
+                if (!weeklyNoDebt[wk]) weeklyNoDebt[wk] = 0;
+                if (!weeklyInv[wk]) weeklyInv[wk] = 0;
+                const v = m.v || 0;
+                const t = m.t || '';
+                const isCap = isCapitalInjection(m);
+                const cls = t === 'Potenciales' ? 'potencial' : isCap ? 'inversion' : 'operativo';
+
+                if (cls === 'operativo') {
+                    weeklyOp[wk] += v;
+                    weeklyFull[wk] += v;
+                    const _isDebt = (function(){
+                        if (v >= 0) return false;
+                        const it = (m.i||'').toLowerCase();
+                        const d = (m.d||'').toLowerCase();
+                        if (t === 'Impuestos y Tasas') return false;
+                        if (d.includes('financiamiento afip')) return false;
+                        if (t === 'Sueldos y Jornales') return false;
+                        if (t === 'Préstamos Bancarios') return true;
+                        if (t === 'Cobr. Deuda Salta23') return true;
+                        if (it.includes('devolucion a gc') || it.includes('devolución a gc') || it.includes('cuota gc')) return true;
+                        if (it.includes('galicia - mills')) return true;
+                        if (t === 'Proveedores' && d.includes('financiamiento')) return true;
+                        return false;
+                    })();
+                    if (!_isDebt) weeklyNoDebt[wk] += v;
+                } else if (cls === 'potencial') {
+                    weeklyFull[wk] += v;
+                } else if (cls === 'inversion') {
+                    weeklyInv[wk] += v;
+                    if (m.f <= _todayKey) {
+                        weeklyOp[wk] += v;
+                        weeklyFull[wk] += v;
+                        weeklyNoDebt[wk] += v;
+                    }
+                }
+            });
+
+            const allWkSet = new Set([...Object.keys(weeklyOp), ...Object.keys(weeklyFull), ...Object.keys(weeklyNoDebt), ...Object.keys(weeklyInv)]);
+            const weekKeys = [...allWkSet].sort();
+
+            let cashOp = saldoActual, cashFull = saldoActual, cashNoDebt = saldoActual;
+            const projOp = [], projFull = [], projNoDebt = [];
+            let lastOkOp = -1, lastOkFull = -1, lastOkNoDebt = -1;
+            let totalPotenciales = 0, totalDeuda = 0;
+
+            weekKeys.forEach((wk, i) => {
+                cashOp += (weeklyOp[wk] || 0);
+                cashFull += (weeklyFull[wk] || 0);
+                cashNoDebt += (weeklyNoDebt[wk] || 0);
+                const cdOp = cashOp + descubierto;
+                const cdFull = cashFull + descubierto;
+                const cdNoDebt = cashNoDebt + descubierto;
+                const endD = new Date(wk); endD.setDate(endD.getDate() + 6);
+                const label = fmtDateAR(wk).slice(0,5) + '-' + fmtDateAR(endD.toISOString().slice(0,10)).slice(0,5);
+                projOp.push({ label, saldo: cashOp, conDesc: cdOp, wk });
+                projFull.push({ label, saldo: cashFull, conDesc: cdFull, wk });
+                projNoDebt.push({ label, saldo: cashNoDebt, conDesc: cdNoDebt, wk });
+                if (cdOp >= 0) lastOkOp = i;
+                if (cdFull >= 0) lastOkFull = i;
+                if (cdNoDebt >= 0) lastOkNoDebt = i;
+            });
+
+            function _calcRw(lastOk) {
+                if (lastOk === -1) return { weeks: 0, wk: weekKeys[0] || null };
+                if (lastOk >= weekKeys.length - 1) return { weeks: null, wk: null };
+                return { weeks: lastOk + 1, wk: weekKeys[lastOk + 1] };
+            }
+            const rwOp = _calcRw(lastOkOp);
+            const rwFull = _calcRw(lastOkFull);
+            const rwNoDebt = _calcRw(lastOkNoDebt);
+
+            const rwOpMonths = rwOp.weeks !== null ? (rwOp.weeks / 4.33).toFixed(1) : null;
+            const rwFullMonths = rwFull.weeks !== null ? (rwFull.weeks / 4.33).toFixed(1) : null;
+            const rwNoDebtMonths = rwNoDebt.weeks !== null ? (rwNoDebt.weeks / 4.33).toFixed(1) : null;
+
+            // Alarm
+            const alarmEl = document.getElementById('sbRunwayAlarm');
+            if (alarmEl) {
+                if (rwOpMonths !== null && parseFloat(rwOpMonths) < 3) {
+                    alarmEl.textContent = 'CRÍTICO — Runway Operativo: ' + rwOpMonths + ' meses';
+                    alarmEl.style.cssText = 'font-size:12px;padding:3px 10px;border-radius:12px;font-weight:700;background:#f8717133;color:#f87171';
+                } else if (rwOpMonths !== null && parseFloat(rwOpMonths) < 6) {
+                    alarmEl.textContent = 'ATENCIÓN — Runway Operativo: ' + rwOpMonths + ' meses';
+                    alarmEl.style.cssText = 'font-size:12px;padding:3px 10px;border-radius:12px;font-weight:700;background:#fbbf2433;color:#fbbf24';
+                } else {
+                    alarmEl.textContent = rwOpMonths === null ? 'OK — Horizonte completo' : 'OK — ' + rwOpMonths + ' meses';
+                    alarmEl.style.cssText = 'font-size:12px;padding:3px 10px;border-radius:12px;font-weight:700;background:#34d39933;color:#34d399';
+                }
+            }
+
+            // KPI row 1: Saldo, Proyectado, Disponible, Runway Op
+            const kpi1 = document.getElementById('sbRunwayKPIs');
+            if (kpi1) {
+                const rwOpColor = rwOpMonths === null ? '#34d399' : parseFloat(rwOpMonths) < 3 ? '#f87171' : parseFloat(rwOpMonths) < 6 ? '#fbbf24' : '#34d399';
+                kpi1.innerHTML = `
+                    <div class="kpi"><div class="kpi-label">SALDO BANCARIO HOY</div>
+                        <div class="kpi-value ${saldoActual >= 0 ? 'positive' : 'negative'}">${formatARS(saldoActual)}</div>
+                        <div class="kpi-sub">Ancla ${formatARS(CAJA.saldoEnCurso)} (${fmtDateAR(CAJA.anclaFechaCorte)})</div></div>
+                    <div class="kpi"><div class="kpi-label">PROYECTADO FIN DE HOY</div>
+                        <div class="kpi-value ${_saldoInfo.proyectadoFinDia >= 0 ? 'positive' : 'negative'}">${formatARS(_saldoInfo.proyectadoFinDia)}</div>
+                        <div class="kpi-sub">HOY ${formatARS(_saldoInfo.deltaHoy)} (${_saldoInfo.nMovsHoy} movs del ${fmtDateAR(_todayKey)})</div></div>
+                    <div class="kpi"><div class="kpi-label">DISPONIBLE CON DESCUBIERTO</div>
+                        <div class="kpi-value ${disponibleConDesc >= 0 ? 'positive' : 'negative'}">${formatARS(disponibleConDesc)}</div>
+                        <div class="kpi-sub">Desc: ${formatARS(descubierto)}</div></div>
+                    <div class="kpi" style="border-left:3px solid ${rwOpColor}"><div class="kpi-label">RUNWAY OPERATIVO</div>
+                        <div class="kpi-value" style="color:${rwOpColor}">${rwOpMonths === null ? 'OK' : rwOpMonths + 'm'}</div>
+                        <div class="kpi-sub">${rwOp.wk ? 'Quiebre sem ' + fmtDateAR(rwOp.wk).slice(0,5) : 'Sin quiebre en horizonte'}</div>
+                        <div class="kpi-sub">Con deuda, sin potenciales</div></div>`;
+            }
+
+            // KPI row 2: Runway C/Potenciales, Runway Sin Deuda
+            const kpi2 = document.getElementById('sbRunwayKPIs2');
+            if (kpi2) {
+                const rwFullColor = rwFullMonths === null ? '#34d399' : parseFloat(rwFullMonths) < 3 ? '#f87171' : '#fbbf24';
+                const rwNdColor = rwNoDebtMonths === null ? '#34d399' : parseFloat(rwNoDebtMonths) < 3 ? '#f87171' : '#fbbf24';
+                const horizonEnd = weekKeys.length ? weekKeys[weekKeys.length-1] : '';
+                const horizonLabel = horizonEnd ? fmtDateAR(horizonEnd).slice(0,5) : '';
+
+                kpi2.innerHTML = `
+                    <div class="kpi"><div class="kpi-label">RUNWAY C/ POTENCIALES</div>
+                        <div class="kpi-value" style="color:${rwFullColor};font-size:20px">${rwFullMonths === null ? 'OK hasta ' + horizonLabel : rwFullMonths + 'm'}</div>
+                        <div class="kpi-sub">${rwFullMonths === null ? 'Sobrevive horizonte (' + (weekKeys.length / 4.33).toFixed(1) + 'm)' : 'Quiebre sem ' + fmtDateAR(rwFull.wk).slice(0,5)}</div></div>
+                    <div class="kpi"><div class="kpi-label">RUNWAY OP. SIN DEUDA</div>
+                        <div class="kpi-value" style="color:${rwNdColor};font-size:20px">${rwNoDebtMonths === null ? 'OK hasta ' + horizonLabel : rwNoDebtMonths + 'm'}</div>
+                        <div class="kpi-sub">${rwNoDebtMonths === null ? 'Sobrevive horizonte (' + (weekKeys.length / 4.33).toFixed(1) + 'm)' : 'Quiebre sem ' + fmtDateAR(rwNoDebt.wk).slice(0,5)}</div></div>`;
+            }
+
+            // Donut chart (runway months)
+            const donutCtx = document.getElementById('sbRunwayDonut')?.getContext('2d');
+            if (donutCtx) {
+                if (APP.charts.sbRunwayDonut) APP.charts.sbRunwayDonut.destroy();
+                const opM = rwOpMonths !== null ? parseFloat(rwOpMonths) : (weekKeys.length / 4.33);
+                const maxM = Math.max(12, opM);
+                const color = rwOpMonths === null ? '#34d399' : parseFloat(rwOpMonths) < 3 ? '#f87171' : parseFloat(rwOpMonths) < 6 ? '#fbbf24' : '#34d399';
+                APP.charts.sbRunwayDonut = new Chart(donutCtx, {
+                    type: 'doughnut',
+                    data: {
+                        datasets: [{ data: [opM, Math.max(0, maxM - opM)], backgroundColor: [color, '#21262d'], borderWidth: 0 }]
+                    },
+                    options: {
+                        cutout: '72%', responsive: false,
+                        plugins: { legend: { display: false }, tooltip: { enabled: false } }
+                    },
+                    plugins: [{
+                        id: 'centerText',
+                        afterDraw(chart) {
+                            const { width, height, ctx: c } = chart;
+                            c.save();
+                            c.textAlign = 'center';
+                            c.fillStyle = color;
+                            c.font = 'bold 28px Arial';
+                            c.fillText(rwOpMonths === null ? 'OK' : rwOpMonths, width/2, height/2 - 4);
+                            c.font = '12px Arial';
+                            c.fillStyle = '#8b949e';
+                            c.fillText('meses op.', width/2, height/2 + 16);
+                            c.restore();
+                        }
+                    }]
+                });
+            }
+
+            // Triple projection chart
+            const tripleCtx = document.getElementById('sbRunwayTripleChart')?.getContext('2d');
+            if (tripleCtx && projOp.length > 0) {
+                if (APP.charts.sbRunwayTriple) APP.charts.sbRunwayTriple.destroy();
+                const maxPts = Math.min(projOp.length, 35);
+                const step = Math.max(1, Math.floor(projOp.length / maxPts));
+                const labels = [], dOp = [], dFull = [], dNoDebt = [];
+                for (let i = 0; i < projOp.length; i += step) {
+                    labels.push(projOp[i].label);
+                    dOp.push(projOp[i].conDesc);
+                    dFull.push(projFull[i].conDesc);
+                    dNoDebt.push(projNoDebt[i].conDesc);
+                }
+                APP.charts.sbRunwayTriple = new Chart(tripleCtx, {
+                    type: 'line',
+                    data: {
+                        labels,
+                        datasets: [
+                            { label: 'Operativo (con deuda)', data: dOp, borderColor: '#f87171', backgroundColor: 'rgba(248,113,113,.08)', fill: true, tension: 0.3, pointRadius: 2 },
+                            { label: 'Con Potenciales', data: dFull, borderColor: '#34d399', borderDash: [4, 2], tension: 0.3, pointRadius: 2, fill: false },
+                            { label: 'Op. Sin Deuda', data: dNoDebt, borderColor: '#4f8cff', borderDash: [6, 3], tension: 0.3, pointRadius: 2, fill: false },
+                            { label: 'Límite ($0)', data: labels.map(() => 0), borderColor: '#8b949e', borderDash: [3, 3], borderWidth: 1, pointRadius: 0, fill: false }
+                        ]
+                    },
+                    options: {
+                        responsive: true, maintainAspectRatio: false,
+                        interaction: { mode: 'index', intersect: false },
+                        plugins: { legend: { labels: { color: '#c9d1d9', font: { size: 10 } } } },
+                        scales: {
+                            x: { ticks: { color: '#8b949e', font: { size: 9 }, maxRotation: 45 }, grid: { color: '#30363d' } },
+                            y: { ticks: { color: '#8b949e', callback: v => formatARS(v) }, grid: { color: '#30363d' } }
+                        }
+                    }
+                });
+            }
+
+            // KPI row 3: Saldo Op Proyectado
+            const kpi3 = document.getElementById('sbRunwayKPIs3');
+            if (kpi3) {
+                // Saldo operación proyectado = sum of all future operativo non-debt movements
+                let saldoOpProy = 0;
+                adjMovs.forEach(m => {
+                    if (!m.f || m.f < _todayKey || m._sbRemoved) return;
+                    const t = m.t || '';
+                    if (t === 'Potenciales') return;
+                    if (isCapitalInjection(m)) return;
+                    const _isDebt = (function(){
+                        if ((m.v||0) >= 0) return false;
+                        const it = (m.i||'').toLowerCase();
+                        const d = (m.d||'').toLowerCase();
+                        if (t === 'Impuestos y Tasas' || d.includes('financiamiento afip') || t === 'Sueldos y Jornales') return false;
+                        if (t === 'Préstamos Bancarios' || t === 'Cobr. Deuda Salta23') return true;
+                        if (it.includes('devolucion a gc') || it.includes('devolución a gc') || it.includes('cuota gc') || it.includes('galicia - mills')) return true;
+                        if (t === 'Proveedores' && d.includes('financiamiento')) return true;
+                        return false;
+                    })();
+                    if (!_isDebt) saldoOpProy += (m.v || 0);
+                });
+
+                const horizonMonths = weekKeys.length ? (weekKeys.length / 4.33) : 7;
+                const avgMes = horizonMonths > 0 ? saldoOpProy / horizonMonths : 0;
+
+                kpi3.innerHTML = `
+                    <div class="kpi"><div class="kpi-label">SALDO OPERACIÓN PROYECTADO (SANDBOX)</div>
+                        <div class="kpi-value ${saldoOpProy >= 0 ? 'positive' : 'negative'}">${formatARS(saldoOpProy)}</div>
+                        <div class="kpi-sub">${formatARS(avgMes)}/mes | Sin aportes ni deuda</div></div>`;
             }
         }
 
