@@ -2912,7 +2912,7 @@
         // Initialize NOMINA: use localStorage if available and non-empty, otherwise seed
         let NOMINA = JSON.parse(localStorage.getItem('tqn_nomina') || '[]');
         // Auto-migrate: si el seed local está desactualizado (faltan empleados), regenerar
-        const SEED_VERSION = 'v5-2026-05-12-deuda-dynamic';
+        const SEED_VERSION = 'v6-2026-05-12-fix-ingresos';
         const storedVersion = localStorage.getItem('tqn_nomina_version');
         if (NOMINA.length === 0 || storedVersion !== SEED_VERSION) {
             NOMINA = JSON.parse(JSON.stringify(NOMINA_SEED));
@@ -5065,9 +5065,9 @@
                 const qk = yr + '-Q' + qn;
                 if (!_dashQ[qk]) _dashQ[qk] = { q: qk, ing: 0, egr: 0, c: 0, _hasReal: false };
                 const v = m.v || 0;
-                const _isIng = (m.side === 'I');
-                if (_isIng) _dashQ[qk].ing += Math.abs(v);
-                else _dashQ[qk].egr += -Math.abs(v);
+                // Clasificación por signo del monto: v>0 = ingreso, v<0 = egreso
+                if (v > 0) _dashQ[qk].ing += v;
+                else _dashQ[qk].egr += v;  // v ya es negativo
                 _dashQ[qk].c++;
                 if (m.eo === 'R') _dashQ[qk]._hasReal = true;
             });
