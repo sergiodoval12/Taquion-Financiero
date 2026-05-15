@@ -681,6 +681,18 @@
                         <span id="runwayAlarm" style="font-size:12px;padding:3px 10px;border-radius:12px;font-weight:700"></span>
                     </div>
                     <div id="cajaKPIs" class="kpi-grid" style="margin-bottom:16px"></div>
+                    <!-- Panel editable de Descubiertos (colapsable) -->
+                    <div id="dashDescubiertoPanel" style="display:none;margin-bottom:16px;padding:14px;background:#161b22;border:1px solid #30363d;border-radius:10px">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+                            <h4 style="margin:0;color:#60a5fa;font-size:13px">Acuerdos de Descubierto Bancario</h4>
+                            <div>
+                                <button onclick="sbAddDescubierto();dashSyncDescubiertos()" style="font-size:10px;padding:3px 10px;background:#58a6ff;color:#000;border:none;border-radius:4px;cursor:pointer;font-weight:600;margin-right:6px">+ Agregar</button>
+                                <button onclick="document.getElementById('dashDescubiertoPanel').style.display='none'" style="font-size:10px;padding:3px 8px;background:#30363d;color:#8b949e;border:1px solid #484f58;border-radius:4px;cursor:pointer">✕ Cerrar</button>
+                            </div>
+                        </div>
+                        <p style="font-size:10px;color:var(--tx2);margin:0 0 8px">Los cambios impactan en Disponible y Runway. Se guardan en tu navegador.</p>
+                        <table id="dashDescubiertoTable" style="width:100%;font-size:11px"></table>
+                    </div>
                     <div style="display:flex;gap:16px;flex-wrap:wrap">
                         <div style="flex:1;min-width:280px">
                             <div style="height:200px"><canvas id="runwayChart"></canvas></div>
@@ -5324,8 +5336,8 @@
                     <div class="kpi-value ${_saldoInfo.proyectadoFinDia >= 0 ? 'positive' : 'negative'}">${formatARS(_saldoInfo.proyectadoFinDia)}</div>
                     <div class="kpi-sub">HOY <span style="color:${_deltaHoyColor};font-weight:700">${_deltaHoySign}${formatARS(_saldoInfo.deltaHoy)}</span> (${_saldoInfo.nMovsHoy} movs del ${fmtDateAR(_saldoInfo.hoy)})</div>
                 </div>
-                <div class="kpi" style="border-left:3px solid #60a5fa">
-                    <div class="kpi-label">Disponible con Descubierto</div>
+                <div class="kpi" style="border-left:3px solid #60a5fa;cursor:pointer" onclick="var p=document.getElementById('dashDescubiertoPanel');p.style.display=p.style.display==='none'?'block':'none';dashRenderDescubiertos()" title="Click para editar descubiertos">
+                    <div class="kpi-label">Disponible con Descubierto <span style="font-size:9px;color:#58a6ff">✎ editar</span></div>
                     <div class="kpi-value ${disponibleConDesc >= 0 ? 'positive' : 'negative'}">${formatARS(disponibleConDesc)}</div>
                     <div class="kpi-sub">Desc: ${formatARS(descubierto)}</div>
                 </div>
@@ -8937,6 +8949,9 @@
             localStorage.setItem('tqn_descubiertos', JSON.stringify(DESCUBIERTO_BANCOS));
             localStorage.setItem('tqn_descubiertos_version', SEED_VERSION);
         }
+        // Al cargar la página, siempre sincronizar CAJA.descubiertoAprobado con los datos editables
+        CAJA.descubiertoAprobado = DESCUBIERTO_BANCOS.reduce((s, b) => s + b.limite, 0);
+        CAJA.saldoEnCursoConDesc = CAJA.saldoEnCurso + CAJA.descubiertoAprobado;
         function saveDescubiertos() {
             localStorage.setItem('tqn_descubiertos', JSON.stringify(DESCUBIERTO_BANCOS));
         }
@@ -8960,6 +8975,40 @@
             // Update CAJA
             CAJA.descubiertoAprobado = total;
             CAJA.saldoEnCursoConDesc = CAJA.saldoEnCurso + total;
+            // Sync dashboard table if it exists
+            dashRenderDescubiertos();
+        }
+
+        // Render tabla de descubiertos en el Dashboard principal
+        function dashRenderDescubiertos() {
+            const el = document.getElementById('dashDescubiertoTable');
+            if (!el) return;
+            let total = DESCUBIERTO_BANCOS.reduce((s, b) => s + b.limite, 0);
+            let h = '<tr><th style="text-align:left">Banco</th><th style="text-align:left">Tipo</th><th style="text-align:right">Límite</th><th style="text-align:right">TNA %</th><th style="width:70px">Acciones</th></tr>';
+            DESCUBIERTO_BANCOS.forEach((b, idx) => {
+                h += '<tr>' +
+                    '<td style="font-weight:600">' + b.banco + '</td>' +
+                    '<td style="color:var(--tx2)">' + b.tipo + '</td>' +
+                    '<td style="text-align:right;color:#60a5fa">' + formatARS(b.limite) + '</td>' +
+                    '<td style="text-align:right">' + (b.tna > 0 ? b.tna + '%' : '—') + '</td>' +
+                    '<td><button onclick="dashEditDescubierto(' + idx + ')" style="font-size:10px;padding:2px 6px;background:#30363d;color:#c9d1d9;border:1px solid #484f58;border-radius:3px;cursor:pointer;margin-right:3px">✎</button><button onclick="dashDeleteDescubierto(' + idx + ')" style="font-size:10px;padding:2px 6px;background:#30363d;color:#f87171;border:1px solid #484f58;border-radius:3px;cursor:pointer">✕</button></td>' +
+                    '</tr>';
+            });
+            h += '<tr style="border-top:1px solid #30363d;font-weight:700"><td>TOTAL</td><td></td><td style="text-align:right;color:#60a5fa">' + formatARS(total) + '</td><td colspan="2"></td></tr>';
+            el.innerHTML = h;
+        }
+        function dashEditDescubierto(idx) {
+            sbEditDescubierto(idx);
+            dashSyncDescubiertos();
+        }
+        function dashDeleteDescubierto(idx) {
+            sbDeleteDescubierto(idx);
+            dashSyncDescubiertos();
+        }
+        function dashSyncDescubiertos() {
+            // Re-render descubiertos table + re-render dashboard to update runway/disponible
+            dashRenderDescubiertos();
+            if (typeof renderDashboard === 'function') renderDashboard();
         }
 
         function sbAddDescubierto() {
