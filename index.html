@@ -2232,6 +2232,20 @@
                             saveNomina();
                             SHEETS_CONFIG.nominaSynced = true;
                         }
+                        // Sync Config (descubiertos, ancla) from Sheet
+                        if (allData.config && allData.config.descubiertos) {
+                            DESCUBIERTO_BANCOS = allData.config.descubiertos;
+                            saveDescubiertos();
+                            CAJA.descubiertoAprobado = DESCUBIERTO_BANCOS.reduce((s, b) => s + b.limite, 0);
+                            CAJA.saldoEnCursoConDesc = CAJA.saldoEnCurso + CAJA.descubiertoAprobado;
+                        }
+                        if (allData.config && allData.config.ancla) {
+                            const a = allData.config.ancla;
+                            if (a.saldoEnCurso) CAJA.saldoEnCurso = a.saldoEnCurso;
+                            if (a.anclaFechaCorte) CAJA.anclaFechaCorte = a.anclaFechaCorte;
+                            if (a.timestamp) CAJA.anclaTimestamp = a.timestamp;
+                            CAJA.saldoEnCursoConDesc = CAJA.saldoEnCurso + CAJA.descubiertoAprobado;
+                        }
                         SHEETS_CONFIG.lastSync = new Date().toISOString();
                         const nomLabel = allData.nom ? ' · ' + allData.nom.length + ' empleados' : '';
                         sheetsSyncStatus('✅ Auto-sync: ' + allData.mov.length + ' mov' + nomLabel, '#34d399');
@@ -8954,6 +8968,16 @@
         CAJA.saldoEnCursoConDesc = CAJA.saldoEnCurso + CAJA.descubiertoAprobado;
         function saveDescubiertos() {
             localStorage.setItem('tqn_descubiertos', JSON.stringify(DESCUBIERTO_BANCOS));
+            // Sync to Google Sheet if connected
+            if (SHEETS_CONFIG.apiUrl) {
+                fetch(SHEETS_CONFIG.apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'update_config', config: { descubiertos: DESCUBIERTO_BANCOS } })
+                }).then(r => r.json()).then(d => {
+                    if (d.ok) console.log('Descubiertos synced to SOT');
+                }).catch(e => console.warn('Could not sync descubiertos to SOT:', e));
+            }
         }
 
         function sbRenderDescubierto() {

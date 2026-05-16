@@ -6,6 +6,7 @@ const SHEET_NOM = 'Nómina';
 const SHEET_CC = 'Catálogo CC';
 const SHEET_HT = 'Herramientas Tecnología';
 const SHEET_SD = 'Deuda SD';
+const SHEET_CONFIG = 'Config';
 
 // ---- GET (Read) ----
 function doGet(e) {
@@ -30,6 +31,8 @@ function doGet(e) {
       result = getDeudaSD(ss);
     } else if (action === 'honorarios' || action === 'especialistas') {
       result = getEspecialistas(ss);
+    } else if (action === 'config') {
+      result = getConfig(ss);
     } else if (action === 'all') {
       result = {
         mov: getMovimientos(ss),
@@ -40,6 +43,7 @@ function doGet(e) {
         ht: getHerramientas(ss),
         sd: getDeudaSD(ss),
         hon: getEspecialistas(ss),
+        config: getConfig(ss),
         meta: { lastSync: new Date().toISOString(), source: 'Google Sheets' }
       };
     } else if (action === 'ping') {
@@ -111,6 +115,8 @@ function doPost(e) {
       result = addEspecialista(ss, body.provider);
     } else if (action === 'delete_honorario' || action === 'delete_especialista') {
       result = deleteEspecialista(ss, body.row, body.id, body.nombre);
+    } else if (action === 'update_config') {
+      result = updateConfig(ss, body.config);
     } else {
       result = { error: 'Unknown action: ' + action };
     }
@@ -1614,4 +1620,86 @@ function seedCatalogoCC(ss, rows) {
   }
   for (let c = 1; c <= CC_HEADERS.length; c++) ws.autoResizeColumn(c);
   return { ok: true, rows: data.length, sheet: SHEET_CC };
+}
+
+// ============================================================
+// CONFIG — Shared configuration (descubiertos, ancla, etc.)
+// Sheet "Config" with key-value pairs:
+//   Row 1: Headers (Clave, Valor)
+//   Row 2+: key-value pairs where Valor is JSON string
+// ============================================================
+const CONFIG_HEADERS = ['Clave', 'Valor', 'Actualizado', 'Usuario'];
+
+function getConfig(ss) {
+  let ws = ss.getSheetByName(SHEET_CONFIG);
+  if (!ws) {
+    // Auto-create Config sheet with default descubiertos
+    ws = ss.insertSheet(SHEET_CONFIG);
+    ws.getRange(1, 1, 1, CONFIG_HEADERS.length).setValues([CONFIG_HEADERS]);
+    ws.getRange(1, 1, 1, CONFIG_HEADERS.length).setFontWeight('bold').setBackground('#1f2937').setFontColor('#ffffff');
+    ws.setFrozenRows(1);
+    // Seed default descubiertos
+    const defaultDesc = [
+      { banco: 'Galicia', limite: 73622095, tna: 53, tipo: 'Taquion Linea descubierto aprobado', notas: 'Descubierto en cuenta corriente' },
+      { banco: 'Galicia', limite: 2326000, tna: 60, tipo: 'Lumos Linea descubierto aprobado', notas: 'Descubierto en cuenta corriente' },
+      { banco: 'Macro', limite: 100000000, tna: 49, tipo: 'Taquion Linea descubierto aprobado', notas: 'Descubierto en cuenta corriente' }
+    ];
+    ws.getRange(2, 1, 1, CONFIG_HEADERS.length).setValues([['descubiertos', JSON.stringify(defaultDesc), new Date().toISOString(), 'sistema']]);
+    // Seed default ancla
+    ws.getRange(3, 1, 1, CONFIG_HEADERS.length).setValues([['ancla', JSON.stringify({ saldoEnCurso: -143892000, anclaFechaCorte: '2026-04-08', timestamp: '2026-04-08T09:00-03:00' }), new Date().toISOString(), 'sistema']]);
+    ws.autoResizeColumn(1);
+    ws.autoResizeColumn(2);
+  }
+
+  const lastRow = ws.getLastRow();
+  if (lastRow < 2) return {};
+
+  const data = ws.getRange(2, 1, lastRow - 1, CONFIG_HEADERS.length).getValues();
+  const config = {};
+  data.forEach(row => {
+    const key = String(row[0]).trim();
+    const val = String(row[1]).trim();
+    if (!key) return;
+    try {
+      config[key] = JSON.parse(val);
+    } catch (e) {
+      config[key] = val;
+    }
+  });
+  return config;
+}
+
+function updateConfig(ss, configObj) {
+  let ws = ss.getSheetByName(SHEET_CONFIG);
+  if (!ws) {
+    // Force creation via getConfig
+    getConfig(ss);
+    ws = ss.getSheetByName(SHEET_CONFIG);
+  }
+
+  const lastRow = ws.getLastRow();
+  const existingKeys = {};
+  if (lastRow >= 2) {
+    const keys = ws.getRange(2, 1, lastRow - 1, 1).getValues();
+    keys.forEach((row, idx) => {
+      existingKeys[String(row[0]).trim()] = idx + 2; // row number (1-indexed)
+    });
+  }
+
+  const ts = new Date().toISOString();
+  const user = configObj._user || 'dashboard';
+  delete configObj._user;
+
+  Object.keys(configObj).forEach(key => {
+    const jsonVal = JSON.stringify(configObj[key]);
+    if (existingKeys[key]) {
+      // Update existing row
+      ws.getRange(existingKeys[key], 2, 1, 3).setValues([[jsonVal, ts, user]]);
+    } else {
+      // Append new row
+      ws.appendRow([key, jsonVal, ts, user]);
+    }
+  });
+
+  return { ok: true, updated: Object.keys(configObj), ts: ts };
 }
