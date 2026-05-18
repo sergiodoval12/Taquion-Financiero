@@ -705,12 +705,29 @@
 
                 <div class="kpi-grid" id="dashboardKPIs"></div>
 
-                <div class="chart-container">
-                    <canvas id="dashboardChart"></canvas>
+                <!-- Toggle: Trimestral / Mensual -->
+                <div style="display:flex;gap:8px;margin:16px 0 8px">
+                    <button id="dashViewQ" onclick="switchDashView('Q')" style="padding:6px 16px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid #30363d;background:#1f6feb;color:#fff;transition:all .15s">Trimestral</button>
+                    <button id="dashViewM" onclick="switchDashView('M')" style="padding:6px 16px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid #30363d;background:#21262d;color:#8b949e;transition:all .15s">Mensual</button>
                 </div>
 
-                <h2>Resumen Trimestral</h2>
-                <table id="dashboardTable"></table>
+                <!-- Vista Trimestral (default) -->
+                <div id="dashViewQBlock">
+                    <div class="chart-container">
+                        <canvas id="dashboardChart"></canvas>
+                    </div>
+                    <h2>Resumen Trimestral</h2>
+                    <table id="dashboardTable"></table>
+                </div>
+
+                <!-- Vista Mensual -->
+                <div id="dashViewMBlock" style="display:none">
+                    <div class="chart-container">
+                        <canvas id="dashMonthlyChart"></canvas>
+                    </div>
+                    <h2>Resumen Mensual</h2>
+                    <table id="dashMonthlyTable"></table>
+                </div>
             </div>
 
             <!-- OPERACION BAU PAGE -->
@@ -5638,6 +5655,109 @@
                             ticks: { color: '#8b949e' },
                             grid: { color: '#30363d' }
                         }
+                    }
+                }
+            });
+            // Si la vista mensual está activa, renderizarla también
+            if (_dashView === 'M') renderDashMonthly();
+        }
+
+        // ─── Dashboard: Toggle Trimestral / Mensual ───
+        let _dashView = 'Q';
+        function switchDashView(view) {
+            _dashView = view;
+            document.getElementById('dashViewQBlock').style.display = view === 'Q' ? '' : 'none';
+            document.getElementById('dashViewMBlock').style.display = view === 'M' ? '' : 'none';
+            const btnQ = document.getElementById('dashViewQ');
+            const btnM = document.getElementById('dashViewM');
+            if (btnQ) { btnQ.style.background = view === 'Q' ? '#1f6feb' : '#21262d'; btnQ.style.color = view === 'Q' ? '#fff' : '#8b949e'; }
+            if (btnM) { btnM.style.background = view === 'M' ? '#1f6feb' : '#21262d'; btnM.style.color = view === 'M' ? '#fff' : '#8b949e'; }
+            if (view === 'M') renderDashMonthly();
+        }
+
+        function renderDashMonthly() {
+            // Compute monthly aggregates from DATA.mov (misma lógica que Q pero por mes)
+            const _dashM = {};
+            (DATA.mov || []).forEach(m => {
+                if (!m.f) return;
+                const t = m.t || '';
+                if (t === 'Potenciales' || t === 'Intercompany') return;
+                const mk = m.f.slice(0, 7); // YYYY-MM
+                if (!_dashM[mk]) _dashM[mk] = { mes: mk, ing: 0, egr: 0, c: 0, _hasReal: false };
+                const v = m.v || 0;
+                if (v > 0) _dashM[mk].ing += v;
+                else _dashM[mk].egr += v;
+                _dashM[mk].c++;
+                if (m.eo === 'R') _dashM[mk]._hasReal = true;
+            });
+            const months = Object.values(_dashM).sort((a, b) => a.mes.localeCompare(b.mes));
+
+            // Table
+            let html = '<tr><th>Mes</th><th class="text-right">Ingresos</th><th class="text-right">Gastos</th><th class="text-right">Saldo</th><th></th><th>Estado</th></tr>';
+            months.forEach(m => {
+                const income = m.ing;
+                const expense = m.egr;
+                const net = income + expense;
+                const isReal = m._hasReal;
+                const saldoBar = net >= 0
+                    ? '<div style="background:var(--gn);height:8px;border-radius:4px;width:' + Math.min(Math.abs(net)/2000000, 100) + '%;opacity:.7"></div>'
+                    : '<div style="background:var(--rd);height:8px;border-radius:4px;width:' + Math.min(Math.abs(net)/2000000, 100) + '%;opacity:.7"></div>';
+                html += '<tr>'
+                    + '<td>' + fmtMonthAR(m.mes) + ' <span class="badge ' + (isReal ? 'real' : 'proyectado') + '">' + (isReal ? 'Real' : 'Proy') + '</span></td>'
+                    + '<td class="text-right amount positive">' + formatARS(income) + '</td>'
+                    + '<td class="text-right amount negative">' + formatARS(expense) + '</td>'
+                    + '<td class="text-right amount ' + (net >= 0 ? 'positive' : 'negative') + '" style="font-weight:700">' + formatARS(net) + '</td>'
+                    + '<td style="width:80px">' + saldoBar + '</td>'
+                    + '<td style="font-size:10px;color:var(--tx2)">' + m.c + ' reg</td>'
+                    + '</tr>';
+            });
+            document.getElementById('dashMonthlyTable').innerHTML = html;
+
+            // Chart
+            const ctxM = document.getElementById('dashMonthlyChart').getContext('2d');
+            if (APP.charts.dashMonthly) APP.charts.dashMonthly.destroy();
+            APP.charts.dashMonthly = new Chart(ctxM, {
+                type: 'bar',
+                data: {
+                    labels: months.map(m => fmtMonthAR(m.mes)),
+                    datasets: [
+                        {
+                            label: 'Ingresos',
+                            data: months.map(m => m.ing),
+                            backgroundColor: '#34d399',
+                            borderRadius: 4,
+                            order: 2
+                        },
+                        {
+                            label: 'Gastos',
+                            data: months.map(m => m.egr),
+                            backgroundColor: '#f87171',
+                            borderRadius: 4,
+                            order: 2
+                        },
+                        {
+                            label: 'Saldo Neto',
+                            type: 'line',
+                            data: months.map(m => m.ing + m.egr),
+                            borderColor: '#fbbf24',
+                            backgroundColor: 'transparent',
+                            borderWidth: 2,
+                            tension: 0.3,
+                            pointRadius: 4,
+                            pointBackgroundColor: months.map(m => (m.ing + m.egr) >= 0 ? '#34d399' : '#f87171'),
+                            pointBorderColor: '#fbbf24',
+                            pointBorderWidth: 2,
+                            order: 1
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { labels: { color: '#c9d1d9' } } },
+                    scales: {
+                        y: { ticks: { color: '#8b949e' }, grid: { color: '#30363d' } },
+                        x: { ticks: { color: '#8b949e', maxRotation: 45 }, grid: { color: '#30363d' } }
                     }
                 }
             });
@@ -10804,15 +10924,30 @@
             // — toma este valor como la realidad de hoy y forward-roll.
             // La semana de contexto previa (30/3-5/4) sólo muestra movimientos
             // históricos para referencia, NO entra en el cumulativo.
-            const startCash = (typeof CAJA !== 'undefined' && CAJA && typeof CAJA.saldoEnCurso === 'number') ? CAJA.saldoEnCurso : 0;
+            // ─── SALDO INICIAL: forward-roll desde el ancla hasta el inicio del rango visible ───
+            // CAJA.saldoEnCurso = ancla cruda (snapshot en anclaFechaCorte).
+            // El rango visible arranca en hoyStr (lunes de la semana anterior a hoy).
+            // Para que "Saldo Inicio Semana" sea correcto, hay que sumar todos los
+            // movimientos bancarizados entre el ancla y el inicio del rango visible.
+            const _anclaVal = (typeof CAJA !== 'undefined' && CAJA && typeof CAJA.saldoEnCurso === 'number') ? CAJA.saldoEnCurso : 0;
+            const _anclaCorte = (typeof CAJA !== 'undefined' && CAJA) ? (CAJA.anclaFechaCorte || CAJA.semanaEnCurso || '') : '';
+            let startCash = _anclaVal;
+            if (_anclaCorte && hoyStr > _anclaCorte) {
+                // Forward-roll: sumar movs bancarizados desde ancla hasta inicio del rango visible
+                (DATA.mov || []).forEach(m => {
+                    if (String(m.bn || '').trim().toUpperCase() !== 'B') return;
+                    if (!m.f || m._deleted) return;
+                    if (m.f >= _anclaCorte && m.f < hoyStr) {
+                        startCash += (m.v || 0);
+                    }
+                });
+            }
             const startCashFecha = (typeof CAJA !== 'undefined' && CAJA && CAJA.semanaEnCurso) ? CAJA.semanaEnCurso : '';
-            // Lunes de la semana del ancla — desde acá empezamos a forward-rollear
             const _startMon = startCashFecha ? _mondayOf(_ymdToDate(startCashFecha)) : _mondayOf(today);
             const anchorWeekKey = _dateToYmd(_startMon);
             const descubiertoTotal = (typeof CAJA !== 'undefined' && CAJA && typeof CAJA.descubiertoAprobado === 'number') ? CAJA.descubiertoAprobado : 0;
-            // Lunes de la semana del ancla (no de hoy) — así el cumulativo arranca
-            // siempre desde donde el CFO ancló el saldo, aunque no haya actualizado.
-            const currentWeekKey = anchorWeekKey;
+            // currentWeekKey = inicio del rango visible (no el ancla vieja)
+            const currentWeekKey = weekKeys.length > 0 ? weekKeys[0] : anchorWeekKey;
 
             // Pre-compute saldo final de cada semana (sólo desde la semana del ancla en adelante)
             const saldoFinalPorSemana = {};
@@ -10856,9 +10991,9 @@
             const _bnr = document.getElementById('semanalBanner');
             if (_ttl) _ttl.textContent = 'Vista Semanal — Próximas ' + totalSemanas + ' semanas';
             if (_bnr) {
-                const _ancla = startCashFecha ? fmtDateAR(startCashFecha) : fmtDateAR(currentWeekKey);
+                const _anclaLabel = _anclaCorte ? fmtDateAR(_anclaCorte) : '?';
                 _bnr.innerHTML = 'Semanas completas Lun→Dom desde <b>' + fmtDateAR(hoyStr) + '</b> hasta <b>' + fmtDateAR(finStr) + '</b> (' + totalDias + ' días, hoy ' + fmtDateAR(todayStr) + ')<br>'
-                    + '<span style="font-size:11px;color:var(--tx2)">⚓ Ancla: saldo bancario <b>' + formatARS(startCash) + '</b> al inicio de la semana del <b>' + _ancla + '</b> · forward-roll · </span>'
+                    + '<span style="font-size:11px;color:var(--tx2)">⚓ Ancla CFO: ' + formatARS(_anclaVal) + ' @ ' + _anclaLabel + ' → Saldo inicio rango: <b>' + formatARS(startCash) + '</b> · forward-roll · </span>'
                     + '<span style="font-size:10px;background:#1f6feb20;color:#58a6ff;padding:2px 6px;border-radius:3px;font-weight:700;margin-left:4px">SOLO BANCARIZADO (B)</span>';
             }
 
