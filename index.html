@@ -2235,7 +2235,7 @@
                         // Sync Config (descubiertos, ancla) from Sheet
                         if (allData.config && allData.config.descubiertos) {
                             DESCUBIERTO_BANCOS = allData.config.descubiertos;
-                            saveDescubiertos();
+                            saveDescubiertos(true); // true = skip POST back to Sheet (data came FROM Sheet)
                             CAJA.descubiertoAprobado = DESCUBIERTO_BANCOS.reduce((s, b) => s + b.limite, 0);
                             CAJA.saldoEnCursoConDesc = CAJA.saldoEnCurso + CAJA.descubiertoAprobado;
                         }
@@ -8966,16 +8966,17 @@
         // Al cargar la página, siempre sincronizar CAJA.descubiertoAprobado con los datos editables
         CAJA.descubiertoAprobado = DESCUBIERTO_BANCOS.reduce((s, b) => s + b.limite, 0);
         CAJA.saldoEnCursoConDesc = CAJA.saldoEnCurso + CAJA.descubiertoAprobado;
-        function saveDescubiertos() {
+        function saveDescubiertos(skipSheetSync) {
             localStorage.setItem('tqn_descubiertos', JSON.stringify(DESCUBIERTO_BANCOS));
-            // Sync to Google Sheet if connected
-            if (SHEETS_CONFIG.apiUrl) {
+            // Sync to Google Sheet if connected (skip when data just came FROM the sheet)
+            if (!skipSheetSync && SHEETS_CONFIG.apiUrl) {
                 fetch(SHEETS_CONFIG.apiUrl, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'text/plain' },
                     body: JSON.stringify({ action: 'update_config', config: { descubiertos: DESCUBIERTO_BANCOS } })
                 }).then(r => r.json()).then(d => {
                     if (d.ok) console.log('Descubiertos synced to SOT');
+                    else console.warn('SOT sync error:', d);
                 }).catch(e => console.warn('Could not sync descubiertos to SOT:', e));
             }
         }
