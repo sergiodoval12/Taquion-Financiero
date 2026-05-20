@@ -9917,9 +9917,30 @@
                 });
             };
 
-            // Inversiones simuladas
+            // Inversiones simuladas (ingreso + ahorro si aplica)
             (typeof SB_INVERSIONES !== 'undefined' ? SB_INVERSIONES : []).forEach(inv => {
-                _addSimMov(inv.fecha, inv.monto, 'SB: ' + inv.concepto, inv.concepto, 'Cobranza', 'Ingreso', 'BAU');
+                if (inv.recurrente && inv.meses > 1) {
+                    const startDate = new Date(inv.fecha);
+                    for (let i = 0; i < inv.meses; i++) {
+                        const d = new Date(startDate);
+                        d.setMonth(d.getMonth() + i);
+                        const f = d.getFullYear() + '-' + ('0'+(d.getMonth()+1)).slice(-2) + '-15';
+                        if (f > '2027-12-31') break;
+                        _addSimMov(f, inv.monto, 'SB Inv: ' + inv.nombre, inv.nombre || '', 'Cobranza', 'Ingreso', 'BAU');
+                    }
+                } else {
+                    _addSimMov(inv.fecha, inv.monto, 'SB Inv: ' + inv.nombre, inv.nombre || '', 'Cobranza', 'Ingreso', 'BAU');
+                }
+                // Ahorros mensuales si la inversión reduce costos
+                if (inv.reduceCostos && inv.ahorro > 0 && inv.ahorroDesde) {
+                    for (let mo = 0; mo < 12; mo++) {
+                        const d = new Date(inv.ahorroDesde + '-01');
+                        d.setMonth(d.getMonth() + mo);
+                        const f = d.getFullYear() + '-' + ('0'+(d.getMonth()+1)).slice(-2) + '-15';
+                        if (f > '2027-12-31') break;
+                        _addSimMov(f, Math.abs(inv.ahorro), 'SB Ahorro: ' + inv.nombre, inv.ahorroItem || inv.nombre || '', inv.ahorroItem || 'Proveedores', 'Ingreso', 'BAU');
+                    }
+                }
             });
 
             // Personal simulado (costo mensual futuro)
