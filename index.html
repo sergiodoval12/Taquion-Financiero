@@ -9849,63 +9849,49 @@
             const _todayStr = (function(){ const d=new Date(); return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2); })();
             const adjMovs = (DATA.mov || []).map(m => Object.assign({}, m));
 
-            // Paso 2: construir lookup de cambios por mes+item
-            if (!APP.sandbox || !APP.sandbox.changes.length) return adjMovs;
+            // Paso 2: aplicar cambios de celdas del sandbox (si los hay)
+            if (APP.sandbox && APP.sandbox.changes.length) {
+                const changes = APP.sandbox.changes;
+                const changeMap = {};
+                changes.forEach(c => {
+                    const tipo = SB_DATA.types[c.tipoIdx];
+                    const item = tipo ? tipo.items[c.itemIdx] : null;
+                    if (!item) return;
+                    const key = c.tipoIdx + '|' + c.itemIdx + '|' + c.month;
+                    changeMap[key] = c;
+                });
 
-            // Mapear SB_DATA items a movimientos
-            // Cada cambio tiene tipoIdx, itemIdx, month, action, value
-            // SB_DATA.types[tipoIdx].items[itemIdx].n = nombre del item
-            // SB_DATA.types[tipoIdx].items[itemIdx].ms[month] = [{f, v, en}]
-            // Necesitamos mapear de vuelta a los movimientos
-            const changes = APP.sandbox.changes;
-
-            // Agrupar cambios por item+mes
-            const changeMap = {};
-            changes.forEach(c => {
-                const tipo = SB_DATA.types[c.tipoIdx];
-                const item = tipo ? tipo.items[c.itemIdx] : null;
-                if (!item) return;
-                const key = c.tipoIdx + '|' + c.itemIdx + '|' + c.month;
-                changeMap[key] = c;
-            });
-
-            // Para cada movimiento futuro, ver si hay un cambio que lo afecte
-            adjMovs.forEach(m => {
-                if (!m.f || m.eo !== 'P') return; // solo PROYECTADO
-                const mes = m.f.slice(0, 7);
-
-                // Buscar en SB_DATA cuál tipo+item corresponde
-                for (let tIdx = 0; tIdx < SB_DATA.types.length; tIdx++) {
-                    const tipo = SB_DATA.types[tIdx];
-                    for (let iIdx = 0; iIdx < tipo.items.length; iIdx++) {
-                        const item = tipo.items[iIdx];
-                        const records = item.ms[mes];
-                        if (!records) continue;
-                        // Verificar si este movimiento corresponde a este item
-                        const match = records.some(r => Math.abs(r.v - m.v) < 1 && r.en === m.en);
-                        if (!match) continue;
-
-                        const key = tIdx + '|' + iIdx + '|' + mes;
-                        const change = changeMap[key];
-                        if (!change) continue;
-
-                        if (change.action === 'remove') {
-                            m._sbRemoved = true;
-                        } else if (change.action === 'multiply') {
-                            m.v = m.v * (change.value / 100);
-                        } else if (change.action === 'set_amount') {
-                            // Distribuir proporcionalmente si hay múltiples registros
-                            const totalOrig = records.reduce((s, r) => s + r.v, 0);
-                            if (totalOrig !== 0) m.v = m.v * (change.value / totalOrig);
-                        } else if (change.action === 'delay') {
-                            const d = new Date(m.f);
-                            d.setDate(d.getDate() + change.value);
-                            m.f = d.getFullYear() + '-' + ('0'+(d.getMonth()+1)).slice(-2) + '-' + ('0'+d.getDate()).slice(-2);
+                adjMovs.forEach(m => {
+                    if (!m.f || m.eo !== 'P') return;
+                    const mes = m.f.slice(0, 7);
+                    for (let tIdx = 0; tIdx < SB_DATA.types.length; tIdx++) {
+                        const tipo = SB_DATA.types[tIdx];
+                        for (let iIdx = 0; iIdx < tipo.items.length; iIdx++) {
+                            const item = tipo.items[iIdx];
+                            const records = item.ms[mes];
+                            if (!records) continue;
+                            const match = records.some(r => Math.abs(r.v - m.v) < 1 && r.en === m.en);
+                            if (!match) continue;
+                            const key = tIdx + '|' + iIdx + '|' + mes;
+                            const change = changeMap[key];
+                            if (!change) continue;
+                            if (change.action === 'remove') {
+                                m._sbRemoved = true;
+                            } else if (change.action === 'multiply') {
+                                m.v = m.v * (change.value / 100);
+                            } else if (change.action === 'set_amount') {
+                                const totalOrig = records.reduce((s, r) => s + r.v, 0);
+                                if (totalOrig !== 0) m.v = m.v * (change.value / totalOrig);
+                            } else if (change.action === 'delay') {
+                                const d = new Date(m.f);
+                                d.setDate(d.getDate() + change.value);
+                                m.f = d.getFullYear() + '-' + ('0'+(d.getMonth()+1)).slice(-2) + '-' + ('0'+d.getDate()).slice(-2);
+                            }
+                            return;
                         }
-                        return; // ya matcheó
                     }
-                }
-            });
+                });
+            }
 
             // Agregar simulaciones de personal, costos, inversiones, despidos
             const _addSimMov = (fecha, valor, item, entidad, tipo, cat, marco) => {
@@ -10020,7 +10006,8 @@
                 if (!weeklyInv[wk]) weeklyInv[wk] = 0;
                 const v = m.v || 0;
                 const t = m.t || '';
-                const isCap = isCapitalInjection(m);
+                const _isSbSim = (m.i||'').startsWith('SB '); // movimientos simulados del sandbox
+                const isCap = _isSbSim ? false : isCapitalInjection(m); // simulaciones siempre operativas
                 const cls = t === 'Potenciales' ? 'potencial' : isCap ? 'inversion' : 'operativo';
 
                 if (cls === 'operativo') {
